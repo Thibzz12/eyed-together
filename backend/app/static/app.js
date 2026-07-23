@@ -91,6 +91,7 @@ const ROUTES = {
   reserver: { title: "Réserver une place", render: viewReserver },
   evenements: { title: "Événements", render: viewEvenements },
   presence: { title: "Ma présence", render: viewPresence },
+  idees: { title: "Boîte à idées", render: viewIdees },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -249,9 +250,10 @@ async function viewAdmin() {
       <button data-tab="accueil" class="active">Accueil</button>
       <button data-tab="espaces">Postes &amp; espaces</button>
       <button data-tab="evenements">Événements</button>
+      <button data-tab="idees">Idées</button>
     </div>
     <div id="adminBody"></div>`;
-  const RENDERERS = { accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements };
+  const RENDERERS = { accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements, idees: renderAdminIdees };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
@@ -350,6 +352,30 @@ async function saveAdmin() {
   const r3 = await api("/api/admin/statuses", { method: "PUT", body: JSON.stringify({ enabled: [...adminState.statusesEnabled] }) });
   if (r1.ok && r2.ok && r3.ok) toast("Accueil mis à jour ✓", "success");
   else toast("Erreur d'enregistrement.", "error");
+}
+
+/* ---- Administration : workflow de la boîte à idées ---- */
+async function renderAdminIdees() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const ideas = (await api("/api/ideas")).data || [];
+  if (!ideas.length) { body.innerHTML = `<div class="empty">Aucune idée soumise.</div>`; return; }
+  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Fais avancer le statut de chaque idée. Une idée archivée disparaît de la liste des employés.</p>
+    <div id="adminIdeaList"></div>`;
+  const list = document.getElementById("adminIdeaList");
+  for (const idea of ideas) {
+    const row = document.createElement("div"); row.className = "card"; row.style.marginBottom = "10px";
+    row.innerHTML = `<div class="idea-head"><div><div class="idea-title">${idea.title}</div>
+        <div class="idea-meta">${idea.is_anonymous ? "Anonyme" : idea.author_name} · ${idea.vote_count} vote(s)</div></div>
+      <select class="idea-status-select">
+        ${Object.entries(IDEA_STATUS_LABEL).map(([k, l]) => `<option value="${k}" ${idea.status === k ? "selected" : ""}>${l}</option>`).join("")}
+      </select></div>`;
+    row.querySelector("select").addEventListener("change", async (e) => {
+      const { ok } = await api(`/api/admin/ideas/${idea.id}/status`, { method: "PUT", body: JSON.stringify({ status: e.target.value }) });
+      toast(ok ? "Statut mis à jour ✓" : "Erreur", ok ? "success" : "error");
+    });
+    list.appendChild(row);
+  }
 }
 
 /* ---- Administration : postes & espaces (capacités) ---- */
@@ -711,6 +737,99 @@ async function setStatus(day, status) {
   const { ok, data } = await api("/api/status/me", { method: "PUT", body: JSON.stringify({ day, status }) });
   if (!ok) { toast(data?.detail || "Impossible d'enregistrer.", "error"); return false; }
   toast("Présence enregistrée ✓", "success"); return true;
+}
+
+/* ============================================================
+   VUE : BOÎTE À IDÉES (soumission, votes, commentaires, workflow)
+   ============================================================ */
+const IDEA_STATUS_LABEL = {
+  new: "Nouvelle", under_review: "Étudiée", accepted: "Acceptée", rejected: "Refusée", archived: "Archivée",
+};
+
+async function viewIdees() {
+  const view = document.getElementById("view");
+  view.innerHTML = `
+    <div class="card">
+      <h3>Proposer une idée</h3>
+      <form id="ideaForm" class="idea-form">
+        <input id="ideaTitle" type="text" placeholder="Titre de l'idée" required maxlength="150">
+        <textarea id="ideaDesc" placeholder="Décris ton idée…" required rows="3"></textarea>
+        <input id="ideaCategory" type="text" placeholder="Catégorie (optionnel, ex : Bien-être)" maxlength="60">
+        <label class="admin-toggle"><input type="checkbox" id="ideaAnon"> Publier anonymement</label>
+        <button type="submit" class="btn-save">Publier</button>
+      </form>
+    </div>
+    <div class="idea-list" id="ideaList"><div class="empty">Chargement…</div></div>`;
+  document.getElementById("ideaForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = document.getElementById("ideaTitle").value.trim();
+    const description = document.getElementById("ideaDesc").value.trim();
+    const category = document.getElementById("ideaCategory").value.trim();
+    const is_anonymous = document.getElementById("ideaAnon").checked;
+    if (!title || !description) return;
+    const { ok, data } = await api("/api/ideas", { method: "POST", body: JSON.stringify({ title, description, category, is_anonymous }) });
+    if (!ok) return toast(data?.detail || "Publication impossible.", "error");
+    toast("Idée publiée ✓", "success");
+    e.target.reset();
+    renderIdeaList();
+  });
+  renderIdeaList();
+}
+
+async function renderIdeaList() {
+  const list = document.getElementById("ideaList");
+  const ideas = (await api("/api/ideas")).data || [];
+  list.innerHTML = ideas.length ? "" : `<div class="empty">Aucune idée pour l'instant. À toi de lancer la première !</div>`;
+  for (const idea of ideas) {
+    const card = document.createElement("div"); card.className = "card idea-card";
+    card.innerHTML = `
+      <div class="idea-head">
+        <div><div class="idea-title">${idea.title}</div>
+          <div class="idea-meta">${idea.category ? idea.category + " · " : ""}${idea.is_anonymous ? "Anonyme" : idea.author_name}
+            <span class="idea-status-badge idea-status-${idea.status}">${IDEA_STATUS_LABEL[idea.status] || idea.status}</span></div></div>
+        <button class="idea-vote-btn${idea.my_vote ? " voted" : ""}" data-vote="${idea.id}">▲ <span>${idea.vote_count}</span></button>
+      </div>
+      <p class="idea-desc">${idea.description}</p>
+      <button class="link-more" data-comments="${idea.id}">💬 ${idea.comment_count} commentaire(s)</button>
+      <div class="idea-comments hidden" id="comments-${idea.id}"></div>`;
+    card.querySelector("[data-vote]").addEventListener("click", async () => {
+      const { ok } = await api(`/api/ideas/${idea.id}/vote`, { method: "POST" });
+      if (ok) renderIdeaList();
+    });
+    card.querySelector("[data-comments]").addEventListener("click", () => toggleIdeaComments(idea.id));
+    list.appendChild(card);
+  }
+}
+
+async function toggleIdeaComments(ideaId) {
+  const box = document.getElementById(`comments-${ideaId}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  await loadIdeaComments(ideaId);
+}
+
+async function loadIdeaComments(ideaId) {
+  const box = document.getElementById(`comments-${ideaId}`);
+  box.innerHTML = `<div class="empty">Chargement…</div>`;
+  const comments = (await api(`/api/ideas/${ideaId}/comments`)).data || [];
+  box.innerHTML = `
+    <div class="idea-comment-list">${comments.map(c => `
+      <div class="idea-comment"><b>${c.author_name}</b> <span>${c.content}</span></div>`).join("") || `<div class="empty">Aucun commentaire.</div>`}</div>
+    <form class="idea-comment-form">
+      <input type="text" placeholder="Ajouter un commentaire…" maxlength="500" required>
+      <button type="submit">Envoyer</button>
+    </form>`;
+  box.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector("input");
+    const content = input.value.trim();
+    if (!content) return;
+    const { ok } = await api(`/api/ideas/${ideaId}/comments`, { method: "POST", body: JSON.stringify({ content }) });
+    if (!ok) return toast("Envoi impossible.", "error");
+    await loadIdeaComments(ideaId);
+    const btn = document.querySelector(`[data-comments="${ideaId}"]`);
+    if (btn) btn.textContent = "💬 " + (comments.length + 1) + " commentaire(s)";
+  });
 }
 
 /* ---------------- Effets ---------------- */

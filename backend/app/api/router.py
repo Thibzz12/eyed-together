@@ -15,6 +15,7 @@ from app.db import models as m
 from app.db.session import get_db
 from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
+from app.services import ideas as ideas_svc
 from app.services import reservations as svc
 from app.services.dashboard import (
     ALL_STATUSES,
@@ -360,6 +361,47 @@ def set_status(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/ideas")
+def list_ideas(category: str | None = None, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Idées classées par popularité (nb de votes)."""
+    return ideas_svc.list_ideas(db, user["id"], category)
+
+
+@router.post("/ideas", status_code=status.HTTP_201_CREATED)
+def create_idea(data: schemas.IdeaCreate, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Soumet une nouvelle idée (signée ou anonyme)."""
+    idea = ideas_svc.create_idea(db, user["id"], data.title, data.description, data.category, data.is_anonymous)
+    return ideas_svc.to_dict(db, idea, user["id"])
+
+
+@router.post("/ideas/{idea_id}/vote")
+def vote_idea(idea_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Vote pour une idée, ou retire son vote si déjà voté (bascule)."""
+    voted = ideas_svc.toggle_vote(db, user["id"], idea_id)
+    return {"voted": voted}
+
+
+@router.get("/ideas/{idea_id}/comments")
+def idea_comments(idea_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return ideas_svc.list_comments(db, idea_id)
+
+
+@router.post("/ideas/{idea_id}/comments", status_code=status.HTTP_201_CREATED)
+def add_idea_comment(
+    idea_id: int, data: schemas.CommentCreate, db: Session = Depends(get_db), user: dict = Depends(get_current_user),
+):
+    return ideas_svc.add_comment(db, user["id"], idea_id, data.content)
+
+
+@router.put("/admin/ideas/{idea_id}/status")
+def admin_set_idea_status(
+    idea_id: int, data: schemas.IdeaStatusUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Fait avancer le workflow d'une idée (nouvelle → étudiée → acceptée/refusée/archivée)."""
+    ideas_svc.set_status(db, idea_id, data.status)
+    return {"ok": True}
 
 
 @router.get("/presence", response_model=list[schemas.PresenceEntry])

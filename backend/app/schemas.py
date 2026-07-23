@@ -151,6 +151,22 @@ class EventDetail(BaseModel):
     my_status: str | None = None
 
 
+# ---------------------------------------------------------------- Boîte à idées
+class IdeaCreate(BaseModel):
+    title: str
+    description: str
+    category: str | None = None
+    is_anonymous: bool = False
+
+
+class CommentCreate(BaseModel):
+    content: str
+
+
+class IdeaStatusUpdate(BaseModel):
+    status: str
+
+
 # ---------------------------------------------------------------- Présence (gamification)
 class PresenceEntry(BaseModel):
     """Qui est présent (a réservé) pour une date donnée."""

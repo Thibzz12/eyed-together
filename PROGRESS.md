@@ -38,7 +38,11 @@ _Dernière mise à jour : 2026-07-23_
 - [ ] Liens utiles administrables
 - [ ] Cockpit admin avancé (KPI, stats, alertes)
 
-_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées → Liens utiles → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
+## ✅ Boîte à idées — FAIT (2026-07-23)
+
+Modèles `Idea`/`IdeaVote`/`IdeaComment`, service `app/services/ideas.py`, migration Alembic `4d924b085fda`. Page "Boîte à idées" (nav sidebar) : formulaire de soumission (titre/description/catégorie libre/case "anonyme"), liste triée par popularité (nb de votes), vote (bascule 1 vote max/personne/idée), commentaires par idée (dépliable). Administration → onglet "Idées" : select de statut par idée (nouvelle → étudiée → acceptée/refusée/archivée), une idée archivée disparaît de la liste employé. Testé : soumission, vote, commentaire, changement de statut admin reflété côté employé, mobile 375px sans débordement, zéro erreur console.
+
+_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
 
 ## 🌐 Site web interne (WordPress) — chantier séparé
 

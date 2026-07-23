@@ -19,6 +19,7 @@ from app.db.seed import seed_dashboard_if_empty, seed_demo_reservations_if_empty
 from app.db.session import SessionLocal, engine
 from app.deps import get_current_user
 from app.services.events import EventError
+from app.services.ideas import IdeaError
 from app.services.reservations import ReservationError
 
 
@@ -48,6 +49,11 @@ async def reservation_error_handler(request: Request, exc: ReservationError):
 
 @app.exception_handler(EventError)
 async def event_error_handler(request: Request, exc: EventError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+@app.exception_handler(IdeaError)
+async def idea_error_handler(request: Request, exc: IdeaError):
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 # --- Session signée (itsdangerous) : cookie httpOnly + Secure(prod) ---
