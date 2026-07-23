@@ -55,6 +55,11 @@ _Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app e
 - Administration → onglet "Événements" : affiche désormais qui s'est inscrit à chaque événement (liste dépliable, distingue inscrit/liste d'attente) — `GET /api/admin/events/{id}/registrations`.
 - Liens utiles : le lien de démo factice ("Mutuelle" vers une URL bidon) a été supprimé de la base ; ajout d'exemples concrets dans l'aide de l'admin (intranet weared.team, mailto RH/IT) pour clarifier ce qu'on peut y mettre.
 
+**Corrections suite au 2e retour de test (2026-07-23) :**
+- Administration → Événements : design harmonisé avec le reste de l'admin (le bouton "voir la liste" avait le style natif du navigateur car c'était un `<button>` sans reset CSS — corrigé + ligne capacité/titre alignée comme les autres pages admin).
+- Liens utiles : remplacé les `prompt()` navigateur par un vrai formulaire inline (icône/libellé/URL) pour ajouter un lien, cohérent avec le style de l'app.
+- **Date réelle des événements (recherche effectuée, bloqué côté WordPress) : voir note ci-dessous.**
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)
