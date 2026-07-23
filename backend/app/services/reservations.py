@@ -2,12 +2,15 @@
 
 Règles appliquées :
   - pas de réservation dans le passé ;
+  - pas de réservation le week-end (personne ne travaille) ;
+  - horizon max de réservation : MAX_ADVANCE_DAYS jours calendaires ;
+  - max MAX_CONSECUTIVE_DAYS jours ouvrés consécutifs réservés par un même employé ;
   - un employé ne peut pas réserver 2 postes sur le même créneau ;
   - anti-doublon garanti par la base (index unique partiel) → capturé en 409 ;
   - on ne peut annuler que SES propres réservations (ownership).
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +19,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.db import models as m
 from app.schemas import ReservationCreate
 from app.services.gamification import POINTS_PER_BOOKING, award_points
+
+# Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
+MAX_ADVANCE_DAYS = 7        # horizon max de réservation à l'avance
+MAX_CONSECUTIVE_DAYS = 5    # max de jours ouvrés consécutifs réservés d'affilée
 
 
 # --------------------------------------------------------------------------
@@ -48,6 +55,65 @@ class NotOwner(ReservationError):
 
 class PastDate(ReservationError):
     status_code = 400
+
+
+class WeekendNotAllowed(ReservationError):
+    status_code = 400
+
+
+class BookingWindowExceeded(ReservationError):
+    status_code = 400
+
+
+class ConsecutiveLimitExceeded(ReservationError):
+    status_code = 409
+
+
+def _is_weekend(day: date) -> bool:
+    return day.weekday() >= 5  # 5=samedi, 6=dimanche
+
+
+def _adjacent_weekday(day: date, step: int) -> date:
+    """Jour ouvré suivant (step=+1) ou précédent (step=-1), en sautant les week-ends."""
+    d = day + timedelta(days=step)
+    while _is_weekend(d):
+        d += timedelta(days=step)
+    return d
+
+
+def _check_booking_policy(db: Session, user_id: int, target: date) -> None:
+    """Vérifie week-end, horizon max, et la limite de jours ouvrés consécutifs."""
+    if _is_weekend(target):
+        raise WeekendNotAllowed("Pas de réservation le week-end.")
+    if target > date.today() + timedelta(days=MAX_ADVANCE_DAYS):
+        raise BookingWindowExceeded(f"Impossible de réserver plus de {MAX_ADVANCE_DAYS} jours à l'avance.")
+
+    # Jours (ouvrés) où l'employé a déjà une réservation active, autour de la date visée.
+    window_start = target - timedelta(days=MAX_CONSECUTIVE_DAYS + 2)
+    window_end = target + timedelta(days=MAX_CONSECUTIVE_DAYS + 2)
+    rows = db.scalars(
+        select(m.Reservation.reservation_date).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.reservation_date >= window_start,
+            m.Reservation.reservation_date <= window_end,
+        ).distinct()
+    )
+    booked_days = set(rows) | {target}
+
+    # Longueur de la série de jours ouvrés consécutifs incluant la date visée.
+    run_length = 1
+    d = target
+    while _adjacent_weekday(d, -1) in booked_days:
+        d = _adjacent_weekday(d, -1); run_length += 1
+    d = target
+    while _adjacent_weekday(d, +1) in booked_days:
+        d = _adjacent_weekday(d, +1); run_length += 1
+
+    if run_length > MAX_CONSECUTIVE_DAYS:
+        raise ConsecutiveLimitExceeded(
+            f"Impossible de réserver plus de {MAX_CONSECUTIVE_DAYS} jours ouvrés d'affilée."
+        )
 
 
 # --------------------------------------------------------------------------
@@ -125,6 +191,7 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
     """Crée une réservation (matin, après-midi ou journée) et attribue les points."""
     if data.reservation_date < date.today():
         raise PastDate("Impossible de réserver une date déjà passée.")
+    _check_booking_policy(db, user_id, data.reservation_date)
 
     desk = db.get(m.Desk, data.desk_id)
     if desk is None or not desk.is_active:

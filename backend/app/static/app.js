@@ -352,14 +352,20 @@ async function delDesk(id) {
 /* ============================================================
    VUE : RÉSERVER — tables avec sièges groupés + capacité au centre
    ============================================================ */
-function upcomingDays(n) {
+const MAX_ADVANCE_DAYS = 7; // doit rester synchro avec reservations.py
+
+/* Jours OUVRÉS (lundi-vendredi) dans les MAX_ADVANCE_DAYS prochains jours calendaires. */
+function upcomingWeekdays() {
   const days = []; const d = new Date();
-  for (let i = 0; i < n; i++) { days.push(new Date(d)); d.setDate(d.getDate() + 1); }
+  for (let i = 0; i <= MAX_ADVANCE_DAYS; i++) {
+    const day = new Date(d); day.setDate(d.getDate() + i);
+    if (day.getDay() !== 0 && day.getDay() !== 6) days.push(day);
+  }
   return days;
 }
 
 function viewReserver() {
-  const days = upcomingDays(7);
+  const days = upcomingWeekdays();
   document.getElementById("view").innerHTML = `
     <div class="resa-daypicker scroll">
       ${days.map(d => {

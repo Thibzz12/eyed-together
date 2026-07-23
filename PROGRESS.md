@@ -13,9 +13,9 @@ _Dernière mise à jour : 2026-07-23_
 - **Design** : charte EyeD reproduite (navy/bleu ciel, Plus Jakarta Sans), mobile-first responsive
 - **Infra** : repo GitHub créé et poussé (`Thibzz12/eyed-together`)
 
-## 🆕 Ajouté à la checklist (pas encore fait)
+## 🆕 Checklist
 
-- [ ] **Limite de réservation** : pas plus de 1-2 semaines à l'avance, et pas de réservations consécutives illimitées (plafond de jours d'affilée à définir)
+- [x] **Limite de réservation** — FAIT (2026-07-23) : horizon max **7 jours calendaires**, max **5 jours ouvrés consécutifs**, **pas de réservation le week-end**. `app/services/reservations.py` (`MAX_ADVANCE_DAYS`, `MAX_CONSECUTIVE_DAYS`, `_check_booking_policy`). Sélecteur de jours du front ne montre que les jours ouvrés. Testé (weekend/horizon/consécutif) OK.
 - [ ] **Pénalité no-show** : si réservé mais pas venu → perte de points. Nécessite un mécanisme de **check-in** (bouton "je suis arrivé" ou badge/QR) pour distinguer réservé-et-venu de réservé-et-absent
 
 ## ⏭️ Reste du cahier des charges (Présence & Coworking)
