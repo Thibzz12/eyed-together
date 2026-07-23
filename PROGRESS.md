@@ -58,7 +58,10 @@ _Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app e
 **Corrections suite au 2e retour de test (2026-07-23) :**
 - Administration → Événements : design harmonisé avec le reste de l'admin (le bouton "voir la liste" avait le style natif du navigateur car c'était un `<button>` sans reset CSS — corrigé + ligne capacité/titre alignée comme les autres pages admin).
 - Liens utiles : remplacé les `prompt()` navigateur par un vrai formulaire inline (icône/libellé/URL) pour ajouter un lien, cohérent avec le style de l'app.
-- **Date réelle des événements (recherche effectuée, bloqué côté WordPress) : voir note ci-dessous.**
+- **Date réelle des événements — recherche effectuée, bloqué côté WordPress (pas un bug de l'app) :**
+  - Vérifié en direct sur `wp-json/wp/v2/evenement/{id}` : chaque événement expose bien une clé `"acf"`, preuve que le plugin ACF-to-REST est actif — mais elle renvoie systématiquement `[]` (vide), pour "Test" comme pour un événement réel ("Jogging ELA 2026", dont le contenu texte mentionne pourtant une vraie date "le 5/06"). Le type de contenu `evenement` n'expose aucun autre champ custom (vérifié via `wp-json/wp/v2/types/evenement`).
+  - Conclusion : la date existe bien dans le champ ACF vu depuis l'admin WordPress, mais **le champ n'est pas coché "Afficher dans l'API REST"** dans son groupe de champs ACF (ou le nom du champ est différent de ce que devine l'app) — c'est un réglage côté WordPress, pas quelque chose de corrigeable depuis le code de l'app tant que l'API ne le renvoie pas.
+  - **Action nécessaire côté WordPress (Thibaud, admin) :** Réglages > Custom Fields (ACF) > ouvrir le groupe de champs lié au type "Événements" > Réglages du groupe > activer "Afficher dans l'API REST" (ou équivalent selon la version d'ACF/du plugin utilisé) → puis me donner le nom exact du champ de date (ex. `date_evenement`) pour que je code la lecture réelle.
 
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
