@@ -47,6 +47,7 @@ class ReservationSlot(str, enum.Enum):
 class ReservationStatus(str, enum.Enum):
     BOOKED = "booked"
     CANCELLED = "cancelled"
+    NO_SHOW = "no_show"  # réservé mais jamais confirmé présent (check-in manquant)
 
 
 class WorkStatus(str, enum.Enum):
@@ -149,6 +150,8 @@ class Reservation(Base):
     status: Mapped[ReservationStatus] = mapped_column(
         _enum(ReservationStatus), default=ReservationStatus.BOOKED, nullable=False
     )
+    # Rempli quand l'employé confirme sa présence (check-in). Sert à détecter les no-show.
+    checked_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="reservations")

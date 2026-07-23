@@ -4,7 +4,7 @@ Rôle : valider automatiquement ce qui entre, et formater proprement ce qui sort
 (Séparés des modèles ORM pour ne jamais exposer la base telle quelle.)
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -48,6 +48,7 @@ class ReservationRead(BaseModel):
     reservation_date: date
     slot: ReservationSlot
     status: ReservationStatus
+    checked_in_at: datetime | None = None
     desk: DeskRead
     model_config = ConfigDict(from_attributes=True)
 

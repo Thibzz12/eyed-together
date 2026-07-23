@@ -157,9 +157,11 @@ function renderCard(c) {
     if (data) {
       inner = `<div class="rc-row">
         <span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg></span>
-        <div><div class="rc-tag">Réservé</div><div class="rc-desk">Poste ${data.desk}</div>
+        <div><div class="rc-tag">${data.checked_in ? "Présence confirmée ✓" : "Réservé"}</div><div class="rc-desk">Poste ${data.desk}</div>
         <div class="rc-meta">${fdate(data.date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(data.slot)}</div></div></div>
-        <div class="rc-actions"><button class="rc-btn" data-go="reserver">Modifier</button><button class="rc-btn danger" data-cancel-next="${data.reservation_id}">Annuler</button></div>`;
+        <div class="rc-actions">
+          ${data.is_today && !data.checked_in ? `<button class="rc-btn primary" data-checkin="${data.reservation_id}">Je suis arrivé</button>` : ""}
+          <button class="rc-btn" data-go="reserver">Modifier</button><button class="rc-btn danger" data-cancel-next="${data.reservation_id}">Annuler</button></div>`;
     } else {
       inner = `<div class="card-label">${c.title}</div><div class="card-value">Aucune réservation</div>
         <div class="rc-actions" style="margin-top:10px"><button class="rc-btn" data-go="reserver">Réserver une place</button></div>`;
@@ -206,6 +208,11 @@ function wireDashboard(today) {
     const { ok, data } = await api(`/api/reservations/${el.dataset.cancelNext}`, { method: "DELETE" });
     if (!ok) return toast(data?.detail || "Annulation impossible.", "error");
     refreshPoints(-10); toast("Réservation annulée."); viewAccueil();
+  }));
+  view.querySelectorAll("[data-checkin]").forEach(el => el.addEventListener("click", async () => {
+    const { ok, data } = await api(`/api/reservations/${el.dataset.checkin}/checkin`, { method: "POST" });
+    if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
+    toast("Présence confirmée ✓", "success"); viewAccueil();
   }));
   view.querySelectorAll("[data-status]").forEach(el => el.addEventListener("click", async () => {
     const ok = await setStatus(today, el.dataset.status);
@@ -506,10 +513,22 @@ function renderMyReservations() {
   const box = document.getElementById("myReservations"); if (!box) return;
   if (!state.myReservations.length) { box.innerHTML = `<div class="empty">Aucune réservation à venir.</div>`; return; }
   box.innerHTML = "";
+  const todayIso = new Date().toISOString().slice(0, 10);
   for (const r of state.myReservations) {
+    const isToday = r.reservation_date === todayIso;
     const el = document.createElement("div"); el.className = "res-item";
-    el.innerHTML = `<div class="info"><b>${r.desk.name}</b><small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(r.slot)}</small></div><button class="cancel">Annuler</button>`;
+    const checkinBtn = isToday
+      ? (r.checked_in_at ? `<span class="res-checked">✓ Présent</span>` : `<button class="checkin" data-checkin="${r.id}">Je suis arrivé</button>`)
+      : "";
+    el.innerHTML = `<div class="info"><b>${r.desk.name}</b><small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(r.slot)}</small></div>
+      <div class="res-item-actions">${checkinBtn}<button class="cancel">Annuler</button></div>`;
     el.querySelector(".cancel").addEventListener("click", () => cancelRes(r.id));
+    const cb = el.querySelector("[data-checkin]");
+    if (cb) cb.addEventListener("click", async () => {
+      const { ok, data } = await api(`/api/reservations/${r.id}/checkin`, { method: "POST" });
+      if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
+      toast("Présence confirmée ✓", "success"); loadReserve();
+    });
     box.appendChild(el);
   }
 }

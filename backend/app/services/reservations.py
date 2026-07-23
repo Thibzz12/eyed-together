@@ -7,10 +7,12 @@ Règles appliquées :
   - max MAX_CONSECUTIVE_DAYS jours ouvrés consécutifs réservés par un même employé ;
   - un employé ne peut pas réserver 2 postes sur le même créneau ;
   - anti-doublon garanti par la base (index unique partiel) → capturé en 409 ;
-  - on ne peut annuler que SES propres réservations (ownership).
+  - on ne peut annuler que SES propres réservations (ownership) ;
+  - check-in obligatoire le jour J : une réservation passée jamais confirmée devient
+    un "no-show" et coûte des points (cf. apply_noshow_penalties).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -255,3 +257,46 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
     # Anti-farming : on retire les points gagnés à la réservation.
     award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
     db.commit()
+
+
+NOSHOW_PENALTY = 10  # points retirés par demi-journée non confirmée (check-in manquant)
+
+
+def check_in(db: Session, user_id: int, reservation_id: int) -> m.Reservation:
+    """Confirme sa présence sur une réservation du jour même."""
+    reservation = db.get(m.Reservation, reservation_id)
+    if reservation is None or reservation.status != m.ReservationStatus.BOOKED:
+        raise ReservationNotFound("Réservation introuvable ou annulée.")
+    if reservation.user_id != user_id:
+        raise NotOwner("Tu ne peux confirmer que tes propres réservations.")
+    if reservation.reservation_date != date.today():
+        raise ReservationError("Le check-in n'est possible que le jour de la réservation.")
+    if reservation.checked_in_at is not None:
+        return reservation  # déjà confirmé — idempotent, pas une erreur
+
+    reservation.checked_in_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(reservation)
+    return reservation
+
+
+def apply_noshow_penalties(db: Session, user_id: int) -> int:
+    """Marque en 'no_show' les réservations passées jamais confirmées, et retire des points.
+
+    Appelée à la volée (au chargement du tableau de bord) plutôt que par une tâche planifiée —
+    suffisant pour le volume d'un MVP, pas besoin d'un vrai scheduler.
+    """
+    rows = db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.reservation_date < date.today(),
+            m.Reservation.checked_in_at.is_(None),
+        )
+    ).all()
+    for r in rows:
+        r.status = m.ReservationStatus.NO_SHOW
+        award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
+    if rows:
+        db.commit()
+    return len(rows)

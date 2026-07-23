@@ -49,7 +49,11 @@ def _card_data(db: Session, key: str, user_id: int):
         if not mine:
             return None
         r = mine[0]
-        return {"reservation_id": r.id, "desk": r.desk.name, "date": r.reservation_date.isoformat(), "slot": r.slot.value}
+        return {
+            "reservation_id": r.id, "desk": r.desk.name, "date": r.reservation_date.isoformat(),
+            "slot": r.slot.value, "is_today": r.reservation_date == date.today(),
+            "checked_in": r.checked_in_at is not None,
+        }
     if key == "project_progress":
         return {
             "value": int(get_setting(db, "project_progress_value", "0") or 0),

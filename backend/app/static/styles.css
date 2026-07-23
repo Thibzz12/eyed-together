@@ -172,6 +172,7 @@ button, input { font-family: inherit; }
 .rc-actions { display: flex; gap: 8px; margin-top: 14px; }
 .rc-btn { flex: 1; height: 42px; border-radius: 11px; border: 1px solid var(--line); background: #F8FAFC; color: var(--navy); font-size: .84rem; font-weight: 600; font-family: inherit; cursor: pointer; }
 .rc-btn.danger { border-color: #FECDD3; background: var(--red-050); color: var(--red); }
+.rc-btn.primary { border-color: var(--green); background: var(--green-050); color: var(--green); }
 
 /* ---------------- Bannière projet (Building Our Future Home) ---------------- */
 .banner-card { background: linear-gradient(135deg, var(--navy), #0d3a5c); color: #fff; position: relative; overflow: hidden; border: none; box-shadow: var(--shadow-2); }
@@ -285,6 +286,9 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .res-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; }
 .res-item .info { min-width: 0; } .res-item .info b { font-size: .88rem; } .res-item .info small { color: var(--muted); }
 .res-item .cancel { border: none; background: var(--red-050); color: var(--red); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; flex-shrink: 0; }
+.res-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.checkin { border: none; background: var(--green-050); color: var(--green); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; }
+.res-checked { color: var(--green); font-weight: 700; font-size: .78rem; align-self: center; }
 .pres-item { display: flex; align-items: center; gap: 10px; border: none; padding: 4px 0; }
 .pres-avatar { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .72rem; }
 .pres-info { min-width: 0; } .pres-info b { font-size: .86rem; } .pres-info small { color: var(--muted); display: block; }

@@ -16,7 +16,11 @@ _Dernière mise à jour : 2026-07-23_
 ## 🆕 Checklist
 
 - [x] **Limite de réservation** — FAIT (2026-07-23) : horizon max **7 jours calendaires**, max **5 jours ouvrés consécutifs**, **pas de réservation le week-end**. `app/services/reservations.py` (`MAX_ADVANCE_DAYS`, `MAX_CONSECUTIVE_DAYS`, `_check_booking_policy`). Sélecteur de jours du front ne montre que les jours ouvrés. Testé (weekend/horizon/consécutif) OK.
-- [ ] **Pénalité no-show** : si réservé mais pas venu → perte de points. Nécessite un mécanisme de **check-in** (bouton "je suis arrivé" ou badge/QR) pour distinguer réservé-et-venu de réservé-et-absent
+- [x] **Pénalité no-show + check-in** — FAIT (2026-07-23) :
+  - `ReservationStatus.NO_SHOW` + colonne `Reservation.checked_in_at` (migration Alembic générée et vérifiée)
+  - `check_in()` : bouton "Je suis arrivé" (accueil + Mes réservations), uniquement le jour même, idempotent
+  - `apply_noshow_penalties()` : réservations passées jamais confirmées → statut `no_show` + **-10 pts**. Appliqué à la volée au chargement du tableau de bord (pas de scheduler pour un MVP). Idempotent (pas de double pénalité).
+  - Testé : pénalité appliquée + idempotente, check-in fonctionnel (accueil ↔ Mes réservations cohérents), check-in refusé sur une résa passée, mobile sans débordement.
 
 ## ⏭️ Reste du cahier des charges (Présence & Coworking)
 

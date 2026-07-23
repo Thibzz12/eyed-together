@@ -89,6 +89,16 @@ def cancel_reservation(
     svc.cancel_reservation(db, user["id"], reservation_id)
 
 
+@router.post("/reservations/{reservation_id}/checkin", response_model=schemas.ReservationRead)
+def checkin_reservation(
+    reservation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Confirme ma présence sur une réservation du jour (évite la pénalité no-show)."""
+    return svc.check_in(db, user["id"], reservation_id)
+
+
 @router.get("/events", response_model=list[schemas.EventRead])
 def events(limit: int = Query(6, ge=1, le=30), _=Depends(get_current_user)):
     """Événements lus en direct depuis l'intranet WordPress (weared.team)."""
@@ -123,6 +133,9 @@ def news_detail(post_id: int, _=Depends(get_current_user)):
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Cartes de l'accueil (activées, ordonnées) avec leurs données."""
+    # Applique les pénalités no-show en retard avant de construire le tableau de bord
+    # (pas de scheduler pour un MVP : on le fait à la volée, au premier chargement de la page).
+    svc.apply_noshow_penalties(db, user["id"])
     return {"cards": build_dashboard(db, user["id"]), "user_name": user["name"]}
 
 
