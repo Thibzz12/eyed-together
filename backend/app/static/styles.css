@@ -125,6 +125,7 @@ button, input { font-family: inherit; }
 .section-title { font-size: 1rem; margin: 22px 0 12px; }
 .empty { color: var(--muted); font-size: .88rem; }
 .link-more { color: var(--blue); font-weight: 600; font-size: .85rem; text-decoration: none; cursor: pointer; }
+button.link-more { border: none; background: none; padding: 0; font-family: inherit; text-align: left; }
 
 /* ---------------- Accueil (dashboard) ---------------- */
 .hero-banner { background: linear-gradient(135deg, var(--navy), #0d3a5c); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; color: #fff; }
@@ -216,6 +217,7 @@ button, input { font-family: inherit; }
 /* ---------------- Boîte à idées ---------------- */
 .idea-form { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .idea-form input[type="text"], .idea-form textarea { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .9rem; font-family: inherit; resize: vertical; }
+.link-add-form #linkIcon { max-width: 70px; text-align: center; }
 .idea-form .btn-save { margin-top: 4px; }
 .idea-list { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .idea-card { padding: 16px; }
@@ -275,6 +277,13 @@ button, input { font-family: inherit; }
 .desk-admin-row .admin-toggle { grid-area: active; }
 .desk-admin-row { grid-template-columns: 1fr auto; }
 .desk-admin-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+
+/* ---------------- Administration : événements (capacité + inscrits) ---------------- */
+.event-admin-row { background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.event-admin-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.event-admin-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.event-admin-cap { display: flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--muted); flex-shrink: 0; white-space: nowrap; }
+.event-admin-cap input { width: 78px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: .85rem; font-family: inherit; }
 .da-del { border: none; background: var(--red-050); color: var(--red); border-radius: 8px; cursor: pointer; font-weight: 700; padding: 8px 10px; }
 .da-del:hover { background: #f7d5d5; }
 

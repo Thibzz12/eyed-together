@@ -287,15 +287,19 @@ async function renderAdminEvenements() {
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   if (!data.length) { body.innerHTML = `<div class="empty">Aucun événement sur l'intranet.</div>`; return; }
   body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Définis une capacité maximale par événement (laisse vide = illimité) et consulte qui s'est inscrit.</p>
-    <div id="evCapList"></div>`;
+    <div class="desk-admin-list" id="evCapList"></div>`;
   const list = document.getElementById("evCapList");
   for (const ev of data) {
-    const row = document.createElement("div"); row.className = "card"; row.style.marginBottom = "10px";
+    const row = document.createElement("div"); row.className = "event-admin-row";
     row.innerHTML = `
-      <div class="idea-head">
-        <div><div class="idea-title">${ev.title}</div>
-          <button class="link-more" data-toggle-reg="${ev.id}">${ev.registered_count} inscrit(s) — voir la liste</button></div>
-        <div>Capacité <input class="da-pos" style="width:70px" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}"></div>
+      <div class="event-admin-top">
+        <div class="event-admin-info">
+          <div class="ev-title">${ev.title}</div>
+          <button class="link-more" data-toggle-reg="${ev.id}">${ev.registered_count} inscrit(s) — voir la liste</button>
+        </div>
+        <label class="event-admin-cap">Capacité
+          <input class="da-pos" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}">
+        </label>
       </div>
       <div class="idea-comments hidden" id="evreg-${ev.id}"></div>`;
     row.querySelector("input").addEventListener("change", async (e) => {
@@ -417,8 +421,27 @@ async function renderAdminLiens() {
   const { ok, data } = await api("/api/admin/links");
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les liens externes affichés sur l'accueil : mutuelle, RH, intranet (ex. ${window.location.protocol}//weared.team), documents partagés, etc. Icône = un emoji (ex. 🍽️, 🏥, 📄).</p>
-    <div class="card"><div class="card-head"><h3>Liens</h3><button class="link-more" id="linkAdd">+ Ajouter un lien</button></div>
-    <div class="desk-admin-list" id="linksList"></div></div>`;
+    <div class="card">
+      <h3>Ajouter un lien</h3>
+      <form id="linkAddForm" class="idea-form link-add-form">
+        <input id="linkIcon" type="text" placeholder="🔗" maxlength="4">
+        <input id="linkLabel" type="text" placeholder="Libellé (ex : Mutuelle)" required maxlength="100">
+        <input id="linkUrl" type="text" placeholder="https://… ou mailto:contact@eyedpharma.com" required maxlength="500">
+        <button type="submit" class="btn-save">Ajouter</button>
+      </form>
+    </div>
+    <div class="card"><h3>Liens existants</h3><div class="desk-admin-list" id="linksList"></div></div>`;
+  document.getElementById("linkAddForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const icon = document.getElementById("linkIcon").value.trim() || "🔗";
+    const label = document.getElementById("linkLabel").value.trim();
+    const url = document.getElementById("linkUrl").value.trim();
+    if (!label || !url) return;
+    const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Lien ajouté ✓", "success");
+    renderAdminLiens();
+  });
   const list = document.getElementById("linksList");
   for (const l of data) {
     const row = document.createElement("div"); row.className = "desk-admin-row"; row.dataset.id = l.id;
@@ -435,21 +458,12 @@ async function renderAdminLiens() {
     row.querySelector(".da-del").addEventListener("click", () => delLink(l.id));
     list.appendChild(row);
   }
-  document.getElementById("linkAdd").addEventListener("click", addLink);
+  if (!data.length) list.innerHTML = `<div class="empty">Aucun lien pour l'instant — ajoute le premier ci-dessus.</div>`;
 }
 
 async function patchLink(id, patch) {
   const { ok } = await api(`/api/admin/links/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
   toast(ok ? "Enregistré ✓" : "Erreur", ok ? "success" : "error");
-}
-async function addLink() {
-  const label = prompt("Libellé du lien (ex : Mutuelle, Intranet, Support IT) :");
-  if (!label) return;
-  const url = prompt("URL complète (ex : https://weared.team ou un lien mailto:contact@eyedpharma.com) :");
-  if (!url) return;
-  const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon: "🔗" }) });
-  if (ok) { toast("Lien ajouté ✓", "success"); renderAdminLiens(); }
-  else toast(data?.detail || "Erreur", "error");
 }
 async function delLink(id) {
   if (!confirm("Supprimer ce lien ?")) return;
