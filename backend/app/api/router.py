@@ -6,6 +6,7 @@ Toutes les routes exigent une session valide (get_current_user).
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from app import schemas
 from app.db import models as m
 from app.db.session import get_db
 from app.deps import get_current_user, require_admin
+from app.services import events as events_svc
 from app.services import reservations as svc
 from app.services.dashboard import (
     ALL_STATUSES,
@@ -106,19 +108,84 @@ def checkin_reservation(
     return svc.check_in(db, user["id"], reservation_id)
 
 
+def _enrich_event(db: Session, ev: dict, user_id: int) -> dict:
+    """Ajoute capacité, nb d'inscrits et mon statut à un événement WordPress."""
+    reg = events_svc.my_registration(db, user_id, ev["id"])
+    return {
+        **ev,
+        "capacity": events_svc.get_capacity(db, ev["id"]),
+        "registered_count": events_svc.registered_count(db, ev["id"]),
+        "my_status": reg.status.value if reg and reg.status != m.EventRegistrationStatus.CANCELLED else None,
+    }
+
+
 @router.get("/events", response_model=list[schemas.EventRead])
-def events(limit: int = Query(6, ge=1, le=30), _=Depends(get_current_user)):
+def events(
+    limit: int = Query(6, ge=1, le=30),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
     """Événements lus en direct depuis l'intranet WordPress (weared.team)."""
-    return fetch_events(limit=limit)
+    return [_enrich_event(db, ev, user["id"]) for ev in fetch_events(limit=limit)]
 
 
 @router.get("/events/{event_id}", response_model=schemas.EventDetail)
-def event_detail(event_id: int, _=Depends(get_current_user)):
+def event_detail(event_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Contenu complet d'un événement, pour l'afficher dans l'app."""
     d = fetch_event_detail(event_id)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Événement introuvable.")
-    return d
+    return _enrich_event(db, d, user["id"])
+
+
+@router.get("/events/mine", response_model=list[schemas.EventRegistrationRead])
+def my_event_registrations(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Mes inscriptions actives (inscrit ou en liste d'attente), tous événements confondus."""
+    return [
+        schemas.EventRegistrationRead(wp_event_id=r.wp_event_id, status=r.status)
+        for r in events_svc.my_active_registrations(db, user["id"])
+    ]
+
+
+@router.post("/events/{event_id}/register", response_model=schemas.EventRegistrationRead)
+def register_event(event_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """S'inscrit à un événement (ou rejoint la liste d'attente si la capacité est atteinte)."""
+    row = events_svc.register(db, user["id"], event_id)
+    return schemas.EventRegistrationRead(wp_event_id=row.wp_event_id, status=row.status)
+
+
+@router.delete("/events/{event_id}/register", status_code=status.HTTP_204_NO_CONTENT)
+def unregister_event(event_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Annule mon inscription (promeut automatiquement le 1er de la liste d'attente)."""
+    events_svc.unregister(db, user["id"], event_id)
+
+
+@router.get("/events/{event_id}/ics")
+def event_ics(event_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Fichier .ics à télécharger ('ajouter au calendrier')."""
+    d = fetch_event_detail(event_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Événement introuvable.")
+    ics = events_svc.build_ics(d["title"], d["date"], d["link"])
+    return Response(
+        content=ics, media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="evenement-{event_id}.ics"'},
+    )
+
+
+@router.get("/admin/events/{event_id}/capacity")
+def admin_event_capacity_get(event_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Capacité configurée + nb d'inscrits pour un événement (administration)."""
+    return {"capacity": events_svc.get_capacity(db, event_id), "registered_count": events_svc.registered_count(db, event_id)}
+
+
+@router.put("/admin/events/{event_id}/capacity")
+def admin_event_capacity_set(
+    event_id: int, data: schemas.EventCapacityUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Définit (ou retire, si null) la capacité maximale d'un événement."""
+    events_svc.set_capacity(db, event_id, data.capacity)
+    return {"ok": True}
 
 
 @router.get("/news")

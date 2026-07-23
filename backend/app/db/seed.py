@@ -128,6 +128,7 @@ _DEFAULT_CARDS = [
     ("events", "Événements à venir", 4, False),
     ("news", "Actualités", 5, False),
     ("coworking_status", "Espaces de coworking", 6, False),
+    ("mes_evenements", "Mes inscriptions aux événements", 7, False),
 ]
 
 
@@ -140,6 +141,13 @@ def seed_dashboard_if_empty(db: Session) -> int:
             for (k, t, p, h) in _DEFAULT_CARDS
         )
         created = len(_DEFAULT_CARDS)
+    else:
+        # Rattrape les cartes ajoutées après le 1er démarrage (dev déjà seedé).
+        existing_keys = {k for (k,) in db.execute(select(m.DashboardCard.key)).all()}
+        for key, title, position, highlighted in _DEFAULT_CARDS:
+            if key not in existing_keys:
+                db.add(m.DashboardCard(key=key, title=title, position=position, highlighted=highlighted, enabled=True))
+                created += 1
     # Réglages progression projet
     for key, val in (("project_progress_value", "35"), ("project_progress_label", "Aménagement des nouveaux bureaux")):
         if not db.get(m.AppSetting, key):

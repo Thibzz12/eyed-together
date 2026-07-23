@@ -29,13 +29,16 @@ _Dernière mise à jour : 2026-07-23_
 
 ## ⏭️ Modules non commencés (cahier des charges complet)
 
-- [ ] Événements (inscriptions, liste d'attente, rappels, calendrier, export Outlook)
+- [x] **Événements — FAIT (2026-07-23)** : inscriptions/désinscriptions, **liste d'attente automatique** (promotion du 1er en attente dès qu'une place se libère), **capacité configurable par événement** depuis Administration → onglet "Événements", **export .ics** ("+ Calendrier" sur chaque événement, ouvre le fichier dans l'appli calendrier du navigateur), **rappel** via une nouvelle carte accueil "Mes inscriptions aux événements". Modèles `EventRegistration`/`EventCapacity`, service `app/services/events.py`, migration Alembic `0cf40034179d`. **Limite connue et assumée** : WordPress n'expose pas de date/heure d'événement précise en API REST (champ ACF non activé côté intranet) → l'ICS utilise la date de publication, pas la date réelle de l'événement ; export Outlook natif non fait (ICS suffit, il s'ouvre nativement dans Outlook). Testé : capacité=1 + 2 inscrits → 1er "registered", 2e "waitlisted", désinscription du 1er → promotion auto du 2e (vérifié par script isolé + par l'UI), ICS téléchargé valide, mobile 375px sans débordement, zéro erreur console.
 - [ ] Quiz (QCM, classements, badges, intégration Kahoot)
 - [ ] Médias (bibliothèque vidéo, albums photos)
 - [ ] Notifications (email/Teams/push configurables)
 - [ ] Recherche globale
 - [ ] Boîte à idées
+- [ ] Liens utiles administrables
 - [ ] Cockpit admin avancé (KPI, stats, alertes)
+
+_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées → Liens utiles → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
 
 ## 🌐 Site web interne (WordPress) — chantier séparé
 

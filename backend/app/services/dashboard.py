@@ -6,8 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.services import events as events_svc
 from app.services import reservations as res_svc
-from app.services.wordpress import fetch_events, fetch_news
+from app.services.wordpress import fetch_event_detail, fetch_events, fetch_news
 
 
 def get_setting(db: Session, key: str, default: str = "") -> str:
@@ -82,6 +83,14 @@ def _card_data(db: Session, key: str, user_id: int):
         return fetch_events(limit=5)
     if key == "news":
         return fetch_news(limit=4)
+    if key == "mes_evenements":
+        regs = events_svc.my_active_registrations(db, user_id)[:5]
+        items = []
+        for r in regs:
+            d = fetch_event_detail(r.wp_event_id)
+            if d:
+                items.append({"id": r.wp_event_id, "title": d["title"], "date": d["date"], "status": r.status.value})
+        return items
     return None
 
 

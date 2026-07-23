@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.db.models import ReservationSlot, ReservationStatus, WorkStatus
+from app.db.models import EventRegistrationStatus, ReservationSlot, ReservationStatus, WorkStatus
 
 
 # ---------------------------------------------------------------- Profil utilisateur
@@ -125,6 +125,18 @@ class EventRead(BaseModel):
     title: str
     date: str           # date ISO (publication)
     link: str           # lien vers la page de l'intranet
+    capacity: int | None = None
+    registered_count: int = 0
+    my_status: str | None = None   # "registered" | "waitlisted" | None
+
+
+class EventRegistrationRead(BaseModel):
+    wp_event_id: int
+    status: EventRegistrationStatus
+
+
+class EventCapacityUpdate(BaseModel):
+    capacity: int | None = None
 
 
 class EventDetail(BaseModel):
@@ -134,6 +146,9 @@ class EventDetail(BaseModel):
     link: str
     image: str | None = None     # image à la une
     content_html: str            # contenu complet (nettoyé) affiché DANS l'app
+    capacity: int | None = None
+    registered_count: int = 0
+    my_status: str | None = None
 
 
 # ---------------------------------------------------------------- Présence (gamification)
