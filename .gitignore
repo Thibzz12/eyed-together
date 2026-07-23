@@ -1,0 +1,21 @@
+# Secrets & environnement
+.env
+*.env
+!.env.example
+
+# Base de données locale
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

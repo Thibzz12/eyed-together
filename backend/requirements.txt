@@ -1,0 +1,17 @@
+# --- Cœur applicatif ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Base de données ---
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10        # Pilote PostgreSQL (prod). En dev on utilise SQLite (inclus dans Python).
+
+# --- Configuration / secrets ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Sécurité / SSO (utilisés aux étapes suivantes) ---
+msal==1.31.1                   # Microsoft Entra ID (SSO)
+itsdangerous==2.2.0            # Signature des cookies de session
+slowapi==0.1.9                 # Rate limiting (anti brute-force / spam)
