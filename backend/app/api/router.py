@@ -7,7 +7,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import schemas
@@ -361,6 +361,52 @@ def set_status(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/links", response_model=list[schemas.UsefulLinkRead])
+def list_links(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Liens utiles actifs, dans l'ordre défini par l'admin."""
+    return list(
+        db.scalars(
+            select(m.UsefulLink).where(m.UsefulLink.enabled.is_(True)).order_by(m.UsefulLink.position)
+        )
+    )
+
+
+@router.get("/admin/links", response_model=list[schemas.UsefulLinkRead])
+def admin_list_links(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Tous les liens (actifs et désactivés), pour la gestion."""
+    return list(db.scalars(select(m.UsefulLink).order_by(m.UsefulLink.position)))
+
+
+@router.post("/admin/links", response_model=schemas.UsefulLinkRead, status_code=status.HTTP_201_CREATED)
+def admin_create_link(data: schemas.UsefulLinkCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    next_pos = db.scalar(select(func.max(m.UsefulLink.position))) or 0
+    link = m.UsefulLink(label=data.label, url=data.url, icon=data.icon, position=next_pos + 1)
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+@router.patch("/admin/links/{link_id}", response_model=schemas.UsefulLinkRead)
+def admin_update_link(link_id: int, data: schemas.UsefulLinkUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    link = db.get(m.UsefulLink, link_id)
+    if link is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien introuvable.")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(link, field, value)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+@router.delete("/admin/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    link = db.get(m.UsefulLink, link_id)
+    if link is not None:
+        db.delete(link)
+        db.commit()
 
 
 @router.get("/ideas")

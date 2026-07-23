@@ -238,6 +238,10 @@ button, input { font-family: inherit; }
 .idea-comment-form button { border: none; background: var(--blue); color: #fff; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; font-size: .84rem; }
 .idea-status-select { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: .84rem; flex-shrink: 0; }
 
+/* ---------------- Liens utiles (carte accueil) ---------------- */
+.useful-link-row { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--navy); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 11px; background: #F9FAFC; font-weight: 600; font-size: .88rem; }
+.ul-icon { font-size: 1.1rem; }
+
 /* ---------------- Services rapides ---------------- */
 .services-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin: 6px 0 20px; }
 .service-tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px 6px 11px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; box-shadow: var(--shadow-1); }
