@@ -5,7 +5,7 @@ nos tables ne stockent que la capacité et les inscriptions, jamais le contenu l
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
 
@@ -108,6 +108,20 @@ def unregister(db: Session, user_id: int, wp_event_id: int) -> None:
             if next_in_line is not None:
                 next_in_line.status = m.EventRegistrationStatus.REGISTERED
                 db.commit()
+
+
+def list_registrations(db: Session, wp_event_id: int) -> list[m.EventRegistration]:
+    """Inscrits (et liste d'attente) d'un événement, pour l'administration."""
+    return list(
+        db.scalars(
+            select(m.EventRegistration).where(
+                m.EventRegistration.wp_event_id == wp_event_id,
+                m.EventRegistration.status.in_(
+                    [m.EventRegistrationStatus.REGISTERED, m.EventRegistrationStatus.WAITLISTED]
+                ),
+            ).order_by(m.EventRegistration.status, m.EventRegistration.created_at).options(joinedload(m.EventRegistration.user))
+        )
+    )
 
 
 def build_ics(title: str, event_date: str, link: str) -> str:

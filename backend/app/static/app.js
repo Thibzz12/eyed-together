@@ -54,7 +54,7 @@ async function init() {
   if (state.profile.role === "admin") document.querySelector(".nav-admin").classList.remove("hidden");
 
   document.querySelectorAll(".nav-link, .tab-link").forEach(a =>
-    a.addEventListener("click", e => { e.preventDefault(); location.hash = a.dataset.route; closeMobileMenu(); }));
+    a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
   document.getElementById("selDeselect").addEventListener("click", clearSelection);
   document.getElementById("selConfirm").addEventListener("click", confirmSelection);
   document.getElementById("mobileMenuBtn").addEventListener("click", toggleMobileMenu);
@@ -103,6 +103,14 @@ function router() {
   document.querySelectorAll(".nav-link, .tab-link").forEach(a => a.classList.toggle("active", a.dataset.route === route));
   clearSelection();
   r.render();
+}
+
+/* Change de route — force le rendu même si le hash ne bouge pas (ex: on est déjà sur
+   "#evenements" et on revient du détail d'un événement ouvert SANS changer le hash :
+   un hashchange ne se déclencherait pas dans ce cas). */
+function goTo(route) {
+  if (location.hash.replace("#", "") === route) router();
+  else location.hash = route;
 }
 
 function refreshPoints(delta) {
@@ -222,7 +230,7 @@ function renderCard(c) {
 
 function wireDashboard(today) {
   const view = document.getElementById("view");
-  view.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => location.hash = el.dataset.go));
+  view.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => goTo(el.dataset.go)));
   view.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => openEvent(+el.dataset.event)));
   view.querySelectorAll("[data-news]").forEach(el => el.addEventListener("click", () => openNews(+el.dataset.news)));
   view.querySelectorAll("[data-cancel-next]").forEach(el => el.addEventListener("click", async () => {
@@ -278,22 +286,37 @@ async function renderAdminEvenements() {
   const { ok, data } = await api("/api/events?limit=24");
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   if (!data.length) { body.innerHTML = `<div class="empty">Aucun événement sur l'intranet.</div>`; return; }
-  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Définis une capacité maximale par événement (laisse vide = illimité). Au-delà, les inscrits rejoignent une liste d'attente automatique.</p>
-    <div class="card"><div class="desk-admin-head"><span>Événement</span><span>Capacité</span><span>Inscrits</span><span></span></div>
-    <div class="desk-admin-list" id="evCapList"></div></div>`;
+  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Définis une capacité maximale par événement (laisse vide = illimité) et consulte qui s'est inscrit.</p>
+    <div id="evCapList"></div>`;
   const list = document.getElementById("evCapList");
   for (const ev of data) {
-    const row = document.createElement("div"); row.className = "desk-admin-row";
-    row.innerHTML = `<span class="ev-title">${ev.title}</span>
-      <input class="da-pos" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}">
-      <span class="muted">${ev.registered_count}</span><span></span>`;
+    const row = document.createElement("div"); row.className = "card"; row.style.marginBottom = "10px";
+    row.innerHTML = `
+      <div class="idea-head">
+        <div><div class="idea-title">${ev.title}</div>
+          <button class="link-more" data-toggle-reg="${ev.id}">${ev.registered_count} inscrit(s) — voir la liste</button></div>
+        <div>Capacité <input class="da-pos" style="width:70px" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}"></div>
+      </div>
+      <div class="idea-comments hidden" id="evreg-${ev.id}"></div>`;
     row.querySelector("input").addEventListener("change", async (e) => {
       const val = e.target.value === "" ? null : +e.target.value;
       const { ok } = await api(`/api/admin/events/${ev.id}/capacity`, { method: "PUT", body: JSON.stringify({ capacity: val }) });
       toast(ok ? "Capacité enregistrée ✓" : "Erreur", ok ? "success" : "error");
     });
+    row.querySelector("[data-toggle-reg]").addEventListener("click", () => toggleEventRegistrations(ev.id));
     list.appendChild(row);
   }
+}
+
+async function toggleEventRegistrations(eventId) {
+  const box = document.getElementById(`evreg-${eventId}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="empty">Chargement…</div>`;
+  const regs = (await api(`/api/admin/events/${eventId}/registrations`)).data || [];
+  box.innerHTML = regs.length
+    ? regs.map(r => `<div class="idea-comment"><b>${r.user_name}</b> <span>${r.status === "waitlisted" ? "— liste d'attente" : "— inscrit"}</span></div>`).join("")
+    : `<div class="empty">Personne inscrit pour l'instant.</div>`;
 }
 
 async function renderAdminAccueil() {
@@ -393,7 +416,7 @@ async function renderAdminLiens() {
   body.innerHTML = `<div class="empty">Chargement…</div>`;
   const { ok, data } = await api("/api/admin/links");
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
-  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les liens externes affichés sur l'accueil (icône = un emoji, ex. 🍽️).</p>
+  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les liens externes affichés sur l'accueil : mutuelle, RH, intranet (ex. ${window.location.protocol}//weared.team), documents partagés, etc. Icône = un emoji (ex. 🍽️, 🏥, 📄).</p>
     <div class="card"><div class="card-head"><h3>Liens</h3><button class="link-more" id="linkAdd">+ Ajouter un lien</button></div>
     <div class="desk-admin-list" id="linksList"></div></div>`;
   const list = document.getElementById("linksList");
@@ -420,9 +443,9 @@ async function patchLink(id, patch) {
   toast(ok ? "Enregistré ✓" : "Erreur", ok ? "success" : "error");
 }
 async function addLink() {
-  const label = prompt("Libellé du lien (ex : Mutuelle) :");
+  const label = prompt("Libellé du lien (ex : Mutuelle, Intranet, Support IT) :");
   if (!label) return;
-  const url = prompt("URL complète (https://…) :");
+  const url = prompt("URL complète (ex : https://weared.team ou un lien mailto:contact@eyedpharma.com) :");
   if (!url) return;
   const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon: "🔗" }) });
   if (ok) { toast("Lien ajouté ✓", "success"); renderAdminLiens(); }
@@ -696,6 +719,19 @@ function eventCapacityHtml(ev) {
   return ev.capacity != null ? `<span class="event-capacity">${ev.registered_count}/${ev.capacity} inscrit·e·s</span>` : "";
 }
 
+/* Téléchargement du .ics via Blob (plus fiable que l'attribut HTML `download` seul,
+   notamment sur navigateurs mobiles qui l'ignorent souvent). */
+async function downloadIcs(eventId) {
+  const res = await fetch(`/api/events/${eventId}/ics`);
+  if (!res.ok) return toast("Téléchargement impossible.", "error");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `evenement-${eventId}.ics`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function viewEvenements() {
   const view = document.getElementById("view");
   view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Synchronisés en direct depuis l'intranet EyeD. Cliquez sur le titre pour lire le détail.</p><div class="events-grid" id="eventsGrid"></div>`;
@@ -707,7 +743,7 @@ async function viewEvenements() {
     const c = document.createElement("div"); c.className = "event-card";
     c.innerHTML = `<span class="ec-date">${fdate(ev.date, { day: "numeric", month: "long", year: "numeric" })}</span>
       <span class="ec-title" role="button" tabindex="0">${ev.title}</span>
-      <div class="event-reg-row">${eventCapacityHtml(ev)}<a class="event-ics-link" href="/api/events/${ev.id}/ics" download>+ Calendrier</a></div>
+      <div class="event-reg-row">${eventCapacityHtml(ev)}<button class="event-ics-link" data-ics="${ev.id}">+ Calendrier</button></div>
       <div class="event-reg-row">${eventRegBtnHtml(ev)}</div>`;
     c.querySelector(".ec-title").addEventListener("click", () => openEvent(ev.id));
     grid.appendChild(c);
@@ -730,6 +766,10 @@ function wireEventButtons(container, reload) {
     toast("Inscription annulée.");
     reload();
   }));
+  container.querySelectorAll("[data-ics]").forEach(b => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    downloadIcs(b.dataset.ics);
+  }));
 }
 
 /* Détail d'un contenu (événement ou actualité) affiché DANS l'app */
@@ -745,13 +785,13 @@ async function openContent(apiPath, pageTitle, backHash, isEvent) {
     <article class="event-detail">
       <span class="ec-date">${fdate(data.date, { day: "numeric", month: "long", year: "numeric" })}</span>
       <h2 class="ed-title">${data.title}</h2>
-      ${isEvent ? `<div class="event-reg-row">${eventCapacityHtml(data)}<a class="event-ics-link" href="/api/events/${data.id}/ics" download>+ Ajouter au calendrier</a></div>
+      ${isEvent ? `<div class="event-reg-row">${eventCapacityHtml(data)}<button class="event-ics-link" data-ics="${data.id}">+ Ajouter au calendrier</button></div>
         <div class="event-reg-row">${eventRegBtnHtml(data)}</div>` : ""}
       ${data.image ? `<img class="ed-hero" src="${data.image}" alt="">` : ""}
       <div class="ed-body">${data.content_html}</div>
       <a class="ed-source" href="${data.link}" target="_blank" rel="noopener">Voir sur l'intranet ↗</a>
     </article></div>`;
-  document.getElementById("backBtn").addEventListener("click", () => { location.hash = backHash; });
+  document.getElementById("backBtn").addEventListener("click", () => goTo(backHash));
   if (isEvent) wireEventButtons(view, () => openContent(apiPath, pageTitle, backHash, isEvent));
 }
 function openEvent(id) { openContent("/api/events/" + id, "Événement", "evenements", true); }

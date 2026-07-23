@@ -3,6 +3,7 @@
 Toutes les routes exigent une session valide (get_current_user).
 """
 
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -172,6 +173,15 @@ def event_ics(event_id: int, db: Session = Depends(get_db), _=Depends(get_curren
         content=ics, media_type="text/calendar",
         headers={"Content-Disposition": f'attachment; filename="evenement-{event_id}.ics"'},
     )
+
+
+@router.get("/admin/events/{event_id}/registrations")
+def admin_event_registrations(event_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Liste des inscrits (et de la liste d'attente) pour un événement, pour l'administration."""
+    return [
+        {"user_name": r.user.display_name, "status": r.status.value}
+        for r in events_svc.list_registrations(db, event_id)
+    ]
 
 
 @router.get("/admin/events/{event_id}/capacity")

@@ -48,6 +48,13 @@ _Décision validée par Thibaud (2026-07-23) pour le futur module Médias : **li
 
 _Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app en l'état avant que je reprenne sur Recherche/Quiz/Médias/Notifications/Cockpit admin._
 
+**Corrections suite aux retours de test (2026-07-23) :**
+- Bouton "← Retour" (détail événement/actu) ne fonctionnait pas quand on ouvrait le détail SANS changer le hash (ex. depuis la page Événements) → nouveau helper `goTo()` qui force le re-rendu même si le hash est identique.
+- "+ Calendrier" (export ICS) ne déclenchait pas de téléchargement fiable → remplacé l'attribut HTML `download` par un téléchargement via Blob (`downloadIcs()`), plus robuste notamment sur mobile.
+- Onglet "Boîte à idées" ajouté à la barre d'onglets mobile (bas d'écran), il n'y était que dans le menu hamburger.
+- Administration → onglet "Événements" : affiche désormais qui s'est inscrit à chaque événement (liste dépliable, distingue inscrit/liste d'attente) — `GET /api/admin/events/{id}/registrations`.
+- Liens utiles : le lien de démo factice ("Mutuelle" vers une URL bidon) a été supprimé de la base ; ajout d'exemples concrets dans l'aide de l'admin (intranet weared.team, mailto RH/IT) pour clarifier ce qu'on peut y mettre.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)
