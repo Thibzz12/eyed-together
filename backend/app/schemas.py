@@ -103,6 +103,10 @@ class ProjectProgress(BaseModel):
     label: str
 
 
+class StatusesUpdate(BaseModel):
+    enabled: list[str]
+
+
 # ---------------------------------------------------------------- Statut de présence (déclaration)
 class DailyStatusRead(BaseModel):
     day: date

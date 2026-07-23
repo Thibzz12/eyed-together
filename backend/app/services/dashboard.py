@@ -15,6 +15,22 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
     return row.value if row else default
 
 
+ALL_STATUSES = [s.value for s in m.WorkStatus]  # catalogue fixe ; seule l'activation est configurable
+
+
+def get_enabled_statuses(db: Session) -> list[str]:
+    """Statuts de présence proposés aux employés (configurable par l'admin)."""
+    raw = get_setting(db, "enabled_statuses", ",".join(ALL_STATUSES))
+    enabled = [s for s in raw.split(",") if s in ALL_STATUSES]
+    return enabled or ALL_STATUSES  # jamais une liste vide (sécurité)
+
+
+def set_enabled_statuses(db: Session, statuses: list[str]) -> None:
+    valid = [s for s in statuses if s in ALL_STATUSES]
+    set_setting(db, "enabled_statuses", ",".join(valid) or ",".join(ALL_STATUSES))
+    db.commit()
+
+
 def set_setting(db: Session, key: str, value: str) -> None:
     row = db.get(m.AppSetting, key)
     if row is None:

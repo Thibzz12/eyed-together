@@ -25,7 +25,7 @@ _Dernière mise à jour : 2026-07-23_
 ## ⏭️ Reste du cahier des charges (Présence & Coworking)
 
 - [ ] Réservation d'espaces entiers (réserver un bureau/une salle en un clic, pas poste par poste)
-- [ ] Statuts configurables (l'admin gère la liste, pas codée en dur)
+- [x] Statuts configurables — FAIT (2026-07-23) : l'admin peut activer/désactiver quels statuts (coworking/télétravail/déplacement/congé) sont proposés aux employés (Administration → Accueil → "Statuts de présence proposés"). Catalogue de statuts fixe (pas de création de nouveaux types à la volée — hors scope MVP), mais l'activation est bien pilotée par l'admin, sans toucher au code. Réutilise la table `AppSetting` existante (pas de migration). `GET /api/statuses` (public), `GET/PUT /api/admin/statuses`. Testé : désactivation persistée en base, reflétée sur Accueil + Ma présence, réactivation OK, mobile sans débordement.
 
 ## ⏭️ Modules non commencés (cahier des charges complet)
 

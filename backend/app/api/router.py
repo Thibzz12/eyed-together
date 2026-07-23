@@ -14,7 +14,14 @@ from app.db import models as m
 from app.db.session import get_db
 from app.deps import get_current_user, require_admin
 from app.services import reservations as svc
-from app.services.dashboard import build_dashboard, get_setting, set_setting
+from app.services.dashboard import (
+    ALL_STATUSES,
+    build_dashboard,
+    get_enabled_statuses,
+    get_setting,
+    set_enabled_statuses,
+    set_setting,
+)
 from app.services.wordpress import fetch_content_detail, fetch_event_detail, fetch_events, fetch_news
 
 router = APIRouter(prefix="/api", tags=["reservations"])
@@ -225,6 +232,25 @@ def admin_project_progress(
     set_setting(db, "project_progress_value", str(max(0, min(100, data.value))))
     set_setting(db, "project_progress_label", data.label)
     db.commit()
+    return {"ok": True}
+
+
+@router.get("/statuses")
+def statuses(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Statuts de présence proposés aux employés (configurés par l'admin)."""
+    return {"enabled": get_enabled_statuses(db)}
+
+
+@router.get("/admin/statuses")
+def admin_statuses(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Tous les statuts possibles + ceux actuellement activés."""
+    return {"all": ALL_STATUSES, "enabled": get_enabled_statuses(db)}
+
+
+@router.put("/admin/statuses")
+def admin_statuses_save(data: schemas.StatusesUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Active/désactive les statuts proposés aux employés."""
+    set_enabled_statuses(db, data.enabled)
     return {"ok": True}
 
 

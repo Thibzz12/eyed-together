@@ -11,9 +11,15 @@ const state = {
   availability: [],
   myReservations: [],
   selected: null,
+  enabledStatuses: null, // rempli au démarrage depuis /api/statuses (configurable par l'admin)
 };
 
 const STATUS = { coworking: "Coworking", teletravail: "Télétravail", deplacement: "Déplacement", conge: "Congé" };
+/* Entrées STATUS filtrées selon ce que l'admin a activé (fallback: tout, tant que non chargé). */
+function enabledStatusEntries() {
+  const keys = state.enabledStatuses || Object.keys(STATUS);
+  return Object.entries(STATUS).filter(([k]) => keys.includes(k));
+}
 const PALETTE = ["#00608D", "#2E9E5B", "#E6A100", "#7A4E86", "#B4761C", "#0891b2", "#D64545"];
 
 async function api(path, options = {}) {
@@ -35,6 +41,8 @@ async function init() {
   const { ok, data } = await api("/api/profile");
   if (!ok) { document.getElementById("login").classList.remove("hidden"); setupLoginForm(); return; }
   state.profile = data;
+  const st = await api("/api/statuses");
+  state.enabledStatuses = (st.data && st.data.enabled) || Object.keys(STATUS);
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("userName").textContent = state.profile.name;
   document.getElementById("userLevel").textContent = "Niveau " + levelOf(state.profile.total_points);
@@ -148,7 +156,7 @@ function renderCard(c) {
   if (c.key === "presence") {
     const cur = data && data.status;
     inner = `<div class="card-label">${c.title}</div>
-      <div class="status-seg">${Object.entries(STATUS).map(([k, l]) =>
+      <div class="status-seg">${enabledStatusEntries().map(([k, l]) =>
         `<button class="status-seg-btn${cur === k ? " on" : ""}" data-status="${k}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[k]}</svg>
           <span>${l}</span></button>`).join("")}</div>`;
@@ -246,9 +254,12 @@ async function viewAdmin() {
 async function renderAdminAccueil() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const { ok, data } = await api("/api/admin/dashboard");
-  if (!ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
-  adminState = { cards: data.cards.slice(), progress: data.project_progress };
+  const [dash, st] = await Promise.all([api("/api/admin/dashboard"), api("/api/admin/statuses")]);
+  if (!dash.ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
+  adminState = {
+    cards: dash.data.cards.slice(), progress: dash.data.project_progress,
+    statusesAll: (st.data && st.data.all) || [], statusesEnabled: new Set((st.data && st.data.enabled) || []),
+  };
   renderAdminCards();
 }
 
@@ -264,6 +275,8 @@ function renderAdminCards() {
       <label class="admin-toggle"><input type="checkbox" data-enabled="${i}" ${c.enabled ? "checked" : ""}> Activée</label>
       <label class="admin-toggle"><input type="checkbox" data-highlight="${i}" ${c.highlighted ? "checked" : ""}> Mise en avant</label>
     </div>`).join("");
+  const statusRows = adminState.statusesAll.map(key => `
+    <label class="admin-toggle"><input type="checkbox" data-statuskey="${key}" ${adminState.statusesEnabled.has(key) ? "checked" : ""}> ${STATUS[key] || key}</label>`).join("");
   body.innerHTML = `
     <p class="sub" style="color:var(--muted);margin:0 0 16px">Configure l'accueil des collaborateurs : active/désactive les cartes, change l'ordre, mets en avant.</p>
     <div class="card"><h3>Cartes de l'accueil</h3><div class="admin-cards">${rows}</div></div>
@@ -274,11 +287,18 @@ function renderAdminCards() {
           <input type="range" id="ppRange" min="0" max="100" value="${adminState.progress.value}"></label>
       </div>
     </div>
+    <div class="card"><h3>Statuts de présence proposés</h3>
+      <p class="sub" style="color:var(--muted);margin:0 0 10px">Décoche un statut pour le retirer des choix proposés aux employés.</p>
+      <div class="admin-progress">${statusRows}</div>
+    </div>
     <button class="btn-save" id="adminSave">Enregistrer</button>`;
   body.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => moveCard(+b.dataset.up, -1)));
   body.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => moveCard(+b.dataset.down, 1)));
   body.querySelectorAll("[data-enabled]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.enabled].enabled = cb.checked; }));
   body.querySelectorAll("[data-highlight]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.highlight].highlighted = cb.checked; }));
+  body.querySelectorAll("[data-statuskey]").forEach(cb => cb.addEventListener("change", () => {
+    if (cb.checked) adminState.statusesEnabled.add(cb.dataset.statuskey); else adminState.statusesEnabled.delete(cb.dataset.statuskey);
+  }));
   const range = document.getElementById("ppRange");
   range.addEventListener("input", () => document.getElementById("ppVal").textContent = range.value);
   document.getElementById("adminSave").addEventListener("click", saveAdmin);
@@ -293,7 +313,8 @@ async function saveAdmin() {
   const order = adminState.cards.map(c => ({ id: c.id, enabled: c.enabled, highlighted: c.highlighted }));
   const r1 = await api("/api/admin/dashboard", { method: "PUT", body: JSON.stringify(order) });
   const r2 = await api("/api/admin/project-progress", { method: "PUT", body: JSON.stringify({ value: +document.getElementById("ppRange").value, label: document.getElementById("ppLabel").value }) });
-  if (r1.ok && r2.ok) toast("Accueil mis à jour ✓", "success");
+  const r3 = await api("/api/admin/statuses", { method: "PUT", body: JSON.stringify({ enabled: [...adminState.statusesEnabled] }) });
+  if (r1.ok && r2.ok && r3.ok) toast("Accueil mis à jour ✓", "success");
   else toast("Erreur d'enregistrement.", "error");
 }
 
@@ -604,7 +625,7 @@ async function viewPresence() {
     const row = document.createElement("div"); row.className = "day-row";
     row.innerHTML = `<div class="day-name">${day.toLocaleDateString("fr-FR", { weekday: "long" })}<small>${day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</small></div>`;
     const opts = document.createElement("div"); opts.className = "status-opts";
-    for (const [key, lbl] of Object.entries(STATUS)) {
+    for (const [key, lbl] of enabledStatusEntries()) {
       const b = document.createElement("button");
       b.className = "status-opt" + (key === "coworking" ? " coworking" : "") + (byDay[iso] === key ? " on" : "");
       b.textContent = lbl;
