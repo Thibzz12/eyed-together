@@ -58,6 +58,15 @@ class WorkStatus(str, enum.Enum):
     CONGE = "conge"
 
 
+class IdeaStatus(str, enum.Enum):
+    """Statut de traitement d'une idée (workflow piloté par l'admin)."""
+    NEW = "new"
+    UNDER_REVIEW = "under_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    ARCHIVED = "archived"
+
+
 class EventRegistrationStatus(str, enum.Enum):
     """Statut d'inscription à un événement WordPress (type `evenement`)."""
     REGISTERED = "registered"
@@ -243,6 +252,52 @@ class EventCapacity(Base):
 
     wp_event_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class Idea(Base):
+    """Idée soumise par un employé (Boîte à idées), signée ou anonyme."""
+    __tablename__ = "ideas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(150))
+    description: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # L'auteur reste connu en base (modération) mais n'est jamais affiché si True.
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[IdeaStatus] = mapped_column(_enum(IdeaStatus), default=IdeaStatus.NEW, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    author: Mapped["User"] = relationship()
+    votes: Mapped[list["IdeaVote"]] = relationship(back_populates="idea", cascade="all, delete-orphan")
+    comments: Mapped[list["IdeaComment"]] = relationship(back_populates="idea", cascade="all, delete-orphan")
+
+
+class IdeaVote(Base):
+    __tablename__ = "idea_votes"
+    __table_args__ = (
+        UniqueConstraint("idea_id", "user_id", name="uq_idea_vote"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    idea: Mapped["Idea"] = relationship(back_populates="votes")
+
+
+class IdeaComment(Base):
+    __tablename__ = "idea_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    idea: Mapped["Idea"] = relationship(back_populates="comments")
+    author: Mapped["User"] = relationship()
 
 
 class Badge(Base):
