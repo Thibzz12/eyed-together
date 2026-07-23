@@ -42,7 +42,7 @@ _Dernière mise à jour : 2026-07-23_
 - [ ] Hébergement réel (fourni par EyeD — à confirmer)
 - [ ] `EYED_APP_CALLBACK` (WordPress) → passer de localhost au vrai domaine
 - [ ] Régénérer le secret partagé pour la prod
-- [ ] Migrations Alembic à jour (actuellement `create_all` en dev pour les nouvelles tables : DailyStatus, DashboardCard, AppSetting, colonnes pos_x/pos_y — il faudra générer une vraie migration Alembic avant la prod)
+- [x] Migrations Alembic à jour — FAIT (2026-07-23) : migration de rattrapage générée (`440c5f41be08_daily_status_dashboard_cards_app_.py`) pour DailyStatus, DashboardCard, AppSetting, colonnes pos_x/pos_y. Vérifié sur base temporaire : upgrade → `alembic check` confirme "No new upgrade operations detected" (schéma = modèles), downgrade puis re-upgrade OK. Le dev continue d'utiliser `create_all` (pratique, inchangé) ; c'est la **prod** qui bénéficiera de cette migration via `alembic upgrade head`.
 
 ## Comment on l'utilise
 
