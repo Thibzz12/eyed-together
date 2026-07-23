@@ -148,7 +148,7 @@ async function viewAccueil() {
 }
 
 function renderCard(c) {
-  const wide = ["events", "news", "project_progress", "team_presence"].includes(c.key) ? " wide" : "";
+  const wide = ["events", "news", "project_progress", "team_presence", "mes_evenements"].includes(c.key) ? " wide" : "";
   const hl = c.highlighted ? " highlight" : "";
   const data = c.data;
   let inner = "", extraClass = "";
@@ -197,6 +197,13 @@ function renderCard(c) {
       <span class="event-date">${fdate(n.date, { day: "numeric", month: "short" })}</span>
       <span class="event-title">${n.title}</span></div>`).join("") || `<div class="empty">Aucune actualité.</div>`;
     inner = `<div class="card-head"><h3>${c.title}</h3></div><div class="list">${items}</div>`;
+  } else if (c.key === "mes_evenements") {
+    const items = (data || []).map(ev => `<div class="event-row" data-event="${ev.id}">
+      <div class="ev-datebox"><span>${fdate(ev.date, { month: "short" })}</span><b>${fdate(ev.date, { day: "numeric" })}</b></div>
+      <div class="ev-info"><div class="ev-title">${ev.title}</div>
+        <span class="ev-status-badge${ev.status === "waitlisted" ? " waitlisted" : ""}">${ev.status === "waitlisted" ? "Liste d'attente" : "Inscrit ✓"}</span></div></div>`).join("")
+      || `<div class="empty">Aucune inscription. Va faire un tour dans les événements !</div>`;
+    inner = `<div class="card-head"><h3>${c.title}</h3><a class="link-more" data-go="evenements">Agenda</a></div><div class="event-list">${items}</div>`;
   } else if (c.key === "coworking_status") {
     const pct = data.total ? Math.round(data.occupied / data.total * 100) : 0;
     inner = `<div class="card-label">${c.title}</div>
@@ -241,14 +248,41 @@ async function viewAdmin() {
     <div class="admin-tabs">
       <button data-tab="accueil" class="active">Accueil</button>
       <button data-tab="espaces">Postes &amp; espaces</button>
+      <button data-tab="evenements">Événements</button>
     </div>
     <div id="adminBody"></div>`;
+  const RENDERERS = { accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
-    if (b.dataset.tab === "accueil") renderAdminAccueil(); else renderAdminEspaces();
+    RENDERERS[b.dataset.tab]();
   }));
   renderAdminAccueil();
+}
+
+/* ---- Administration : capacité des événements ---- */
+async function renderAdminEvenements() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api("/api/events?limit=24");
+  if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  if (!data.length) { body.innerHTML = `<div class="empty">Aucun événement sur l'intranet.</div>`; return; }
+  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Définis une capacité maximale par événement (laisse vide = illimité). Au-delà, les inscrits rejoignent une liste d'attente automatique.</p>
+    <div class="card"><div class="desk-admin-head"><span>Événement</span><span>Capacité</span><span>Inscrits</span><span></span></div>
+    <div class="desk-admin-list" id="evCapList"></div></div>`;
+  const list = document.getElementById("evCapList");
+  for (const ev of data) {
+    const row = document.createElement("div"); row.className = "desk-admin-row";
+    row.innerHTML = `<span class="ev-title">${ev.title}</span>
+      <input class="da-pos" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}">
+      <span class="muted">${ev.registered_count}</span><span></span>`;
+    row.querySelector("input").addEventListener("change", async (e) => {
+      const val = e.target.value === "" ? null : +e.target.value;
+      const { ok } = await api(`/api/admin/events/${ev.id}/capacity`, { method: "PUT", body: JSON.stringify({ capacity: val }) });
+      toast(ok ? "Capacité enregistrée ✓" : "Erreur", ok ? "success" : "error");
+    });
+    list.appendChild(row);
+  }
 }
 
 async function renderAdminAccueil() {
@@ -568,24 +602,55 @@ async function cancelRes(id) {
 /* ============================================================
    VUE : ÉVÉNEMENTS (depuis l'intranet WordPress)
    ============================================================ */
+function eventRegBtnHtml(ev) {
+  const full = ev.capacity != null && ev.registered_count >= ev.capacity && ev.my_status !== "registered";
+  if (ev.my_status === "registered") return `<button class="event-reg-btn registered" data-unregister="${ev.id}">Inscrit ✓ — se désinscrire</button>`;
+  if (ev.my_status === "waitlisted") return `<button class="event-reg-btn waitlisted" data-unregister="${ev.id}">Liste d'attente — quitter</button>`;
+  if (full) return `<button class="event-reg-btn full" disabled>Complet — liste d'attente pleine</button>`;
+  return `<button class="event-reg-btn" data-register="${ev.id}">S'inscrire</button>`;
+}
+function eventCapacityHtml(ev) {
+  return ev.capacity != null ? `<span class="event-capacity">${ev.registered_count}/${ev.capacity} inscrit·e·s</span>` : "";
+}
+
 async function viewEvenements() {
   const view = document.getElementById("view");
-  view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Synchronisés en direct depuis l'intranet EyeD. Cliquez pour lire le détail.</p><div class="events-grid" id="eventsGrid"></div>`;
+  view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Synchronisés en direct depuis l'intranet EyeD. Cliquez sur le titre pour lire le détail.</p><div class="events-grid" id="eventsGrid"></div>`;
   const grid = document.getElementById("eventsGrid");
   grid.innerHTML = `<div class="empty">Chargement…</div>`;
   const evts = (await api("/api/events?limit=24")).data || [];
   grid.innerHTML = evts.length ? "" : `<div class="empty">Aucun événement.</div>`;
   for (const ev of evts) {
-    const c = document.createElement("div"); c.className = "event-card"; c.setAttribute("role", "button"); c.tabIndex = 0;
+    const c = document.createElement("div"); c.className = "event-card";
     c.innerHTML = `<span class="ec-date">${fdate(ev.date, { day: "numeric", month: "long", year: "numeric" })}</span>
-      <span class="ec-title">${ev.title}</span><span class="ec-link">Lire →</span>`;
-    c.addEventListener("click", () => openEvent(ev.id));
+      <span class="ec-title" role="button" tabindex="0">${ev.title}</span>
+      <div class="event-reg-row">${eventCapacityHtml(ev)}<a class="event-ics-link" href="/api/events/${ev.id}/ics" download>+ Calendrier</a></div>
+      <div class="event-reg-row">${eventRegBtnHtml(ev)}</div>`;
+    c.querySelector(".ec-title").addEventListener("click", () => openEvent(ev.id));
     grid.appendChild(c);
   }
+  wireEventButtons(grid, viewEvenements);
+}
+
+function wireEventButtons(container, reload) {
+  container.querySelectorAll("[data-register]").forEach(b => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const { ok, data } = await api(`/api/events/${b.dataset.register}/register`, { method: "POST" });
+    if (!ok) return toast(data?.detail || "Inscription impossible.", "error");
+    toast(data.status === "waitlisted" ? "Ajouté à la liste d'attente." : "Inscription confirmée ✓", "success");
+    reload();
+  }));
+  container.querySelectorAll("[data-unregister]").forEach(b => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const { ok, data } = await api(`/api/events/${b.dataset.unregister}/register`, { method: "DELETE" });
+    if (!ok) return toast(data?.detail || "Désinscription impossible.", "error");
+    toast("Inscription annulée.");
+    reload();
+  }));
 }
 
 /* Détail d'un contenu (événement ou actualité) affiché DANS l'app */
-async function openContent(apiPath, pageTitle, backHash) {
+async function openContent(apiPath, pageTitle, backHash, isEvent) {
   document.getElementById("pageTitle").textContent = pageTitle;
   const view = document.getElementById("view");
   view.innerHTML = `<div class="empty">Chargement…</div>`;
@@ -597,13 +662,16 @@ async function openContent(apiPath, pageTitle, backHash) {
     <article class="event-detail">
       <span class="ec-date">${fdate(data.date, { day: "numeric", month: "long", year: "numeric" })}</span>
       <h2 class="ed-title">${data.title}</h2>
+      ${isEvent ? `<div class="event-reg-row">${eventCapacityHtml(data)}<a class="event-ics-link" href="/api/events/${data.id}/ics" download>+ Ajouter au calendrier</a></div>
+        <div class="event-reg-row">${eventRegBtnHtml(data)}</div>` : ""}
       ${data.image ? `<img class="ed-hero" src="${data.image}" alt="">` : ""}
       <div class="ed-body">${data.content_html}</div>
       <a class="ed-source" href="${data.link}" target="_blank" rel="noopener">Voir sur l'intranet ↗</a>
     </article></div>`;
   document.getElementById("backBtn").addEventListener("click", () => { location.hash = backHash; });
+  if (isEvent) wireEventButtons(view, () => openContent(apiPath, pageTitle, backHash, isEvent));
 }
-function openEvent(id) { openContent("/api/events/" + id, "Événement", "evenements"); }
+function openEvent(id) { openContent("/api/events/" + id, "Événement", "evenements", true); }
 function openNews(id) { openContent("/api/news/" + id, "Actualité", "accueil"); }
 
 /* ============================================================

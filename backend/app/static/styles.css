@@ -200,6 +200,18 @@ button, input { font-family: inherit; }
 .ev-datebox span { font-size: .62rem; font-weight: 700; color: var(--red); text-transform: uppercase; }
 .ev-datebox b { font-size: 1.1rem; font-weight: 800; color: var(--navy); line-height: 1; }
 .ev-title { font-size: .88rem; font-weight: 700; color: var(--navy); }
+.ev-status-badge { display: inline-block; margin-top: 4px; font-size: .68rem; font-weight: 700; color: var(--green); background: var(--green-050); padding: 2px 8px; border-radius: 999px; }
+.ev-status-badge.waitlisted { color: #92600A; background: var(--amber-050); }
+
+/* ---------------- Événements : inscription/capacité (grille + détail) ---------------- */
+.event-card { position: relative; }
+.event-reg-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.event-capacity { font-size: .74rem; color: var(--muted); }
+.event-reg-btn { border: none; border-radius: 7px; padding: 7px 12px; font-weight: 700; font-size: .78rem; cursor: pointer; background: var(--blue); color: #fff; }
+.event-reg-btn.registered { background: var(--green-050); color: var(--green); }
+.event-reg-btn.waitlisted { background: var(--amber-050); color: #92600A; }
+.event-reg-btn.full { background: #F1F5F9; color: var(--muted); }
+.event-ics-link { font-size: .74rem; color: var(--blue); text-decoration: none; font-weight: 600; }
 
 /* ---------------- Services rapides ---------------- */
 .services-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin: 6px 0 20px; }

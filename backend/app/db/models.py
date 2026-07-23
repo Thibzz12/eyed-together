@@ -58,6 +58,13 @@ class WorkStatus(str, enum.Enum):
     CONGE = "conge"
 
 
+class EventRegistrationStatus(str, enum.Enum):
+    """Statut d'inscription à un événement WordPress (type `evenement`)."""
+    REGISTERED = "registered"
+    WAITLISTED = "waitlisted"   # liste d'attente : capacité atteinte au moment de l'inscription
+    CANCELLED = "cancelled"
+
+
 def _enum(enum_cls: type[enum.Enum]) -> SAEnum:
     """Fabrique un type Enum stocké par sa *valeur* (ex: 'booked') et non son nom.
 
@@ -210,6 +217,32 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class EventRegistration(Base):
+    """Inscription d'un employé à un événement WordPress (identifié par son id WP)."""
+    __tablename__ = "event_registrations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "wp_event_id", name="uq_user_event"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    wp_event_id: Mapped[int] = mapped_column(Integer, index=True)
+    status: Mapped[EventRegistrationStatus] = mapped_column(
+        _enum(EventRegistrationStatus), default=EventRegistrationStatus.REGISTERED, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship()
+
+
+class EventCapacity(Base):
+    """Capacité configurée par l'admin pour un événement WordPress (None = illimité)."""
+    __tablename__ = "event_capacities"
+
+    wp_event_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Badge(Base):
