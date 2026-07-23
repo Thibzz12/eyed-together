@@ -129,6 +129,7 @@ _DEFAULT_CARDS = [
     ("news", "Actualités", 5, False),
     ("coworking_status", "Espaces de coworking", 6, False),
     ("mes_evenements", "Mes inscriptions aux événements", 7, False),
+    ("liens_utiles", "Liens utiles", 8, False),
 ]
 
 

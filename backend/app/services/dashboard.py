@@ -83,6 +83,11 @@ def _card_data(db: Session, key: str, user_id: int):
         return fetch_events(limit=5)
     if key == "news":
         return fetch_news(limit=4)
+    if key == "liens_utiles":
+        rows = db.scalars(
+            select(m.UsefulLink).where(m.UsefulLink.enabled.is_(True)).order_by(m.UsefulLink.position)
+        )
+        return [{"label": l.label, "url": l.url, "icon": l.icon} for l in rows]
     if key == "mes_evenements":
         regs = events_svc.my_active_registrations(db, user_id)[:5]
         items = []

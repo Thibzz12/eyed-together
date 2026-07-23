@@ -35,14 +35,14 @@ _Dernière mise à jour : 2026-07-23_
 - [ ] Notifications (email/Teams/push configurables)
 - [ ] Recherche globale
 - [ ] Boîte à idées
-- [ ] Liens utiles administrables
+- [x] **Liens utiles administrables — FAIT (2026-07-23)** : modèle `UsefulLink`, CRUD complet (`/api/admin/links`), nouvelle carte accueil "Liens utiles" (icône emoji + libellé + url, ouvre dans un nouvel onglet), onglet Administration → "Liens utiles". Distinct des 4 tuiles "Services rapides" déjà existantes (celles-ci restent statiques, avec icônes SVG sur-mesure — le cahier des charges demandait une rubrique *administrable*, donc séparée). Testé : ajout d'un lien depuis l'admin reflété immédiatement sur l'accueil, mobile 375px sans débordement, zéro erreur console.
 - [ ] Cockpit admin avancé (KPI, stats, alertes)
 
 ## ✅ Boîte à idées — FAIT (2026-07-23)
 
 Modèles `Idea`/`IdeaVote`/`IdeaComment`, service `app/services/ideas.py`, migration Alembic `4d924b085fda`. Page "Boîte à idées" (nav sidebar) : formulaire de soumission (titre/description/catégorie libre/case "anonyme"), liste triée par popularité (nb de votes), vote (bascule 1 vote max/personne/idée), commentaires par idée (dépliable). Administration → onglet "Idées" : select de statut par idée (nouvelle → étudiée → acceptée/refusée/archivée), une idée archivée disparaît de la liste employé. Testé : soumission, vote, commentaire, changement de statut admin reflété côté employé, mobile 375px sans débordement, zéro erreur console.
 
-_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
+_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles (fait) → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
 
 ## 🌐 Site web interne (WordPress) — chantier séparé
 

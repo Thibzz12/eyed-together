@@ -151,6 +151,29 @@ class EventDetail(BaseModel):
     my_status: str | None = None
 
 
+# ---------------------------------------------------------------- Liens utiles
+class UsefulLinkRead(BaseModel):
+    id: int
+    label: str
+    url: str
+    icon: str | None = None
+    enabled: bool = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UsefulLinkCreate(BaseModel):
+    label: str
+    url: str
+    icon: str | None = None
+
+
+class UsefulLinkUpdate(BaseModel):
+    label: str | None = None
+    url: str | None = None
+    icon: str | None = None
+    enabled: bool | None = None
+
+
 # ---------------------------------------------------------------- Boîte à idées
 class IdeaCreate(BaseModel):
     title: str

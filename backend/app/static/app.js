@@ -205,6 +205,11 @@ function renderCard(c) {
         <span class="ev-status-badge${ev.status === "waitlisted" ? " waitlisted" : ""}">${ev.status === "waitlisted" ? "Liste d'attente" : "Inscrit ✓"}</span></div></div>`).join("")
       || `<div class="empty">Aucune inscription. Va faire un tour dans les événements !</div>`;
     inner = `<div class="card-head"><h3>${c.title}</h3><a class="link-more" data-go="evenements">Agenda</a></div><div class="event-list">${items}</div>`;
+  } else if (c.key === "liens_utiles") {
+    const items = (data || []).map(l => `<a class="useful-link-row" href="${l.url}" target="_blank" rel="noopener">
+      <span class="ul-icon">${l.icon || "🔗"}</span><span class="ul-label">${l.label}</span></a>`).join("")
+      || `<div class="empty">Aucun lien pour l'instant.</div>`;
+    inner = `<div class="card-head"><h3>${c.title}</h3></div><div class="list">${items}</div>`;
   } else if (c.key === "coworking_status") {
     const pct = data.total ? Math.round(data.occupied / data.total * 100) : 0;
     inner = `<div class="card-label">${c.title}</div>
@@ -251,9 +256,13 @@ async function viewAdmin() {
       <button data-tab="espaces">Postes &amp; espaces</button>
       <button data-tab="evenements">Événements</button>
       <button data-tab="idees">Idées</button>
+      <button data-tab="liens">Liens utiles</button>
     </div>
     <div id="adminBody"></div>`;
-  const RENDERERS = { accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements, idees: renderAdminIdees };
+  const RENDERERS = {
+    accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
+    idees: renderAdminIdees, liens: renderAdminLiens,
+  };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
@@ -376,6 +385,54 @@ async function renderAdminIdees() {
     });
     list.appendChild(row);
   }
+}
+
+/* ---- Administration : liens utiles ---- */
+async function renderAdminLiens() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api("/api/admin/links");
+  if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les liens externes affichés sur l'accueil (icône = un emoji, ex. 🍽️).</p>
+    <div class="card"><div class="card-head"><h3>Liens</h3><button class="link-more" id="linkAdd">+ Ajouter un lien</button></div>
+    <div class="desk-admin-list" id="linksList"></div></div>`;
+  const list = document.getElementById("linksList");
+  for (const l of data) {
+    const row = document.createElement("div"); row.className = "desk-admin-row"; row.dataset.id = l.id;
+    row.innerHTML = `
+      <input class="da-name" style="max-width:50px" value="${l.icon || ""}" data-field="icon" placeholder="🔗">
+      <input class="da-name" value="${l.label}" data-field="label" placeholder="Libellé">
+      <input class="da-name" value="${l.url}" data-field="url" placeholder="https://…">
+      <label class="admin-toggle"><input type="checkbox" data-field="enabled" ${l.enabled ? "checked" : ""}> Actif</label>
+      <button class="da-del" title="Supprimer">✕</button>`;
+    row.querySelectorAll("[data-field]").forEach(inp => inp.addEventListener("change", () => {
+      const val = inp.type === "checkbox" ? inp.checked : inp.value;
+      patchLink(l.id, { [inp.dataset.field]: val });
+    }));
+    row.querySelector(".da-del").addEventListener("click", () => delLink(l.id));
+    list.appendChild(row);
+  }
+  document.getElementById("linkAdd").addEventListener("click", addLink);
+}
+
+async function patchLink(id, patch) {
+  const { ok } = await api(`/api/admin/links/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  toast(ok ? "Enregistré ✓" : "Erreur", ok ? "success" : "error");
+}
+async function addLink() {
+  const label = prompt("Libellé du lien (ex : Mutuelle) :");
+  if (!label) return;
+  const url = prompt("URL complète (https://…) :");
+  if (!url) return;
+  const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon: "🔗" }) });
+  if (ok) { toast("Lien ajouté ✓", "success"); renderAdminLiens(); }
+  else toast(data?.detail || "Erreur", "error");
+}
+async function delLink(id) {
+  if (!confirm("Supprimer ce lien ?")) return;
+  const { ok } = await api(`/api/admin/links/${id}`, { method: "DELETE" });
+  if (ok) { toast("Lien supprimé", "success"); renderAdminLiens(); }
+  else toast("Erreur", "error");
 }
 
 /* ---- Administration : postes & espaces (capacités) ---- */

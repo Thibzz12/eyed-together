@@ -300,6 +300,18 @@ class IdeaComment(Base):
     author: Mapped["User"] = relationship()
 
 
+class UsefulLink(Base):
+    """Lien externe administrable (rubrique 'Liens utiles')."""
+    __tablename__ = "useful_links"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String(100))
+    url: Mapped[str] = mapped_column(String(500))
+    icon: Mapped[str | None] = mapped_column(String(50), nullable=True)   # emoji ou nom d'icône
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class Badge(Base):
     __tablename__ = "badges"
 
