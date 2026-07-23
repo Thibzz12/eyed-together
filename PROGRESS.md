@@ -44,6 +44,10 @@ Modèles `Idea`/`IdeaVote`/`IdeaComment`, service `app/services/ideas.py`, migra
 
 _Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles (fait) → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
 
+_Décision validée par Thibaud (2026-07-23) pour le futur module Médias : **liens externes uniquement** (YouTube/Drive/etc.), pas d'upload de fichiers sur le serveur — plus simple, pas de gestion de stockage._
+
+_Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app en l'état avant que je reprenne sur Recherche/Quiz/Médias/Notifications/Cockpit admin._
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)
