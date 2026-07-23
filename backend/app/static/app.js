@@ -757,6 +757,7 @@ async function viewEvenements() {
     const c = document.createElement("div"); c.className = "event-card";
     c.innerHTML = `<span class="ec-date">${fdate(ev.date, { day: "numeric", month: "long", year: "numeric" })}</span>
       <span class="ec-title" role="button" tabindex="0">${ev.title}</span>
+      ${ev.place ? `<span class="ec-place">📍 ${ev.place}</span>` : ""}
       <div class="event-reg-row">${eventCapacityHtml(ev)}<button class="event-ics-link" data-ics="${ev.id}">+ Calendrier</button></div>
       <div class="event-reg-row">${eventRegBtnHtml(ev)}</div>`;
     c.querySelector(".ec-title").addEventListener("click", () => openEvent(ev.id));
@@ -799,6 +800,7 @@ async function openContent(apiPath, pageTitle, backHash, isEvent) {
     <article class="event-detail">
       <span class="ec-date">${fdate(data.date, { day: "numeric", month: "long", year: "numeric" })}</span>
       <h2 class="ed-title">${data.title}</h2>
+      ${isEvent && data.place ? `<span class="ec-place">📍 ${data.place}</span>` : ""}
       ${isEvent ? `<div class="event-reg-row">${eventCapacityHtml(data)}<button class="event-ics-link" data-ics="${data.id}">+ Ajouter au calendrier</button></div>
         <div class="event-reg-row">${eventRegBtnHtml(data)}</div>` : ""}
       ${data.image ? `<img class="ed-hero" src="${data.image}" alt="">` : ""}

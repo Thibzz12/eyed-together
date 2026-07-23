@@ -123,7 +123,8 @@ class DailyStatusDeclare(BaseModel):
 class EventRead(BaseModel):
     id: int
     title: str
-    date: str           # date ISO (publication)
+    date: str           # date réelle de l'événement (champ ACF), ou date de publication en repli
+    place: str | None = None
     link: str           # lien vers la page de l'intranet
     capacity: int | None = None
     registered_count: int = 0
@@ -143,6 +144,7 @@ class EventDetail(BaseModel):
     id: int
     title: str
     date: str
+    place: str | None = None
     link: str
     image: str | None = None     # image à la une
     content_html: str            # contenu complet (nettoyé) affiché DANS l'app

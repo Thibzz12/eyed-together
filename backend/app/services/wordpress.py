@@ -134,6 +134,19 @@ def fetch_news(limit: int = 4) -> list[dict]:
     return news[:limit]
 
 
+def _event_fields(it: dict, fallback_date: str) -> tuple[str, str | None]:
+    """Date réelle + lieu de l'événement, depuis les champs ACF `date`/`place`
+    (groupe 'Single : Événement', exposés en API REST depuis le 2026-07-23).
+    Retombe sur la date de publication si le champ ACF est absent/vide
+    (ex: contenus `posts` qui n'ont pas ce groupe de champs).
+    """
+    acf = it.get("acf") or {}
+    raw_date = acf.get("date") if isinstance(acf, dict) else None
+    date = raw_date.replace(" ", "T") if raw_date else fallback_date
+    place = (acf.get("place") or None) if isinstance(acf, dict) else None
+    return date, place
+
+
 def fetch_content_detail(rest_base: str, post_id: int) -> dict | None:
     """Contenu complet d'un contenu WordPress (événement `evenement` ou actualité `posts`)."""
     url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/{rest_base}/{post_id}"
@@ -147,10 +160,12 @@ def fetch_content_detail(rest_base: str, post_id: int) -> dict | None:
     media = it.get("_embedded", {}).get("wp:featuredmedia")
     if isinstance(media, list) and media and isinstance(media[0], dict):
         image = media[0].get("source_url")
+    date, place = _event_fields(it, it.get("date", ""))
     return {
         "id": it.get("id"),
         "title": _clean(it.get("title", {}).get("rendered", "")),
-        "date": it.get("date", ""),
+        "date": date,
+        "place": place,
         "link": it.get("link", ""),
         "image": image,
         "content_html": _sanitize(it.get("content", {}).get("rendered", "")),
@@ -162,8 +177,11 @@ def fetch_event_detail(event_id: int) -> dict | None:
 
 
 def fetch_events(limit: int = 6) -> list[dict]:
-    """Derniers événements publiés sur l'intranet (titre, date, lien).
+    """Derniers événements publiés sur l'intranet (titre, date réelle, lieu, lien).
 
+    Triés par date réelle d'événement (champ ACF) décroissante — WordPress ne permet
+    pas de trier nativement sur un champ ACF via l'API REST, donc on récupère un lot
+    plus large (tri par date de publication côté WP) puis on re-trie côté app.
     En cas d'intranet injoignable, renvoie le dernier résultat connu (ou []).
     """
     now = time.time()
@@ -175,7 +193,7 @@ def fetch_events(limit: int = 6) -> list[dict]:
     try:
         resp = httpx.get(
             url,
-            params={"per_page": 10, "orderby": "date", "order": "desc"},
+            params={"per_page": 30, "orderby": "date", "order": "desc"},
             timeout=8.0,
         )
         resp.raise_for_status()
@@ -183,14 +201,16 @@ def fetch_events(limit: int = 6) -> list[dict]:
     except Exception:
         return cached[1][:limit] if cached else []
 
-    events = [
-        {
+    events = []
+    for it in items:
+        date, place = _event_fields(it, it.get("date", ""))
+        events.append({
             "id": it.get("id"),
             "title": _clean(it.get("title", {}).get("rendered", "")),
-            "date": it.get("date", ""),
+            "date": date,
+            "place": place,
             "link": it.get("link", ""),
-        }
-        for it in items
-    ]
+        })
+    events.sort(key=lambda e: e["date"], reverse=True)
     _CACHE["events"] = (now, events)
     return events[:limit]
