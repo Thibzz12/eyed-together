@@ -6,7 +6,7 @@ const state = {
   profile: null,
   // vue Réserver
   date: new Date().toISOString().slice(0, 10),
-  slot: "AM",
+  slot: "DAY",
   floor: null,
   availability: [],
   myReservations: [],
@@ -55,9 +55,20 @@ async function init() {
 
   document.querySelectorAll(".nav-link[data-route], .tab-link[data-route]").forEach(a =>
     a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
-  document.getElementById("selDeselect").addEventListener("click", clearSelection);
-  document.getElementById("selConfirm").addEventListener("click", confirmSelection);
+  document.getElementById("sheetCancelBtn").addEventListener("click", clearSelection);
+  document.getElementById("sheetConfirmBtn").addEventListener("click", confirmSheet);
+  document.getElementById("reserveSheetBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "reserveSheetBackdrop") clearSelection();
+  });
+  document.querySelectorAll("#sheetSlotToggle button").forEach(b => b.addEventListener("click", () => {
+    sheetSlot = b.dataset.slot;
+    document.querySelectorAll("#sheetSlotToggle button").forEach(x => x.classList.toggle("active", x === b));
+  }));
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
+  document.getElementById("menuBtn").addEventListener("click", openMenuSheet);
+  document.getElementById("menuSheetBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "menuSheetBackdrop") document.getElementById("menuSheetBackdrop").classList.add("hidden");
+  });
   document.getElementById("notifBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleNotifPanel(); });
   document.addEventListener("click", (e) => {
     const panel = document.getElementById("notifPanel");
@@ -192,8 +203,14 @@ function renderCard(c) {
     }
   } else if (c.key === "project_progress") {
     extraClass = " banner-card";
-    inner = `<div class="banner-blob"></div>
-      <div class="banner-top"><div><div class="banner-eyebrow">Building Our Future Home</div><div class="banner-title">${c.title}</div></div></div>
+    const daysLeft = data.days_left;
+    const countdown = daysLeft != null
+      ? `<div class="banner-countdown"><span class="bc-num">${daysLeft >= 0 ? "J-" + daysLeft : "J+" + (-daysLeft)}</span><span class="bc-label">${daysLeft >= 0 ? "jours restants" : "jours de retard"}</span></div>`
+      : "";
+    inner = `<div class="banner-top2">
+        <div><div class="banner-eyebrow">Building Our Future Home</div><div class="banner-title">${data.milestone_title || c.title}</div></div>
+        ${countdown}
+      </div>
       <div class="banner-progress"><div class="bp-row"><span>${data.label || ""}</span><span class="bp-pct">${data.value}%</span></div>
       <div class="progress"><i style="width:${data.value}%"></i></div></div>`;
   } else if (c.key === "team_presence") {
@@ -392,9 +409,11 @@ function renderAdminCards() {
   body.innerHTML = `
     <p class="sub" style="color:var(--muted);margin:0 0 16px">Configure l'accueil des collaborateurs : active/désactive les cartes, change l'ordre, mets en avant.</p>
     <div class="card"><h3>Cartes de l'accueil</h3><div class="admin-cards">${rows}</div></div>
-    <div class="card"><h3>Indicateur de progression du projet</h3>
+    <div class="card"><h3>Building Our Future Home</h3>
       <div class="admin-progress">
-        <label>Texte affiché<br><input type="text" id="ppLabel" value="${(adminState.progress.label || "").replace(/"/g, "&quot;")}"></label>
+        <label>Nom du jalon<br><input type="text" id="ppMilestone" value="${(adminState.progress.milestone_title || "").replace(/"/g, "&quot;")}"></label>
+        <label>Texte de phase affiché<br><input type="text" id="ppLabel" value="${(adminState.progress.label || "").replace(/"/g, "&quot;")}"></label>
+        <label>Date cible (compte à rebours)<br><input type="date" id="ppTarget" value="${adminState.progress.target_date || ""}"></label>
         <label>Progression : <b id="ppVal">${adminState.progress.value}</b> %<br>
           <input type="range" id="ppRange" min="0" max="100" value="${adminState.progress.value}"></label>
       </div>
@@ -453,7 +472,10 @@ function moveCard(i, dir) {
 async function saveAdmin() {
   const order = adminState.cards.map(c => ({ id: c.id, enabled: c.enabled, highlighted: c.highlighted }));
   const r1 = await api("/api/admin/dashboard", { method: "PUT", body: JSON.stringify(order) });
-  const r2 = await api("/api/admin/project-progress", { method: "PUT", body: JSON.stringify({ value: +document.getElementById("ppRange").value, label: document.getElementById("ppLabel").value }) });
+  const r2 = await api("/api/admin/project-progress", { method: "PUT", body: JSON.stringify({
+    value: +document.getElementById("ppRange").value, label: document.getElementById("ppLabel").value,
+    milestone_title: document.getElementById("ppMilestone").value, target_date: document.getElementById("ppTarget").value || null,
+  }) });
   const r3 = await api("/api/admin/statuses", { method: "PUT", body: JSON.stringify({ enabled: [...adminState.statusesEnabled] }) });
   if (r1.ok && r2.ok && r3.ok) toast("Accueil mis à jour ✓", "success");
   else toast("Erreur d'enregistrement.", "error");
@@ -769,6 +791,39 @@ function toggleMediaEdit(it, targetId) {
 }
 
 /* ---- Administration : cockpit (KPI + alertes) ---- */
+const CHART_COLORS = ["#0284C7", "#10B981", "#F59E0B", "#F43F5E", "#7A4E86", "#0891b2"];
+
+function svgBarChart(data, { height = 160 } = {}) {
+  const max = Math.max(1, ...data.map(d => d.value));
+  const n = data.length;
+  const barW = 100 / n;
+  const showEvery = n > 10 ? 2 : 1;
+  const bars = data.map((d, i) => {
+    const h = max ? (d.value / max) * (height - 26) : 0;
+    const x = i * barW;
+    const label = i % showEvery === 0 ? `<text x="${x + barW / 2}%" y="${height - 4}" font-size="8.5" text-anchor="middle" fill="#94A3B8">${d.label}</text>` : "";
+    return `<g><title>${d.label} : ${d.value}</title>
+      <rect x="${x + barW * 0.18}%" y="${height - 18 - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#0284C7"></rect>
+      ${label}</g>`;
+  }).join("");
+  return `<svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" class="chart-svg" style="height:${height}px">${bars}</svg>`;
+}
+
+function svgDonutChart(data) {
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const r = 50, c = 2 * Math.PI * r;
+  let offset = 0;
+  const circles = data.map((d, i) => {
+    const dash = (d.value / total) * c;
+    const el = `<circle cx="70" cy="70" r="${r}" fill="none" stroke="${CHART_COLORS[i % CHART_COLORS.length]}" stroke-width="18"
+      stroke-dasharray="${dash} ${c - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 70 70)"><title>${d.label} : ${d.value}</title></circle>`;
+    offset += dash;
+    return el;
+  }).join("");
+  const legend = data.map((d, i) => `<div class="chart-legend-item"><span class="chart-legend-dot" style="background:${CHART_COLORS[i % CHART_COLORS.length]}"></span>${d.label} (${d.value})</div>`).join("");
+  return `<div class="chart-donut-wrap"><svg viewBox="0 0 140 140" class="chart-donut">${circles}</svg><div class="chart-legend">${legend || `<div class="empty">Aucune donnée.</div>`}</div></div>`;
+}
+
 async function renderAdminStats() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
@@ -786,10 +841,25 @@ async function renderAdminStats() {
     { label: "Idées soumises", value: `${k.ideas_total} (${k.ideas_votes} votes)` },
     { label: "Médias publiés", value: k.media_total },
   ];
+  const ch = data.charts;
   body.innerHTML = `
     <p class="sub" style="color:var(--muted);margin:0 0 16px">Vue d'ensemble de l'activité sur l'application.</p>
     <div class="stats-grid">${tiles.map(t => `
       <div class="card stat-tile"><div class="stat-value">${t.value}</div><div class="stat-label">${t.label}</div></div>`).join("")}</div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Réservations — 14 derniers jours</h3>
+      ${svgBarChart(ch.reservations_by_day)}
+    </div>
+    <div class="dash-cols" style="margin-top:16px">
+      <div class="card"><h3>Idées par statut</h3>${svgDonutChart(ch.ideas_by_status)}</div>
+      <div class="card"><h3>Inscriptions événements</h3>${svgDonutChart(ch.event_registrations_by_status)}</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Répartition des scores de quiz</h3>
+      ${svgBarChart(ch.quiz_score_distribution, { height: 140 })}
+    </div>
+
     <div class="card" style="margin-top:16px">
       <h3>Alertes</h3>
       <div class="idea-comment-list">${data.alerts.length
@@ -883,11 +953,6 @@ function viewReserver() {
           <span class="dp-n">${d.getDate()}</span></button>`;
       }).join("")}
     </div>
-    <div class="controls">
-      <div class="segmented" id="slotToggle">
-        <button data-slot="AM" class="active">Matin</button><button data-slot="PM">Après-midi</button><button data-slot="DAY">Journée</button>
-      </div>
-    </div>
     <div class="legend">
       <span class="lg"><span class="sw free"></span> Libre</span>
       <span class="lg"><span class="sw occupied"></span> Occupé</span>
@@ -913,10 +978,6 @@ function viewReserver() {
       b.classList.add("active"); state.date = b.dataset.day; clearSelection(); loadReserve();
     });
   });
-  document.querySelectorAll("#slotToggle button").forEach(b => b.addEventListener("click", () => {
-    document.querySelectorAll("#slotToggle button").forEach(x => x.classList.remove("active"));
-    b.classList.add("active"); state.slot = b.dataset.slot; clearSelection(); loadReserve();
-  }));
   loadReserve();
 }
 
@@ -954,10 +1015,12 @@ function renderTables() {
   function section(title, tables) {
     if (!tables.length) return "";
     const widgets = tables.map(t => `
-      <div class="table-widget">
-        <div class="ts-row">${t.topSeats.map(seatHtml).join("")}</div>
-        <div class="ts-surface">${t.cap} pl.</div>
-        <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
+      <div class="table-widget-wrap">
+        <div class="table-widget">
+          <div class="ts-row">${t.topSeats.map(seatHtml).join("")}</div>
+          <div class="ts-surface">${t.cap} pl.</div>
+          <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
+        </div>
         <div class="ts-label">${t.label}</div>
       </div>`).join("");
     return `<div class="section-eyebrow">${title}</div>
@@ -980,34 +1043,48 @@ function renderTables() {
   });
 }
 
+let sheetSlot = "DAY";
+
 function selectSeat(item, mineHere) {
   let resIds = [];
   if (mineHere) {
     resIds = state.myReservations
-      .filter(r => r.desk.id === item.desk.id && r.reservation_date === state.date && (state.slot === "DAY" || r.slot === state.slot))
+      .filter(r => r.desk.id === item.desk.id && r.reservation_date === state.date)
       .map(r => r.id);
   }
-  state.selected = { deskId: item.desk.id, name: item.desk.name, mine: mineHere, resIds };
-  renderTables(); renderSelectionBar();
+  state.selected = { deskId: item.desk.id, name: item.desk.name, zone: item.desk.zone, mine: mineHere, resIds };
+  renderTables(); openReserveSheet();
 }
 function clearSelection() {
   state.selected = null;
-  const bar = document.getElementById("selectionBar"); if (bar) bar.classList.add("hidden");
+  closeReserveSheet();
   if (document.getElementById("tableSections")) renderTables();
 }
-function renderSelectionBar() {
-  const bar = document.getElementById("selectionBar"); if (!state.selected) { bar.classList.add("hidden"); return; }
-  document.getElementById("selDesk").textContent = "Poste " + state.selected.name;
-  document.getElementById("selMeta").textContent = `${fdate(state.date)} · ${slotLabel(state.slot)}`;
-  const c = document.getElementById("selConfirm");
-  if (state.selected.mine) { c.textContent = "Annuler la réservation"; c.classList.add("danger"); }
-  else { c.textContent = "Confirmer la réservation"; c.classList.remove("danger"); }
-  bar.classList.remove("hidden");
+function openReserveSheet() {
+  if (!state.selected) return;
+  sheetSlot = "DAY";
+  document.getElementById("sheetTitle").textContent = "Poste " + state.selected.name;
+  document.getElementById("sheetSub").textContent = `${state.selected.zone || "Open space"} · ${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })}`;
+  const mine = document.getElementById("sheetMineNotice");
+  const durationBox = document.getElementById("sheetDuration");
+  const confirmBtn = document.getElementById("sheetConfirmBtn");
+  if (state.selected.mine) {
+    durationBox.classList.add("hidden"); mine.classList.remove("hidden");
+    confirmBtn.textContent = "Annuler la réservation"; confirmBtn.classList.add("danger");
+  } else {
+    durationBox.classList.remove("hidden"); mine.classList.add("hidden");
+    confirmBtn.textContent = "Confirmer"; confirmBtn.classList.remove("danger");
+    document.querySelectorAll("#sheetSlotToggle button").forEach(b => b.classList.toggle("active", b.dataset.slot === sheetSlot));
+  }
+  document.getElementById("reserveSheetBackdrop").classList.remove("hidden");
 }
-async function confirmSelection() {
+function closeReserveSheet() {
+  document.getElementById("reserveSheetBackdrop").classList.add("hidden");
+}
+async function confirmSheet() {
   if (!state.selected) return;
   if (state.selected.mine) { for (const id of state.selected.resIds) await cancelRes(id); }
-  else await book(state.selected.deskId);
+  else await book(state.selected.deskId, sheetSlot);
   clearSelection();
 }
 function renderMyReservations() {
@@ -1033,10 +1110,10 @@ function renderMyReservations() {
     box.appendChild(el);
   }
 }
-async function book(deskId) {
-  const { ok, data } = await api("/api/reservations", { method: "POST", body: JSON.stringify({ desk_id: deskId, reservation_date: state.date, slot: state.slot }) });
+async function book(deskId, slot) {
+  const { ok, data } = await api("/api/reservations", { method: "POST", body: JSON.stringify({ desk_id: deskId, reservation_date: state.date, slot }) });
   if (!ok) return toast(data?.detail || "Réservation impossible.", "error");
-  const pts = state.slot === "DAY" ? 20 : 10;
+  const pts = slot === "DAY" ? 20 : 10;
   refreshPoints(+pts); floatPoint(); toast(`Réservé ! +${pts} points ⭐`, "success"); loadReserve();
 }
 async function cancelRes(id) {
@@ -1142,34 +1219,76 @@ function openNews(id) { openContent("/api/news/" + id, "Actualité", "accueil");
 /* ============================================================
    VUE : MA PRÉSENCE (déclaration de statut)
    ============================================================ */
+const STATUS_COLOR = { coworking: "#0284C7", teletravail: "#7A4E86", deplacement: "#B4761C", conge: "#94A3B8" };
+let presenceState = { days: [], byDay: {}, selected: null };
+
 async function viewPresence() {
   const view = document.getElementById("view");
-  view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Indique où tu seras pour les prochains jours. C'est visible par tes collègues.</p><div class="week" id="week"></div>`;
-  // 5 prochains jours ouvrés
   const days = []; const d = new Date();
   while (days.length < 7) { if (d.getDay() !== 0 && d.getDay() !== 6) days.push(new Date(d)); d.setDate(d.getDate() + 1); }
   const from = days[0].toISOString().slice(0, 10), to = days[days.length - 1].toISOString().slice(0, 10);
   const rows = (await api(`/api/status/me?from=${from}&to=${to}`)).data || [];
   const byDay = {}; for (const r of rows) byDay[r.day] = r.status;
+  presenceState = { days, byDay, selected: days[0].toISOString().slice(0, 10) };
 
-  const week = document.getElementById("week");
-  for (const day of days) {
+  view.innerHTML = `
+    <div class="hero-banner presence-hero">
+      <div class="banner-eyebrow">MA PRÉSENCE</div>
+      <div class="banner-title" style="margin-bottom:14px">Où seras-tu cette semaine ?</div>
+      <div class="presence-daystrip" id="presenceDaystrip"></div>
+    </div>
+    <div class="card presence-card">
+      <h3 id="presenceDayTitle"></h3>
+      <div class="presence-status-grid" id="presenceStatusGrid"></div>
+    </div>
+    <div class="card search-section"><h3>Vue de la semaine</h3><div class="list" id="presenceWeekList"></div></div>`;
+  renderPresenceDaystrip();
+  renderPresenceStatusGrid();
+  renderPresenceWeekList();
+}
+
+function renderPresenceDaystrip() {
+  const box = document.getElementById("presenceDaystrip");
+  box.innerHTML = presenceState.days.map(day => {
     const iso = day.toISOString().slice(0, 10);
-    const row = document.createElement("div"); row.className = "day-row";
-    row.innerHTML = `<div class="day-name">${day.toLocaleDateString("fr-FR", { weekday: "long" })}<small>${day.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</small></div>`;
-    const opts = document.createElement("div"); opts.className = "status-opts";
-    for (const [key, lbl] of enabledStatusEntries()) {
-      const b = document.createElement("button");
-      b.className = "status-opt" + (key === "coworking" ? " coworking" : "") + (byDay[iso] === key ? " on" : "");
-      b.textContent = lbl;
-      b.addEventListener("click", async () => {
-        const ok = await setStatus(iso, key);
-        if (ok) { opts.querySelectorAll(".status-opt").forEach(x => x.classList.remove("on")); b.classList.add("on"); }
-      });
-      opts.appendChild(b);
-    }
-    row.appendChild(opts); week.appendChild(row);
-  }
+    const status = presenceState.byDay[iso];
+    const dotColor = status ? STATUS_COLOR[status] : "transparent";
+    return `<button class="pd-pill${iso === presenceState.selected ? " active" : ""}" data-day="${iso}">
+      <span class="pd-d">${day.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
+      <span class="pd-n">${day.getDate()}</span>
+      <span class="pd-dot" style="background:${dotColor}"></span></button>`;
+  }).join("");
+  box.querySelectorAll("[data-day]").forEach(b => b.addEventListener("click", () => {
+    presenceState.selected = b.dataset.day;
+    renderPresenceDaystrip(); renderPresenceStatusGrid();
+  }));
+}
+
+function renderPresenceStatusGrid() {
+  const iso = presenceState.selected;
+  const day = presenceState.days.find(d => d.toISOString().slice(0, 10) === iso);
+  document.getElementById("presenceDayTitle").textContent = day.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const grid = document.getElementById("presenceStatusGrid");
+  const current = presenceState.byDay[iso];
+  grid.innerHTML = enabledStatusEntries().map(([key, lbl]) => `
+    <button class="presence-status-tile${current === key ? " on" : ""}" data-status="${key}" style="--tile-color:${STATUS_COLOR[key]}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[key]}</svg>
+      <span>${lbl}</span>
+    </button>`).join("");
+  grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", async () => {
+    const ok = await setStatus(iso, b.dataset.status);
+    if (ok) { presenceState.byDay[iso] = b.dataset.status; renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList(); }
+  }));
+}
+
+function renderPresenceWeekList() {
+  const box = document.getElementById("presenceWeekList");
+  box.innerHTML = presenceState.days.map(day => {
+    const iso = day.toISOString().slice(0, 10);
+    const status = presenceState.byDay[iso];
+    return `<div class="event-item"><span class="event-date">${day.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</span>
+      <span class="event-title">${status ? `<span class="ev-status-badge" style="background:${STATUS_COLOR[status]}22;color:${STATUS_COLOR[status]}">${STATUS[status] || status}</span>` : `<span class="muted">Non déclaré</span>`}</span></div>`;
+  }).join("");
 }
 
 async function setStatus(day, status) {
@@ -1530,7 +1649,20 @@ async function toggleNotifPanel() {
    PROFIL D'UN COLLABORATEUR (le sien = onglet "Profil", ou celui
    d'un collègue depuis la Recherche)
    ============================================================ */
-const LEVEL_THRESHOLDS = [{ min: 300, label: "Platine" }, { min: 150, label: "Or" }, { min: 50, label: "Argent" }, { min: 0, label: "Bronze" }];
+function openMenuSheet() {
+  const items = [
+    { route: "idees", label: "Idées", icon: "💡" }, { route: "quiz", label: "Quiz", icon: "🧠" },
+    { route: "medias", label: "Médias", icon: "🎬" }, { route: "recherche", label: "Recherche", icon: "🔍" },
+  ];
+  if (state.profile.role === "admin") items.push({ route: "admin", label: "Administration", icon: "⚙️" });
+  document.getElementById("menuGrid").innerHTML = items.map(e => `
+    <button class="explore-tile" data-go-menu="${e.route}"><span class="explore-icon">${e.icon}</span><span>${e.label}</span></button>`).join("");
+  document.querySelectorAll("[data-go-menu]").forEach(b => b.addEventListener("click", () => {
+    document.getElementById("menuSheetBackdrop").classList.add("hidden");
+    goTo(b.dataset.goMenu);
+  }));
+  document.getElementById("menuSheetBackdrop").classList.remove("hidden");
+}
 
 async function openUserProfile(userId) {
   const { ok, data } = await fetchProfileData(userId);
@@ -1564,23 +1696,10 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
   const quizRows = data.quiz_results.map(q => `
     <div class="event-item"><span class="event-title">${q.quiz_title}</span><span class="ev-status-badge">${q.score}/${q.total}</span></div>`).join("") || `<div class="empty">Aucun quiz passé.</div>`;
 
-  const level = LEVEL_THRESHOLDS.find(l => data.total_points >= l.min);
-  const nextLevel = [...LEVEL_THRESHOLDS].reverse().find(l => l.min > data.total_points);
-  const prevMin = level.min;
-  const pct = nextLevel ? Math.round((data.total_points - prevMin) / (nextLevel.min - prevMin) * 100) : 100;
-
   const badgesHtml = data.badges.map(b => `
     <div class="badge-tile${b.earned ? " earned" : ""}" title="${(b.description || "").replace(/"/g, "&quot;")}">
       <div class="badge-icon">${b.icon || "🏅"}</div><div class="badge-name">${b.name}</div>
     </div>`).join("");
-
-  const explore = [
-    { route: "idees", label: "Idées", icon: "💡" }, { route: "quiz", label: "Quiz", icon: "🧠" },
-    { route: "medias", label: "Médias", icon: "🎬" }, { route: "recherche", label: "Recherche", icon: "🔍" },
-  ];
-  if (state.profile.role === "admin") explore.push({ route: "admin", label: "Administration", icon: "⚙️" });
-  const exploreHtml = explore.map(e => `
-    <button class="explore-tile" data-go-explore="${e.route}"><span class="explore-icon">${e.icon}</span><span>${e.label}</span></button>`).join("");
 
   view.innerHTML = `
     ${!isOwn ? `<button class="btn-back" id="backBtn">${backLabel}</button>` : ""}
@@ -1589,23 +1708,27 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
         <div class="colleague-av" style="background:${colorFor(data.name)};width:52px;height:52px;font-size:1.1rem">${initials(data.name)}</div>
         <div><div class="idea-title" style="font-size:1.1rem;color:#fff">${data.name}</div>
           <div class="profile-sub">${data.department ? data.department + " · " : ""}${data.role === "admin" ? "Administrateur" : "Collaborateur"}</div>
-          ${isOwn ? `<div class="profile-sub">✓ Connecté · SSO EyeD</div>` : ""}</div>
+          ${isOwn ? `<div class="profile-sub">✓ Connecté · SSO EyeD${data.streak_days >= 2 ? ` · 🔥 ${data.streak_days} jours de suite` : ""}</div>` : ""}</div>
       </div>
       <div class="level-card">
-        <div class="level-row"><span>⭐ ${data.total_points} points</span><b>Niveau ${level.label}</b></div>
-        <div class="progress"><i style="width:${pct}%"></i></div>
-        <div class="level-hint">${nextLevel ? `${nextLevel.min - data.total_points} points avant le niveau ${nextLevel.label}` : "Niveau maximum atteint 🎉"}</div>
+        <div class="level-row"><span>⭐ ${data.total_points} points</span><b>Niveau ${data.level}</b></div>
+        <div class="progress"><i style="width:${data.level_progress_pct}%"></i></div>
+        <div class="level-hint">${data.points_to_next_level} points avant le niveau ${data.next_level_label}</div>
       </div>
     </div>
     <div class="card search-section"><h3>Badges <span class="badge-count">${data.badges.filter(b => b.earned).length}/${data.badges.length}</span></h3>
       <div class="badges-grid">${badgesHtml}</div></div>
-    ${isOwn ? `<div class="card search-section"><h3>Explorer</h3><div class="explore-grid">${exploreHtml}</div></div>` : ""}
     <div class="card search-section"><h3>Présence des prochains jours</h3><div class="list">${statusRows}</div></div>
     <div class="card search-section"><h3>Réservations à venir</h3><div class="list">${resRows}</div></div>
     <div class="card search-section"><h3>Idées soumises</h3><div class="list">${ideaRows}</div></div>
     <div class="card search-section"><h3>Quiz passés</h3><div class="list">${quizRows}</div></div>
     ${isOwn ? `
-    <div class="card search-section"><h3>🏆 Classement général</h3><div class="list" id="leaderboardList"><div class="empty">Chargement…</div></div></div>
+    <div class="card search-section">
+      <div class="card-head"><h3>🏆 Classement</h3>
+        <div class="segmented" id="lbPeriodToggle"><button data-period="all" class="active">Général</button><button data-period="month">Ce mois-ci</button></div>
+      </div>
+      <div class="list" id="leaderboardList"><div class="empty">Chargement…</div></div>
+    </div>
     <div class="card search-section"><h3>Paramètres</h3>
       <div class="profile-setting-row"><span>Email</span><span class="muted">${data.email}</span></div>
       <div class="profile-setting-row"><span>Département</span><span class="muted">${data.department || "—"}</span></div>
@@ -1613,13 +1736,19 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
     </div>` : ""}`;
 
   if (!isOwn) document.getElementById("backBtn").addEventListener("click", () => goTo(backRoute));
-  view.querySelectorAll("[data-go-explore]").forEach(b => b.addEventListener("click", () => goTo(b.dataset.goExplore)));
-  if (isOwn) loadLeaderboard(data.id);
+  if (isOwn) {
+    loadLeaderboard(data.id, "all");
+    document.querySelectorAll("#lbPeriodToggle button").forEach(b => b.addEventListener("click", () => {
+      document.querySelectorAll("#lbPeriodToggle button").forEach(x => x.classList.remove("active"));
+      b.classList.add("active"); loadLeaderboard(data.id, b.dataset.period);
+    }));
+  }
 }
 
-async function loadLeaderboard(myId) {
+async function loadLeaderboard(myId, period) {
   const box = document.getElementById("leaderboardList");
-  const rows = (await api("/api/leaderboard")).data || [];
+  box.innerHTML = `<div class="empty">Chargement…</div>`;
+  const rows = (await api(`/api/leaderboard?period=${period}`)).data || [];
   box.innerHTML = rows.map((r, i) => `
     <div class="event-item leaderboard-row${r.id === myId ? " me" : ""}"><span class="event-date">#${i + 1}</span>
       <span class="event-title">${r.name}${r.id === myId ? " (toi)" : ""}</span><span class="ev-status-badge">${r.total_points} pts</span></div>`).join("")

@@ -247,6 +247,8 @@ def admin_dashboard(db: Session = Depends(get_db), _=Depends(require_admin)):
         "project_progress": {
             "value": int(get_setting(db, "project_progress_value", "0") or 0),
             "label": get_setting(db, "project_progress_label", ""),
+            "milestone_title": get_setting(db, "project_milestone_title", "Nouveaux locaux"),
+            "target_date": get_setting(db, "project_target_date", "") or None,
         },
     }
 
@@ -320,6 +322,8 @@ def admin_project_progress(
     """Met à jour l'indicateur de progression du projet."""
     set_setting(db, "project_progress_value", str(max(0, min(100, data.value))))
     set_setting(db, "project_progress_label", data.label)
+    set_setting(db, "project_milestone_title", data.milestone_title)
+    set_setting(db, "project_target_date", data.target_date.isoformat() if data.target_date else "")
     db.commit()
     return {"ok": True}
 
@@ -440,15 +444,15 @@ def user_profile(user_id: int, db: Session = Depends(get_db), _=Depends(get_curr
 
 
 @router.get("/leaderboard")
-def leaderboard(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Classement général par points de collaboration."""
-    return get_leaderboard(db)
+def leaderboard(period: str = "all", db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Classement par points de collaboration : "all" (total) ou "month" (ce mois-ci)."""
+    return get_leaderboard(db, period=period if period in ("all", "month") else "all")
 
 
 @router.get("/admin/stats")
 def admin_stats(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Cockpit : KPI agrégés + alertes."""
-    return {"kpis": stats_svc.get_kpis(db), "alerts": stats_svc.get_alerts(db)}
+    """Cockpit : KPI agrégés + alertes + séries pour les graphiques."""
+    return {"kpis": stats_svc.get_kpis(db), "alerts": stats_svc.get_alerts(db), "charts": stats_svc.get_charts(db)}
 
 
 @router.get("/notifications")

@@ -77,6 +77,59 @@ def get_kpis(db: Session) -> dict:
     }
 
 
+def get_charts(db: Session) -> dict:
+    """Séries de données pour les graphiques du cockpit (barres/donut)."""
+    today = date.today()
+
+    # Réservations par jour, 14 derniers jours (barres)
+    start14 = today - timedelta(days=13)
+    rows = db.execute(
+        select(m.Reservation.reservation_date, func.count()).where(
+            m.Reservation.reservation_date >= start14, m.Reservation.reservation_date <= today,
+            m.Reservation.status != m.ReservationStatus.CANCELLED,
+        ).group_by(m.Reservation.reservation_date)
+    ).all()
+    by_day = {d.isoformat(): c for d, c in rows}
+    reservations_by_day = [
+        {"label": (start14 + timedelta(days=i)).strftime("%d/%m"), "value": by_day.get((start14 + timedelta(days=i)).isoformat(), 0)}
+        for i in range(14)
+    ]
+
+    # Répartition des idées par statut (donut)
+    idea_rows = db.execute(select(m.Idea.status, func.count()).group_by(m.Idea.status)).all()
+    idea_labels = {
+        "new": "Nouvelle", "under_review": "Étudiée", "accepted": "Acceptée",
+        "rejected": "Refusée", "archived": "Archivée",
+    }
+    ideas_by_status = [{"label": idea_labels.get(s.value, s.value), "value": c} for s, c in idea_rows if c]
+
+    # Distribution des scores de quiz (barres, buckets de 25%)
+    attempts = db.scalars(select(m.QuizAttempt))
+    buckets = [0, 0, 0, 0]
+    for a in attempts:
+        if not a.total:
+            continue
+        pct = a.score / a.total * 100
+        idx = min(3, int(pct // 25))
+        buckets[idx] += 1
+    quiz_score_distribution = [
+        {"label": "0-24%", "value": buckets[0]}, {"label": "25-49%", "value": buckets[1]},
+        {"label": "50-74%", "value": buckets[2]}, {"label": "75-100%", "value": buckets[3]},
+    ]
+
+    # Inscriptions aux événements par statut (donut)
+    reg_rows = db.execute(select(m.EventRegistration.status, func.count()).group_by(m.EventRegistration.status)).all()
+    reg_labels = {"registered": "Inscrit", "waitlisted": "Liste d'attente", "cancelled": "Annulé"}
+    event_registrations_by_status = [{"label": reg_labels.get(s.value, s.value), "value": c} for s, c in reg_rows if c]
+
+    return {
+        "reservations_by_day": reservations_by_day,
+        "ideas_by_status": ideas_by_status,
+        "quiz_score_distribution": quiz_score_distribution,
+        "event_registrations_by_status": event_registrations_by_status,
+    }
+
+
 def get_alerts(db: Session) -> list[str]:
     alerts = []
 

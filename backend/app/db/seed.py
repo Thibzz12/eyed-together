@@ -149,8 +149,15 @@ def seed_dashboard_if_empty(db: Session) -> int:
             if key not in existing_keys:
                 db.add(m.DashboardCard(key=key, title=title, position=position, highlighted=highlighted, enabled=True))
                 created += 1
-    # Réglages progression projet
-    for key, val in (("project_progress_value", "35"), ("project_progress_label", "Aménagement des nouveaux bureaux")):
+    # Réglages progression projet ("fil rouge" Building Our Future Home)
+    from datetime import timedelta
+    default_target = (date.today() + timedelta(days=90)).isoformat()
+    for key, val in (
+        ("project_progress_value", "35"),
+        ("project_progress_label", "Phase 2 · Aménagement"),
+        ("project_milestone_title", "Nouveaux locaux"),
+        ("project_target_date", default_target),
+    ):
         if not db.get(m.AppSetting, key):
             db.add(m.AppSetting(key=key, value=val))
     db.commit()
