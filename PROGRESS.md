@@ -33,8 +33,8 @@ _Dernière mise à jour : 2026-07-24_
 - [ ] Quiz (QCM, classements, badges, intégration Kahoot)
 - [ ] Médias (bibliothèque vidéo, albums photos)
 - [ ] Notifications (email/Teams/push configurables)
-- [ ] Recherche globale
-- [ ] Boîte à idées
+- [x] **Recherche globale — FAIT (2026-07-24)** : icône loupe dans le topbar, page dédiée avec recherche live (debounce 300ms) sur collaborateurs (nom/email), événements + actualités (délègue au paramètre `search=` natif de l'API WordPress), idées (titre/description), liens utiles (libellé). Résultats groupés par catégorie, clic sur événement/actualité ouvre le détail, clic sur un lien l'ouvre dans un nouvel onglet. `GET /api/search?q=`, service `app/services/search.py`. Testé : "jog" (événements+actus), "Camille" (collaborateur), mobile 375px sans débordement, zéro erreur console.
+- [x] Boîte à idées (voir section dédiée plus bas)
 - [x] **Liens utiles administrables — FAIT (2026-07-23)** : modèle `UsefulLink`, CRUD complet (`/api/admin/links`), nouvelle carte accueil "Liens utiles" (icône emoji + libellé + url, ouvre dans un nouvel onglet), onglet Administration → "Liens utiles". Distinct des 4 tuiles "Services rapides" déjà existantes (celles-ci restent statiques, avec icônes SVG sur-mesure — le cahier des charges demandait une rubrique *administrable*, donc séparée). Testé : ajout d'un lien depuis l'admin reflété immédiatement sur l'accueil, mobile 375px sans débordement, zéro erreur console.
 - [ ] Cockpit admin avancé (KPI, stats, alertes)
 
@@ -42,7 +42,7 @@ _Dernière mise à jour : 2026-07-24_
 
 Modèles `Idea`/`IdeaVote`/`IdeaComment`, service `app/services/ideas.py`, migration Alembic `4d924b085fda`. Page "Boîte à idées" (nav sidebar) : formulaire de soumission (titre/description/catégorie libre/case "anonyme"), liste triée par popularité (nb de votes), vote (bascule 1 vote max/personne/idée), commentaires par idée (dépliable). Administration → onglet "Idées" : select de statut par idée (nouvelle → étudiée → acceptée/refusée/archivée), une idée archivée disparaît de la liste employé. Testé : soumission, vote, commentaire, changement de statut admin reflété côté employé, mobile 375px sans débordement, zéro erreur console.
 
-_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles (fait) → Recherche globale → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
+_Toute la totalité du cahier des charges est visée (demande explicite de Thibaud le 2026-07-23) — ordre de traitement choisi par moi : Événements (fait) → Boîte à idées (fait) → Liens utiles (fait) → Recherche globale (fait) → Quiz → Médias → Notifications → Cockpit admin avancé (en dernier, car il agrège les données des autres modules)._
 
 _Décision validée par Thibaud (2026-07-23) pour le futur module Médias : **liens externes uniquement** (YouTube/Drive/etc.), pas d'upload de fichiers sur le serveur — plus simple, pas de gestion de stockage._
 

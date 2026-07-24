@@ -58,6 +58,7 @@ async function init() {
   document.getElementById("selDeselect").addEventListener("click", clearSelection);
   document.getElementById("selConfirm").addEventListener("click", confirmSelection);
   document.getElementById("mobileMenuBtn").addEventListener("click", toggleMobileMenu);
+  document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.addEventListener("click", e => {
     const sb = document.querySelector(".sidebar");
     if (sb.classList.contains("open") && !sb.contains(e.target) && e.target.id !== "mobileMenuBtn" && !document.getElementById("mobileMenuBtn").contains(e.target)) closeMobileMenu();
@@ -92,6 +93,7 @@ const ROUTES = {
   evenements: { title: "Événements", render: viewEvenements },
   presence: { title: "Ma présence", render: viewPresence },
   idees: { title: "Boîte à idées", render: viewIdees },
+  recherche: { title: "Recherche", render: viewRecherche },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -943,6 +945,69 @@ async function loadIdeaComments(ideaId) {
     const btn = document.querySelector(`[data-comments="${ideaId}"]`);
     if (btn) btn.textContent = "💬 " + (comments.length + 1) + " commentaire(s)";
   });
+}
+
+/* ============================================================
+   VUE : RECHERCHE GLOBALE
+   ============================================================ */
+const SEARCH_SECTIONS = [
+  { key: "collaborateurs", title: "Collaborateurs" },
+  { key: "evenements", title: "Événements" },
+  { key: "actualites", title: "Actualités" },
+  { key: "idees", title: "Idées" },
+  { key: "liens", title: "Liens utiles" },
+];
+
+function viewRecherche() {
+  const view = document.getElementById("view");
+  view.innerHTML = `
+    <div class="search-bar"><input type="text" id="searchInput" placeholder="Rechercher un collaborateur, un événement, une idée…" autocomplete="off"></div>
+    <div id="searchResults"></div>`;
+  const input = document.getElementById("searchInput");
+  input.focus();
+  let timer;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => runSearch(input.value.trim()), 300);
+  });
+}
+
+async function runSearch(q) {
+  const results = document.getElementById("searchResults");
+  if (!q) { results.innerHTML = ""; return; }
+  results.innerHTML = `<div class="empty">Recherche…</div>`;
+  const { ok, data } = await api(`/api/search?q=${encodeURIComponent(q)}`);
+  if (!ok) { results.innerHTML = `<div class="empty">Erreur de recherche.</div>`; return; }
+  const total = SEARCH_SECTIONS.reduce((n, s) => n + (data[s.key] || []).length, 0);
+  if (!total) { results.innerHTML = `<div class="empty">Aucun résultat pour « ${q} ».</div>`; return; }
+  results.innerHTML = SEARCH_SECTIONS.filter(s => (data[s.key] || []).length).map(s => `
+    <div class="card search-section">
+      <h3>${s.title}</h3>
+      <div class="list">${searchItemsHtml(s.key, data[s.key])}</div>
+    </div>`).join("");
+  results.querySelectorAll("[data-search-event]").forEach(el => el.addEventListener("click", () => openEvent(+el.dataset.searchEvent)));
+  results.querySelectorAll("[data-search-news]").forEach(el => el.addEventListener("click", () => openNews(+el.dataset.searchNews)));
+  results.querySelectorAll("[data-search-link]").forEach(el => el.addEventListener("click", () => window.open(el.dataset.searchLink, "_blank", "noopener")));
+}
+
+function searchItemsHtml(key, items) {
+  if (key === "collaborateurs") {
+    return items.map(u => `<div class="event-item"><span class="colleague-av" style="background:${colorFor(u.name)};width:28px;height:28px;font-size:.7rem;flex-shrink:0">${initials(u.name)}</span>
+      <span class="event-title">${u.name}${u.department ? ` · <span class="muted">${u.department}</span>` : ""}</span></div>`).join("");
+  }
+  if (key === "evenements") {
+    return items.map(e => `<div class="event-item" data-search-event="${e.id}"><span class="event-date">${fdate(e.date, { day: "numeric", month: "short" })}</span><span class="event-title">${e.title}</span></div>`).join("");
+  }
+  if (key === "actualites") {
+    return items.map(n => `<div class="event-item" data-search-news="${n.id}"><span class="event-date">${fdate(n.date, { day: "numeric", month: "short" })}</span><span class="event-title">${n.title}</span></div>`).join("");
+  }
+  if (key === "idees") {
+    return items.map(i => `<div class="event-item"><span class="event-title">${i.title}${i.category ? ` · <span class="muted">${i.category}</span>` : ""}</span></div>`).join("");
+  }
+  if (key === "liens") {
+    return items.map(l => `<div class="event-item" data-search-link="${l.url}"><span class="event-title">${l.icon || "🔗"} ${l.label}</span></div>`).join("");
+  }
+  return "";
 }
 
 /* ---------------- Effets ---------------- */

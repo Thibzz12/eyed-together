@@ -172,6 +172,46 @@ def fetch_content_detail(rest_base: str, post_id: int) -> dict | None:
     }
 
 
+def search_events(q: str, limit: int = 8) -> list[dict]:
+    """Recherche d'événements par mot-clé (délègue au paramètre `search` natif de WordPress)."""
+    url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/evenement"
+    try:
+        resp = httpx.get(url, params={"search": q, "per_page": limit}, timeout=8.0)
+        resp.raise_for_status()
+        items = resp.json()
+    except Exception:
+        return []
+    return [
+        {
+            "id": it.get("id"),
+            "title": _clean(it.get("title", {}).get("rendered", "")),
+            "date": _event_fields(it, it.get("date", ""))[0],
+            "link": it.get("link", ""),
+        }
+        for it in items
+    ]
+
+
+def search_news(q: str, limit: int = 8) -> list[dict]:
+    """Recherche d'actualités par mot-clé."""
+    url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/posts"
+    try:
+        resp = httpx.get(url, params={"search": q, "per_page": limit}, timeout=8.0)
+        resp.raise_for_status()
+        items = resp.json()
+    except Exception:
+        return []
+    return [
+        {
+            "id": it.get("id"),
+            "title": _clean(it.get("title", {}).get("rendered", "")),
+            "date": it.get("date", ""),
+            "link": it.get("link", ""),
+        }
+        for it in items
+    ]
+
+
 def fetch_event_detail(event_id: int) -> dict | None:
     return fetch_content_detail("evenement", event_id)
 
