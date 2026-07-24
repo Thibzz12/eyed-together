@@ -18,6 +18,7 @@ from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
 from app.services import reservations as svc
+from app.services.search import search_all
 from app.services.dashboard import (
     ALL_STATUSES,
     build_dashboard,
@@ -417,6 +418,12 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
     if link is not None:
         db.delete(link)
         db.commit()
+
+
+@router.get("/search")
+def search(q: str = Query("", min_length=0), db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Recherche globale : collaborateurs, événements, actualités, idées, liens utiles."""
+    return search_all(db, q)
 
 
 @router.get("/ideas")
