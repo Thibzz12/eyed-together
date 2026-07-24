@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db import models as m
 
 
@@ -32,3 +33,18 @@ def upsert_user_from_claims(db: Session, claims: dict) -> m.User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def sync_admin_role(db: Session, user: m.User) -> None:
+    """Applique la liste blanche d'admins (`settings.ADMIN_EMAILS`) à chaque connexion.
+
+    Source de vérité = la liste blanche, PAS le rôle WordPress de la personne :
+    un admin de l'intranet WordPress n'est pas automatiquement admin de cette app.
+    Rétrograde aussi automatiquement quelqu'un qui sortirait de la liste.
+    """
+    should_be_admin = user.email.lower() in settings.admin_emails
+    new_role = m.UserRole.ADMIN if should_be_admin else m.UserRole.EMPLOYEE
+    if user.role != new_role:
+        user.role = new_role
+        db.commit()
+        db.refresh(user)

@@ -15,7 +15,7 @@ from app.auth.msal_client import SCOPES, build_msal_app
 from app.core.config import settings
 from app.db import models as m
 from app.db.session import get_db
-from app.services.users import upsert_user_from_claims
+from app.services.users import sync_admin_role, upsert_user_from_claims
 from app.services.wordpress import WordPressAuthError, authenticate_wp, verify_bridge_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -49,9 +49,7 @@ def wordpress_callback(token: str, request: Request, db: Session = Depends(get_d
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Jeton de connexion invalide ou expiré.")
     user = upsert_user_from_claims(db, claims)
-    if "administrator" in claims.get("roles", []) and user.role != m.UserRole.ADMIN:
-        user.role = m.UserRole.ADMIN
-        db.commit()
+    sync_admin_role(db, user)
     _open_session(request, user)
     return RedirectResponse("/")
 
@@ -67,10 +65,7 @@ def wordpress_login(data: WordPressLogin, request: Request, db: Session = Depend
     if claims is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion WordPress pas encore configurée.")
     user = upsert_user_from_claims(db, claims)
-    # Rôle admin si l'utilisateur est administrateur WordPress.
-    if "administrator" in claims.get("roles", []) and user.role != m.UserRole.ADMIN:
-        user.role = m.UserRole.ADMIN
-        db.commit()
+    sync_admin_role(db, user)
     _open_session(request, user)
     return {"ok": True, "name": user.display_name}
 
@@ -133,6 +128,7 @@ def callback(request: Request, db: Session = Depends(get_db)):
 
     claims = result.get("id_token_claims", {})
     user = upsert_user_from_claims(db, claims)
+    sync_admin_role(db, user)
 
     # Session minimale : on ne stocke PAS le jeton Microsoft côté client.
     request.session["user"] = {
