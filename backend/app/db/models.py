@@ -58,6 +58,12 @@ class WorkStatus(str, enum.Enum):
     CONGE = "conge"
 
 
+class QuestionType(str, enum.Enum):
+    """Type de question de quiz (V1 : QCM et vrai/faux — sondages/images/vidéos = V2)."""
+    QCM = "qcm"           # une seule bonne réponse parmi plusieurs choix
+    VRAI_FAUX = "vrai_faux"
+
+
 class IdeaStatus(str, enum.Enum):
     """Statut de traitement d'une idée (workflow piloté par l'admin)."""
     NEW = "new"
@@ -310,6 +316,72 @@ class UsefulLink(Base):
     icon: Mapped[str | None] = mapped_column(String(50), nullable=True)   # emoji ou nom d'icône
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class Quiz(Base):
+    """Un quiz, planifiable dans le temps (publication programmée)."""
+    __tablename__ = "quizzes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(150))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NULL = publié immédiatement. Dans le futur = planifié (invisible des employés jusque-là).
+    publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    questions: Mapped[list["QuizQuestion"]] = relationship(
+        back_populates="quiz", cascade="all, delete-orphan", order_by="QuizQuestion.position"
+    )
+    attempts: Mapped[list["QuizAttempt"]] = relationship(back_populates="quiz", cascade="all, delete-orphan")
+
+
+class QuizQuestion(Base):
+    __tablename__ = "quiz_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    type: Mapped[QuestionType] = mapped_column(_enum(QuestionType), default=QuestionType.QCM, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    quiz: Mapped["Quiz"] = relationship(back_populates="questions")
+    choices: Mapped[list["QuizChoice"]] = relationship(
+        back_populates="question", cascade="all, delete-orphan", order_by="QuizChoice.position"
+    )
+
+
+class QuizChoice(Base):
+    __tablename__ = "quiz_choices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("quiz_questions.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(255))
+    is_correct: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    question: Mapped["QuizQuestion"] = relationship(back_populates="choices")
+
+
+class QuizAttempt(Base):
+    """Une passation de quiz par un employé (1 tentative par quiz — pas de repasse en V1)."""
+    __tablename__ = "quiz_attempts"
+    __table_args__ = (
+        UniqueConstraint("quiz_id", "user_id", name="uq_quiz_attempt"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    score: Mapped[int] = mapped_column(Integer)             # nb de bonnes réponses
+    total: Mapped[int] = mapped_column(Integer)              # nb total de questions
+    # Détail des réponses (question_id -> choice_id choisi), pour l'affichage de la correction.
+    # Stocké en JSON plutôt qu'en table séparée : suffisant pour un quiz (peu de questions),
+    # évite une table de plus pour un simple historique consultatif.
+    answers_json: Mapped[str] = mapped_column(Text, default="{}")
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    quiz: Mapped["Quiz"] = relationship(back_populates="attempts")
+    user: Mapped["User"] = relationship()
 
 
 class Badge(Base):
