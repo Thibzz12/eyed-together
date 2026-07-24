@@ -95,6 +95,7 @@ const ROUTES = {
   idees: { title: "Boîte à idées", render: viewIdees },
   recherche: { title: "Recherche", render: viewRecherche },
   quiz: { title: "Quiz", render: viewQuiz },
+  medias: { title: "Médias", render: viewMedias },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -269,11 +270,12 @@ async function viewAdmin() {
       <button data-tab="idees">Idées</button>
       <button data-tab="liens">Liens utiles</button>
       <button data-tab="quiz">Quiz</button>
+      <button data-tab="medias">Médias</button>
     </div>
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
-    idees: renderAdminIdees, liens: renderAdminLiens, quiz: renderAdminQuiz,
+    idees: renderAdminIdees, liens: renderAdminLiens, quiz: renderAdminQuiz, medias: renderAdminMedias,
   };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
@@ -592,6 +594,56 @@ async function renderQuestionEditor(quizId, box) {
     toast("Question ajoutée ✓", "success");
     renderQuestionEditor(quizId, box);
   });
+}
+
+/* ---- Administration : médias ---- */
+async function renderAdminMedias() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const items = (await api("/api/admin/media")).data || [];
+  body.innerHTML = `
+    <div class="card">
+      <h3>Ajouter un média</h3>
+      <form id="mediaForm" class="idea-form">
+        <select id="mdType"><option value="video">Vidéo</option><option value="album">Album photo</option></select>
+        <input id="mdTitle" type="text" placeholder="Titre" required maxlength="150">
+        <textarea id="mdDesc" placeholder="Description (optionnel)" rows="2"></textarea>
+        <input id="mdUrl" type="text" placeholder="Lien (YouTube, Drive…)" required maxlength="500">
+        <label class="admin-toggle"><input type="checkbox" id="mdComments" checked> Commentaires activés</label>
+        <button type="submit" class="btn-save">Ajouter</button>
+      </form>
+    </div>
+    <div id="mediaAdminList"></div>`;
+  document.getElementById("mediaForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = document.getElementById("mdTitle").value.trim();
+    const url = document.getElementById("mdUrl").value.trim();
+    if (!title || !url) return;
+    const body = {
+      type: document.getElementById("mdType").value, title,
+      description: document.getElementById("mdDesc").value.trim() || null,
+      url, comments_enabled: document.getElementById("mdComments").checked,
+    };
+    const { ok, data } = await api("/api/admin/media", { method: "POST", body: JSON.stringify(body) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Média ajouté ✓", "success");
+    renderAdminMedias();
+  });
+  const list = document.getElementById("mediaAdminList");
+  list.innerHTML = items.length ? "" : `<div class="empty">Aucun média pour l'instant.</div>`;
+  for (const it of items) {
+    const row = document.createElement("div"); row.className = "event-admin-row"; row.style.marginBottom = "8px";
+    row.innerHTML = `<div class="event-admin-top">
+      <div class="event-admin-info"><div class="ev-title">${MEDIA_TYPE_LABEL[it.type] || it.type} · ${it.title}</div></div>
+      <button class="link-more" data-del-media="${it.id}">Supprimer</button>
+    </div>`;
+    row.querySelector("[data-del-media]").addEventListener("click", async () => {
+      if (!confirm("Supprimer ce média ?")) return;
+      await api(`/api/admin/media/${it.id}`, { method: "DELETE" });
+      toast("Média supprimé", "success"); renderAdminMedias();
+    });
+    list.appendChild(row);
+  }
 }
 
 /* ---- Administration : postes & espaces (capacités) ---- */
@@ -1210,6 +1262,71 @@ async function toggleQuizLeaderboard(quizId) {
   box.innerHTML = rows.length
     ? rows.map((r, i) => `<div class="idea-comment"><b>${i + 1}. ${r.name}</b> <span>${r.score}/${r.total}</span></div>`).join("")
     : `<div class="empty">Personne n'a encore répondu.</div>`;
+}
+
+/* ============================================================
+   VUE : MÉDIAS (bibliothèque vidéo / albums — liens externes)
+   ============================================================ */
+const MEDIA_TYPE_LABEL = { video: "Vidéo", album: "Album photo" };
+
+async function viewMedias() {
+  const view = document.getElementById("view");
+  view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Vidéos et albums photos partagés par la communication.</p>
+    <div id="mediaGrid" class="events-grid"><div class="empty">Chargement…</div></div>`;
+  const grid = document.getElementById("mediaGrid");
+  const items = (await api("/api/media")).data || [];
+  grid.innerHTML = items.length ? "" : `<div class="empty">Aucun média pour l'instant.</div>`;
+  for (const it of items) {
+    const c = document.createElement("div"); c.className = "event-card"; c.style.cursor = "pointer";
+    c.innerHTML = `<span class="ec-date">${MEDIA_TYPE_LABEL[it.type] || it.type}</span>
+      <span class="ec-title">${it.title}</span>
+      ${it.description ? `<p class="idea-desc" style="margin:4px 0 0">${it.description}</p>` : ""}`;
+    c.addEventListener("click", () => openMedia(it.id));
+    grid.appendChild(c);
+  }
+}
+
+async function openMedia(mediaId) {
+  const view = document.getElementById("view");
+  view.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api(`/api/media/${mediaId}`);
+  if (!ok) { view.innerHTML = `<div class="empty">Média introuvable.</div>`; return; }
+  view.innerHTML = `
+    <div class="detail-wrap">
+    <button class="btn-back" id="backBtn">← Retour</button>
+    <article class="event-detail">
+      <span class="ec-date">${MEDIA_TYPE_LABEL[data.type] || data.type}</span>
+      <h2 class="ed-title">${data.title}</h2>
+      ${data.description ? `<p class="idea-desc">${data.description}</p>` : ""}
+      ${data.embed_url
+        ? `<div class="media-embed"><iframe src="${data.embed_url}" allowfullscreen title="${data.title}"></iframe></div>`
+        : `<a class="btn btn-primary" href="${data.url}" target="_blank" rel="noopener">Ouvrir le média ↗</a>`}
+      ${data.comments_enabled ? `<div class="idea-comments" id="mediaComments"></div>` : ""}
+    </article></div>`;
+  document.getElementById("backBtn").addEventListener("click", () => goTo("medias"));
+  if (data.comments_enabled) loadMediaComments(mediaId);
+}
+
+async function loadMediaComments(mediaId) {
+  const box = document.getElementById("mediaComments");
+  box.innerHTML = `<div class="empty">Chargement des commentaires…</div>`;
+  const comments = (await api(`/api/media/${mediaId}/comments`)).data || [];
+  box.innerHTML = `
+    <div class="idea-comment-list">${comments.map(c => `
+      <div class="idea-comment"><b>${c.author_name}</b> <span>${c.content}</span></div>`).join("") || `<div class="empty">Aucun commentaire.</div>`}</div>
+    <form class="idea-comment-form">
+      <input type="text" placeholder="Ajouter un commentaire…" maxlength="500" required>
+      <button type="submit">Envoyer</button>
+    </form>`;
+  box.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector("input");
+    const content = input.value.trim();
+    if (!content) return;
+    const { ok } = await api(`/api/media/${mediaId}/comments`, { method: "POST", body: JSON.stringify({ content }) });
+    if (!ok) return toast("Envoi impossible.", "error");
+    loadMediaComments(mediaId);
+  });
 }
 
 /* ---------------- Effets ---------------- */

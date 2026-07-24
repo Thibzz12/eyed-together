@@ -24,7 +24,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "default-src 'self'; "
                 f"img-src 'self' data: {settings.WORDPRESS_URL}; "
                 "style-src 'self' 'unsafe-inline'; "
-                "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+                "script-src 'self' 'unsafe-inline'; "
+                # Autorise l'intégration de vidéos YouTube (module Médias : liens externes uniquement,
+                # jamais de fichier hébergé par l'app — cf. décision de Thibaud).
+                "frame-src https://www.youtube.com; "
+                "frame-ancestors 'none'"
             )
         else:
             # L'API ne renvoie que du JSON : on interdit tout script/ressource.

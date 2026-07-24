@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
+from app.services import media as media_svc
 from app.services import quiz as quiz_svc
 from app.services import reservations as svc
 from app.services.search import search_all
@@ -419,6 +420,46 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
     if link is not None:
         db.delete(link)
         db.commit()
+
+
+@router.get("/media")
+def list_media(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return media_svc.list_published(db)
+
+
+@router.get("/media/{media_id}")
+def get_media(media_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return media_svc.get_published(db, media_id)
+
+
+@router.get("/media/{media_id}/comments")
+def media_comments(media_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return media_svc.list_comments(db, media_id)
+
+
+@router.post("/media/{media_id}/comments", status_code=status.HTTP_201_CREATED)
+def add_media_comment(
+    media_id: int, data: schemas.CommentCreate, db: Session = Depends(get_db), user: dict = Depends(get_current_user),
+):
+    return media_svc.add_comment(db, user["id"], media_id, data.content)
+
+
+@router.get("/admin/media")
+def admin_list_media(db: Session = Depends(get_db), _=Depends(require_admin)):
+    return media_svc.admin_list(db)
+
+
+@router.post("/admin/media", status_code=status.HTTP_201_CREATED)
+def admin_create_media(data: schemas.MediaCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    item = media_svc.create(
+        db, data.type, data.title, data.description, data.url, data.comments_enabled, data.publish_at
+    )
+    return {"id": item.id}
+
+
+@router.delete("/admin/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_media(media_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    media_svc.delete(db, media_id)
 
 
 @router.get("/quizzes")
