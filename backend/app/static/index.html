@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/jakarta.css">
-  <link rel="stylesheet" href="/static/styles.css?v=16">
+  <link rel="stylesheet" href="/static/styles.css?v=17">
 </head>
 <body>
 
@@ -62,6 +62,13 @@
           <button class="search-btn" id="searchBtn" aria-label="Rechercher">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           </button>
+          <div class="notif-wrap">
+            <button class="search-btn" id="notifBtn" aria-label="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+              <span class="notif-badge hidden" id="notifBadge">0</span>
+            </button>
+            <div class="notif-panel hidden" id="notifPanel"></div>
+          </div>
           <div class="points-pill" id="pointsPill">
             <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 14.66A5 5 0 1 1 15.34 8"/><path d="m12 2 2.6 5.3L20 8l-4 3.9.9 5.5L12 14.8 7.1 17.4 8 11.9 4 8l5.4-.7z"/></svg>
             <span id="pointsValue">0</span>
@@ -97,6 +104,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

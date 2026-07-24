@@ -140,6 +140,11 @@ class EventCapacityUpdate(BaseModel):
     capacity: int | None = None
 
 
+class EventNotify(BaseModel):
+    title: str
+    message: str
+
+
 class EventDetail(BaseModel):
     id: int
     title: str

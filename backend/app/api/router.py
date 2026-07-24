@@ -18,6 +18,7 @@ from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
 from app.services import media as media_svc
+from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import reservations as svc
 from app.services.search import search_all
@@ -224,6 +225,7 @@ def dashboard(db: Session = Depends(get_db), user: dict = Depends(get_current_us
     # Applique les pénalités no-show en retard avant de construire le tableau de bord
     # (pas de scheduler pour un MVP : on le fait à la volée, au premier chargement de la page).
     svc.apply_noshow_penalties(db, user["id"])
+    notif_svc.generate_event_reminders(db, user["id"])
     return {"cards": build_dashboard(db, user["id"]), "user_name": user["name"]}
 
 
@@ -420,6 +422,37 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
     if link is not None:
         db.delete(link)
         db.commit()
+
+
+@router.get("/notifications")
+def list_notifications(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    return notif_svc.list_mine(db, user["id"])
+
+
+@router.get("/notifications/unread-count")
+def notifications_unread_count(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    return {"count": notif_svc.unread_count(db, user["id"])}
+
+
+@router.post("/notifications/{notification_id}/read")
+def read_notification(notification_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    notif_svc.mark_read(db, user["id"], notification_id)
+    return {"ok": True}
+
+
+@router.post("/notifications/read-all")
+def read_all_notifications(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    notif_svc.mark_all_read(db, user["id"])
+    return {"ok": True}
+
+
+@router.post("/admin/events/{event_id}/notify")
+def admin_notify_event(
+    event_id: int, data: schemas.EventNotify, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Envoie une notification in-app à tous les inscrits (+ liste d'attente) d'un événement."""
+    count = notif_svc.notify_event_registrants(db, event_id, data.title, data.message)
+    return {"notified": count}
 
 
 @router.get("/media")
