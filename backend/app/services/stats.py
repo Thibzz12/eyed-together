@@ -122,46 +122,27 @@ def get_charts(db: Session) -> dict:
     reg_labels = {"registered": "Inscrit", "waitlisted": "Liste d'attente", "cancelled": "Annulé"}
     event_registrations_by_status = [{"label": reg_labels.get(s.value, s.value), "value": c} for s, c in reg_rows if c]
 
-    # Occupation vs capacité max, J-14 à J+14 (pour anticiper la saturation).
-    occupancy_by_day = get_occupancy_by_day(db)
-
-    return {
-        "reservations_by_day": reservations_by_day,
-        "ideas_by_status": ideas_by_status,
-        "quiz_score_distribution": quiz_score_distribution,
-        "event_registrations_by_status": event_registrations_by_status,
-        "occupancy_by_day": occupancy_by_day,
-    }
-
-
-def get_occupancy_by_day(db: Session) -> list[dict]:
-    """Postes réservés / capacité max, du J-14 au J+14 (demandé en priorité par le manager
-    pour anticiper la saturation avant qu'elle n'arrive)."""
-    today = date.today()
-    start = today - timedelta(days=14)
-    end = today + timedelta(days=14)
-
-    capacity = db.scalar(select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True))) or 0
-
-    rows = db.execute(
+    # Réservations par jour, 14 prochains jours (barres) — pour anticiper la saturation.
+    end14 = today + timedelta(days=13)
+    future_rows = db.execute(
         select(m.Reservation.reservation_date, func.count(func.distinct(m.Reservation.desk_id))).where(
-            m.Reservation.reservation_date >= start, m.Reservation.reservation_date <= end,
+            m.Reservation.reservation_date >= today, m.Reservation.reservation_date <= end14,
             m.Reservation.status == m.ReservationStatus.BOOKED,
         ).group_by(m.Reservation.reservation_date)
     ).all()
-    by_day = {d.isoformat(): c for d, c in rows}
-
-    return [
-        {
-            "date": (start + timedelta(days=i)).isoformat(),
-            "label": (start + timedelta(days=i)).strftime("%d/%m"),
-            "count": by_day.get((start + timedelta(days=i)).isoformat(), 0),
-            "capacity": capacity,
-            "is_today": (start + timedelta(days=i)) == today,
-            "is_future": (start + timedelta(days=i)) > today,
-        }
-        for i in range(29)
+    future_by_day = {d.isoformat(): c for d, c in future_rows}
+    reservations_next_14_days = [
+        {"label": (today + timedelta(days=i)).strftime("%d/%m"), "value": future_by_day.get((today + timedelta(days=i)).isoformat(), 0)}
+        for i in range(14)
     ]
+
+    return {
+        "reservations_by_day": reservations_by_day,
+        "reservations_next_14_days": reservations_next_14_days,
+        "ideas_by_status": ideas_by_status,
+        "quiz_score_distribution": quiz_score_distribution,
+        "event_registrations_by_status": event_registrations_by_status,
+    }
 
 
 def get_alerts(db: Session) -> list[str]:
