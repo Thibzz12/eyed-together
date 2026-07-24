@@ -175,7 +175,7 @@ async function viewAccueil() {
 }
 
 function renderCard(c) {
-  const wide = ["events", "news", "project_progress", "team_presence", "mes_evenements"].includes(c.key) ? " wide" : "";
+  const wide = ["events", "news", "project_progress", "team_presence", "mes_evenements", "birthdays"].includes(c.key) ? " wide" : "";
   const hl = c.highlighted ? " highlight" : "";
   const data = c.data;
   let inner = "", extraClass = "";
@@ -242,6 +242,16 @@ function renderCard(c) {
       <span class="ul-icon">${l.icon || "🔗"}</span><span class="ul-label">${l.label}</span></a>`).join("")
       || `<div class="empty">Aucun lien pour l'instant.</div>`;
     inner = `<div class="card-head"><h3>${c.title}</h3></div><div class="list">${items}</div>`;
+  } else if (c.key === "birthdays") {
+    const hasAny = (data.today || []).length || (data.upcoming || []).length;
+    if (!hasAny) { extraClass = " birthdays-empty-card"; inner = `<div class="card-head"><h3>🎂 ${c.title}</h3></div><div class="empty">Aucun anniversaire déclaré pour l'instant.</div>`; }
+    else {
+      const todayHtml = (data.today || []).map(p => `<div class="birthday-today">🎂 N'oublie pas de souhaiter un bon anniversaire à <b>${firstName(p.name)}</b> !</div>`).join("");
+      const upcomingHtml = (data.upcoming || []).map(p => `<div class="event-item"><span class="event-date">${fdate(p.date, { day: "numeric", month: "short" })}</span><span class="event-title">${p.name}</span></div>`).join("");
+      inner = `<div class="card-head"><h3>🎂 ${c.title}</h3></div>
+        ${todayHtml}
+        ${upcomingHtml ? `<div class="section-eyebrow" style="margin-top:${todayHtml ? 12 : 0}px">À venir</div><div class="event-list">${upcomingHtml}</div>` : ""}`;
+    }
   } else if (c.key === "coworking_status") {
     const pct = data.total ? Math.round(data.occupied / data.total * 100) : 0;
     inner = `<div class="card-label">${c.title}</div>
@@ -824,6 +834,40 @@ function svgDonutChart(data) {
   return `<div class="chart-donut-wrap"><svg viewBox="0 0 140 140" class="chart-donut">${circles}</svg><div class="chart-legend">${legend || `<div class="empty">Aucune donnée.</div>`}</div></div>`;
 }
 
+function svgOccupancyChart(data) {
+  const capacity = Math.max(1, ...data.map(d => d.capacity));
+  const max = Math.max(capacity, ...data.map(d => d.count));
+  const height = 180, barArea = height - 26;
+  const n = data.length;
+  const barW = 100 / n;
+  const todayIdx = data.findIndex(d => d.is_today);
+  const showEvery = n > 20 ? 3 : 2;
+  const bars = data.map((d, i) => {
+    const h = (d.count / max) * barArea;
+    const x = i * barW;
+    const ratio = d.count / capacity;
+    const color = ratio >= 0.9 ? "#F43F5E" : ratio >= 0.7 ? "#F59E0B" : "#10B981";
+    const opacity = d.is_future ? 0.55 : 1;
+    const label = i % showEvery === 0 ? `<text x="${x + barW / 2}%" y="${height - 4}" font-size="8" text-anchor="middle" fill="#94A3B8">${d.label}</text>` : "";
+    return `<g><title>${d.label} : ${d.count} / ${d.capacity} postes${d.is_future ? " (prévision)" : ""}</title>
+      <rect x="${x + barW * 0.15}%" y="${height - 18 - h}" width="${barW * 0.7}%" height="${Math.max(h, 1)}" rx="2" fill="${color}" opacity="${opacity}"></rect>
+      ${label}</g>`;
+  }).join("");
+  const capY = height - 18 - (capacity / max) * barArea;
+  const todayX = todayIdx >= 0 ? (todayIdx * barW + barW / 2) : null;
+  const todayLine = todayX != null ? `<line x1="${todayX}%" y1="0" x2="${todayX}%" y2="${height - 18}" stroke="#0A2540" stroke-width="1" stroke-dasharray="3 2"></line>` : "";
+  return `<svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" class="chart-svg" style="height:${height}px">
+      <line x1="0" y1="${capY}" x2="100%" y2="${capY}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4 3"></line>
+      ${bars}${todayLine}
+    </svg>
+    <div class="chart-legend" style="margin-top:6px">
+      <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#10B981"></span>Normal</div>
+      <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#F59E0B"></span>≥ 70% capacité</div>
+      <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#F43F5E"></span>≥ 90% capacité</div>
+      <div class="chart-legend-item">┊ Aujourd'hui — barres claires = prévision</div>
+    </div>`;
+}
+
 async function renderAdminStats() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
@@ -847,6 +891,10 @@ async function renderAdminStats() {
     <div class="stats-grid">${tiles.map(t => `
       <div class="card stat-tile"><div class="stat-value">${t.value}</div><div class="stat-label">${t.label}</div></div>`).join("")}</div>
 
+    <div class="card" style="margin-top:16px">
+      <h3>Occupation vs capacité max — J-14 à J+14</h3>
+      ${svgOccupancyChart(ch.occupancy_by_day)}
+    </div>
     <div class="card" style="margin-top:16px">
       <h3>Réservations — 14 derniers jours</h3>
       ${svgBarChart(ch.reservations_by_day)}
@@ -1732,6 +1780,10 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
     <div class="card search-section"><h3>Paramètres</h3>
       <div class="profile-setting-row"><span>Email</span><span class="muted">${data.email}</span></div>
       <div class="profile-setting-row"><span>Département</span><span class="muted">${data.department || "—"}</span></div>
+      <div class="profile-setting-row"><span>Mon anniversaire 🎂</span>
+        <input type="date" id="birthdayInput" value="${data.birthday || ""}" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font:inherit">
+      </div>
+      <button class="btn" id="saveBirthdayBtn" style="margin-top:4px">Enregistrer</button>
       <a class="btn" style="background:#FEE2E2;color:var(--red);text-align:center;margin-top:12px" href="/auth/logout">Se déconnecter</a>
     </div>` : ""}`;
 
@@ -1742,6 +1794,11 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
       document.querySelectorAll("#lbPeriodToggle button").forEach(x => x.classList.remove("active"));
       b.classList.add("active"); loadLeaderboard(data.id, b.dataset.period);
     }));
+    document.getElementById("saveBirthdayBtn").addEventListener("click", async () => {
+      const val = document.getElementById("birthdayInput").value || null;
+      const { ok } = await api("/api/profile/birthday", { method: "PUT", body: JSON.stringify({ birthday: val }) });
+      toast(ok ? "Anniversaire enregistré ✓" : "Erreur, réessaie", ok ? "success" : "error");
+    });
   }
 }
 

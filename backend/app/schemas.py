@@ -20,7 +20,12 @@ class UserProfile(BaseModel):
     department: str | None = None
     role: str
     total_points: int
+    birthday: date | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class BirthdayUpdate(BaseModel):
+    birthday: date | None = None
 
 
 # ---------------------------------------------------------------- Desks

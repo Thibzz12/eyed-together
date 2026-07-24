@@ -108,6 +108,13 @@ _Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app e
 
 _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut être régénéré à tout moment sans casser les données existantes — le nettoyage au démarrage supprime seulement les badges qui ne sont plus dans le catalogue courant, jamais les points déjà gagnés._
 
+## 🎂 Derniers détails avant mise en prod (2026-07-24, 5e vague)
+
+- [x] **Anniversaires sur l'accueil** : chacun déclare sa date de naissance dans Profil → Paramètres (`PUT /api/profile/birthday`, jour/mois utilisés uniquement, l'année n'est jamais affichée). Nouvelle carte d'accueil "🎂 Anniversaires" : message "N'oublie pas de souhaiter un bon anniversaire à X !" le jour J, sinon liste "À venir" (7 prochains jours), sinon état vide. `dashboard.py::get_birthdays()`.
+- [x] **Cockpit admin — graphique occupation vs capacité max, J-14 à J+14** (demandé en priorité par le manager pour anticiper la saturation) : nouveau graphique en barres colorées par taux d'occupation (vert < 70%, orange ≥ 70%, rouge ≥ 90%), ligne pointillée de capacité max, séparateur "aujourd'hui", barres du futur en transparence (prévision). `stats.py::get_occupancy_by_day()`, rendu par `svgOccupancyChart()` dans `app.js`.
+- [x] **Médias** : laissé en l'état sur demande du manager ("peut-être pas nécessaire mais on va le laisser, il suffira de l'enlever si besoin") — aucune action.
+- [x] Migration `user_birthday` (colonne `users.birthday`) appliquée à la vraie base de dev (`coworking.db`, racine du repo) — celle-ci datait d'avant l'introduction d'Alembic et n'était pas stampée ; stampée à `eb7998c4fa5d` puis mise à jour vers `head`.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)

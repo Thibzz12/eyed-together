@@ -110,6 +110,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(255))
     department: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Auto-déclarée par l'employé (pas de source WordPress identifiée) — seuls jour/mois
+    # comptent pour "anniversaire du jour", l'année n'est jamais affichée ni utilisée.
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
     role: Mapped[UserRole] = mapped_column(_enum(UserRole), default=UserRole.EMPLOYEE, nullable=False)
     # Compteur agrégé (source de vérité = journal PointTransaction).
     total_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
