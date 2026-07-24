@@ -20,6 +20,7 @@ from app.db.session import SessionLocal, engine
 from app.deps import get_current_user
 from app.services.events import EventError
 from app.services.ideas import IdeaError
+from app.services.media import MediaError
 from app.services.quiz import QuizError
 from app.services.reservations import ReservationError
 
@@ -60,6 +61,11 @@ async def idea_error_handler(request: Request, exc: IdeaError):
 
 @app.exception_handler(QuizError)
 async def quiz_error_handler(request: Request, exc: QuizError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+@app.exception_handler(MediaError)
+async def media_error_handler(request: Request, exc: MediaError):
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 # --- Session signée (itsdangerous) : cookie httpOnly + Secure(prod) ---

@@ -214,6 +214,16 @@ class AttemptSubmit(BaseModel):
     answers: dict[int, int]   # {question_id: choice_id}
 
 
+# ---------------------------------------------------------------- Médias
+class MediaCreate(BaseModel):
+    type: str  # "video" | "album"
+    title: str
+    description: str | None = None
+    url: str
+    comments_enabled: bool = True
+    publish_at: datetime | None = None
+
+
 # ---------------------------------------------------------------- Présence (gamification)
 class PresenceEntry(BaseModel):
     """Qui est présent (a réservé) pour une date donnée."""

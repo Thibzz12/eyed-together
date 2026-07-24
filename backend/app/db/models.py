@@ -64,6 +64,11 @@ class QuestionType(str, enum.Enum):
     VRAI_FAUX = "vrai_faux"
 
 
+class MediaType(str, enum.Enum):
+    VIDEO = "video"
+    ALBUM = "album"    # album photo (lien externe : Drive, etc.)
+
+
 class IdeaStatus(str, enum.Enum):
     """Statut de traitement d'une idée (workflow piloté par l'admin)."""
     NEW = "new"
@@ -382,6 +387,38 @@ class QuizAttempt(Base):
 
     quiz: Mapped["Quiz"] = relationship(back_populates="attempts")
     user: Mapped["User"] = relationship()
+
+
+class MediaItem(Base):
+    """Élément de la bibliothèque médias — TOUJOURS un lien externe (YouTube, Drive…),
+    jamais un fichier hébergé par l'app (décision de Thibaud : pas de gestion de stockage).
+    """
+    __tablename__ = "media_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[MediaType] = mapped_column(_enum(MediaType), nullable=False)
+    title: Mapped[str] = mapped_column(String(150))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str] = mapped_column(String(500))
+    comments_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # NULL = publié immédiatement. Dans le futur = planifié.
+    publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    comments: Mapped[list["MediaComment"]] = relationship(back_populates="media", cascade="all, delete-orphan")
+
+
+class MediaComment(Base):
+    __tablename__ = "media_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    media_id: Mapped[int] = mapped_column(ForeignKey("media_items.id", ondelete="CASCADE"), index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    media: Mapped["MediaItem"] = relationship(back_populates="comments")
+    author: Mapped["User"] = relationship()
 
 
 class Badge(Base):
