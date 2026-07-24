@@ -13,6 +13,7 @@ import html
 import json
 import re
 import time
+from datetime import datetime
 
 import httpx
 
@@ -217,40 +218,46 @@ def fetch_event_detail(event_id: int) -> dict | None:
 
 
 def fetch_events(limit: int = 6) -> list[dict]:
-    """Derniers événements publiés sur l'intranet (titre, date réelle, lieu, lien).
+    """Événements À VENIR sur l'intranet (titre, date réelle, lieu, lien), triés
+    par date réelle d'événement (champ ACF) croissante — le plus proche en premier.
 
-    Triés par date réelle d'événement (champ ACF) décroissante — WordPress ne permet
-    pas de trier nativement sur un champ ACF via l'API REST, donc on récupère un lot
-    plus large (tri par date de publication côté WP) puis on re-trie côté app.
-    En cas d'intranet injoignable, renvoie le dernier résultat connu (ou []).
+    WordPress ne permet pas de trier/filtrer nativement sur un champ ACF via l'API REST,
+    donc on récupère un lot plus large (tri par date de publication côté WP) puis on
+    filtre/trie côté app. Le filtre "à venir" est appliqué à CHAQUE appel (pas au moment
+    de la mise en cache) pour ne jamais montrer un événement déjà passé, même avec un
+    cache encore valide (fenêtre de 5 min). En cas d'intranet injoignable, renvoie le
+    dernier résultat connu (ou []).
     """
     now = time.time()
     cached = _CACHE.get("events")
     if cached and now - cached[0] < _TTL_SECONDS:
-        return cached[1][:limit]
+        all_events = cached[1]
+    else:
+        url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/evenement"
+        try:
+            resp = httpx.get(
+                url,
+                params={"per_page": 30, "orderby": "date", "order": "desc"},
+                timeout=8.0,
+            )
+            resp.raise_for_status()
+            items = resp.json()
+        except Exception:
+            all_events = cached[1] if cached else []
+        else:
+            all_events = []
+            for it in items:
+                date, place = _event_fields(it, it.get("date", ""))
+                all_events.append({
+                    "id": it.get("id"),
+                    "title": _clean(it.get("title", {}).get("rendered", "")),
+                    "date": date,
+                    "place": place,
+                    "link": it.get("link", ""),
+                })
+            _CACHE["events"] = (now, all_events)
 
-    url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/evenement"
-    try:
-        resp = httpx.get(
-            url,
-            params={"per_page": 30, "orderby": "date", "order": "desc"},
-            timeout=8.0,
-        )
-        resp.raise_for_status()
-        items = resp.json()
-    except Exception:
-        return cached[1][:limit] if cached else []
-
-    events = []
-    for it in items:
-        date, place = _event_fields(it, it.get("date", ""))
-        events.append({
-            "id": it.get("id"),
-            "title": _clean(it.get("title", {}).get("rendered", "")),
-            "date": date,
-            "place": place,
-            "link": it.get("link", ""),
-        })
-    events.sort(key=lambda e: e["date"], reverse=True)
-    _CACHE["events"] = (now, events)
-    return events[:limit]
+    today_iso = datetime.now().date().isoformat()
+    upcoming = [e for e in all_events if e["date"][:10] >= today_iso]
+    upcoming.sort(key=lambda e: e["date"])
+    return upcoming[:limit]

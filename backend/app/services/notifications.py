@@ -43,6 +43,13 @@ def mark_read(db: Session, user_id: int, notification_id: int) -> None:
         db.commit()
 
 
+def delete(db: Session, user_id: int, notification_id: int) -> None:
+    n = db.get(m.Notification, notification_id)
+    if n is not None and n.user_id == user_id:
+        db.delete(n)
+        db.commit()
+
+
 def mark_all_read(db: Session, user_id: int) -> None:
     db.query(m.Notification).filter(
         m.Notification.user_id == user_id, m.Notification.read.is_(False)

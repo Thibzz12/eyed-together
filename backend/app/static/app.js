@@ -57,8 +57,6 @@ async function init() {
     a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
   document.getElementById("selDeselect").addEventListener("click", clearSelection);
   document.getElementById("selConfirm").addEventListener("click", confirmSelection);
-  document.getElementById("mobileMenuBtn").addEventListener("click", toggleMobileMenu);
-  document.getElementById("tabMoreBtn").addEventListener("click", toggleMobileMenu);
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.getElementById("notifBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleNotifPanel(); });
   document.addEventListener("click", (e) => {
@@ -67,11 +65,6 @@ async function init() {
   });
   refreshNotifBadge();
   setInterval(refreshNotifBadge, 60000); // rafraîchit le badge même si le panneau reste fermé
-  document.addEventListener("click", e => {
-    const sb = document.querySelector(".sidebar");
-    const toggleBtns = [document.getElementById("mobileMenuBtn"), document.getElementById("tabMoreBtn")];
-    if (sb.classList.contains("open") && !sb.contains(e.target) && !toggleBtns.some(b => b && b.contains(e.target))) closeMobileMenu();
-  });
   window.addEventListener("hashchange", router);
   router();
 }
@@ -105,6 +98,7 @@ const ROUTES = {
   recherche: { title: "Recherche", render: viewRecherche },
   quiz: { title: "Quiz", render: viewQuiz },
   medias: { title: "Médias", render: viewMedias },
+  profil: { title: "Mon profil", render: viewProfil },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -1509,7 +1503,8 @@ async function toggleNotifPanel() {
     <div class="notif-head"><b>Notifications</b>${items.some(n => !n.read) ? `<button class="link-more" id="notifReadAll">Tout marquer lu</button>` : ""}</div>
     <div class="notif-list">${items.map(n => `
       <div class="notif-item${n.read ? "" : " unread"}" data-notif="${n.id}" data-link="${n.link || ""}">
-        <div class="notif-title">${n.title}</div>
+        <div class="notif-row"><div class="notif-title">${n.title}</div>
+          <button class="notif-del" data-del-notif="${n.id}" title="Supprimer">✕</button></div>
         ${n.body ? `<div class="notif-body">${n.body}</div>` : ""}
       </div>`).join("") || `<div class="empty">Aucune notification.</div>`}</div>`;
   const readAllBtn = document.getElementById("notifReadAll");
@@ -1517,6 +1512,12 @@ async function toggleNotifPanel() {
     await api("/api/notifications/read-all", { method: "POST" });
     refreshNotifBadge(); toggleNotifPanel(); toggleNotifPanel();
   });
+  panel.querySelectorAll("[data-del-notif]").forEach(el => el.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await api(`/api/notifications/${el.dataset.delNotif}`, { method: "DELETE" });
+    refreshNotifBadge();
+    toggleNotifPanel(); toggleNotifPanel();
+  }));
   panel.querySelectorAll("[data-notif]").forEach(el => el.addEventListener("click", async () => {
     if (!el.classList.contains("unread")) return;
     await api(`/api/notifications/${el.dataset.notif}/read`, { method: "POST" });
@@ -1526,41 +1527,103 @@ async function toggleNotifPanel() {
 }
 
 /* ============================================================
-   PROFIL PUBLIC D'UN COLLABORATEUR (depuis la recherche)
+   PROFIL D'UN COLLABORATEUR (le sien = onglet "Profil", ou celui
+   d'un collègue depuis la Recherche)
    ============================================================ */
+const LEVEL_THRESHOLDS = [{ min: 300, label: "Platine" }, { min: 150, label: "Or" }, { min: 50, label: "Argent" }, { min: 0, label: "Bronze" }];
+
 async function openUserProfile(userId) {
+  const { ok, data } = await fetchProfileData(userId);
+  if (!ok) { document.getElementById("view").innerHTML = `<div class="empty">Profil introuvable.</div>`; return; }
+  renderProfileView(data, { isOwn: false, backLabel: "← Retour à la recherche", backRoute: "recherche" });
+}
+
+async function viewProfil() {
+  const { ok, data } = await fetchProfileData(state.profile.id);
+  if (!ok) { document.getElementById("view").innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  renderProfileView(data, { isOwn: true });
+}
+
+async function fetchProfileData(userId) {
+  document.getElementById("view").innerHTML = `<div class="empty">Chargement…</div>`;
+  return api(`/api/users/${userId}/profile`);
+}
+
+function renderProfileView(data, { isOwn, backLabel, backRoute }) {
   const view = document.getElementById("view");
-  view.innerHTML = `<div class="empty">Chargement…</div>`;
-  const { ok, data } = await api(`/api/users/${userId}/profile`);
-  if (!ok) { view.innerHTML = `<div class="empty">Profil introuvable.</div>`; return; }
-  document.getElementById("pageTitle").textContent = data.name;
+  document.getElementById("pageTitle").textContent = isOwn ? "Mon profil" : data.name;
 
   const statusRows = data.upcoming_status.map(s => `
     <div class="event-item"><span class="event-date">${fdate(s.day, { weekday: "short", day: "numeric" })}</span>
       <span class="event-title">${STATUS[s.status] || s.status}</span></div>`).join("") || `<div class="empty">Aucun statut déclaré.</div>`;
-
   const resRows = data.upcoming_reservations.map(r => `
     <div class="event-item"><span class="event-date">${fdate(r.date, { day: "numeric", month: "short" })}</span>
       <span class="event-title">Poste ${r.desk} · ${slotLabel(r.slot)}</span></div>`).join("") || `<div class="empty">Aucune réservation à venir.</div>`;
-
   const ideaRows = data.signed_ideas.map(i => `
     <div class="event-item"><span class="event-title">${i.title} <span class="muted">· ${IDEA_STATUS_LABEL[i.status] || i.status}</span></span></div>`).join("") || `<div class="empty">Aucune idée signée.</div>`;
-
   const quizRows = data.quiz_results.map(q => `
     <div class="event-item"><span class="event-title">${q.quiz_title}</span><span class="ev-status-badge">${q.score}/${q.total}</span></div>`).join("") || `<div class="empty">Aucun quiz passé.</div>`;
 
+  const level = LEVEL_THRESHOLDS.find(l => data.total_points >= l.min);
+  const nextLevel = [...LEVEL_THRESHOLDS].reverse().find(l => l.min > data.total_points);
+  const prevMin = level.min;
+  const pct = nextLevel ? Math.round((data.total_points - prevMin) / (nextLevel.min - prevMin) * 100) : 100;
+
+  const badgesHtml = data.badges.map(b => `
+    <div class="badge-tile${b.earned ? " earned" : ""}" title="${(b.description || "").replace(/"/g, "&quot;")}">
+      <div class="badge-icon">${b.icon || "🏅"}</div><div class="badge-name">${b.name}</div>
+    </div>`).join("");
+
+  const explore = [
+    { route: "idees", label: "Idées", icon: "💡" }, { route: "quiz", label: "Quiz", icon: "🧠" },
+    { route: "medias", label: "Médias", icon: "🎬" }, { route: "recherche", label: "Recherche", icon: "🔍" },
+  ];
+  if (state.profile.role === "admin") explore.push({ route: "admin", label: "Administration", icon: "⚙️" });
+  const exploreHtml = explore.map(e => `
+    <button class="explore-tile" data-go-explore="${e.route}"><span class="explore-icon">${e.icon}</span><span>${e.label}</span></button>`).join("");
+
   view.innerHTML = `
-    <button class="btn-back" id="backBtn">← Retour à la recherche</button>
-    <div class="card profile-header">
-      <div class="colleague-av" style="background:${colorFor(data.name)};width:52px;height:52px;font-size:1.1rem">${initials(data.name)}</div>
-      <div><div class="idea-title" style="font-size:1.1rem">${data.name}</div>
-        <div class="idea-meta">${data.department ? data.department + " · " : ""}Niveau ${data.level} · ${data.total_points} pts</div></div>
+    ${!isOwn ? `<button class="btn-back" id="backBtn">${backLabel}</button>` : ""}
+    <div class="card profile-header-card">
+      <div class="profile-header">
+        <div class="colleague-av" style="background:${colorFor(data.name)};width:52px;height:52px;font-size:1.1rem">${initials(data.name)}</div>
+        <div><div class="idea-title" style="font-size:1.1rem;color:#fff">${data.name}</div>
+          <div class="profile-sub">${data.department ? data.department + " · " : ""}${data.role === "admin" ? "Administrateur" : "Collaborateur"}</div>
+          ${isOwn ? `<div class="profile-sub">✓ Connecté · SSO EyeD</div>` : ""}</div>
+      </div>
+      <div class="level-card">
+        <div class="level-row"><span>⭐ ${data.total_points} points</span><b>Niveau ${level.label}</b></div>
+        <div class="progress"><i style="width:${pct}%"></i></div>
+        <div class="level-hint">${nextLevel ? `${nextLevel.min - data.total_points} points avant le niveau ${nextLevel.label}` : "Niveau maximum atteint 🎉"}</div>
+      </div>
     </div>
+    <div class="card search-section"><h3>Badges <span class="badge-count">${data.badges.filter(b => b.earned).length}/${data.badges.length}</span></h3>
+      <div class="badges-grid">${badgesHtml}</div></div>
+    ${isOwn ? `<div class="card search-section"><h3>Explorer</h3><div class="explore-grid">${exploreHtml}</div></div>` : ""}
     <div class="card search-section"><h3>Présence des prochains jours</h3><div class="list">${statusRows}</div></div>
     <div class="card search-section"><h3>Réservations à venir</h3><div class="list">${resRows}</div></div>
     <div class="card search-section"><h3>Idées soumises</h3><div class="list">${ideaRows}</div></div>
-    <div class="card search-section"><h3>Quiz passés</h3><div class="list">${quizRows}</div></div>`;
-  document.getElementById("backBtn").addEventListener("click", () => goTo("recherche"));
+    <div class="card search-section"><h3>Quiz passés</h3><div class="list">${quizRows}</div></div>
+    ${isOwn ? `
+    <div class="card search-section"><h3>🏆 Classement général</h3><div class="list" id="leaderboardList"><div class="empty">Chargement…</div></div></div>
+    <div class="card search-section"><h3>Paramètres</h3>
+      <div class="profile-setting-row"><span>Email</span><span class="muted">${data.email}</span></div>
+      <div class="profile-setting-row"><span>Département</span><span class="muted">${data.department || "—"}</span></div>
+      <a class="btn" style="background:#FEE2E2;color:var(--red);text-align:center;margin-top:12px" href="/auth/logout">Se déconnecter</a>
+    </div>` : ""}`;
+
+  if (!isOwn) document.getElementById("backBtn").addEventListener("click", () => goTo(backRoute));
+  view.querySelectorAll("[data-go-explore]").forEach(b => b.addEventListener("click", () => goTo(b.dataset.goExplore)));
+  if (isOwn) loadLeaderboard(data.id);
+}
+
+async function loadLeaderboard(myId) {
+  const box = document.getElementById("leaderboardList");
+  const rows = (await api("/api/leaderboard")).data || [];
+  box.innerHTML = rows.map((r, i) => `
+    <div class="event-item leaderboard-row${r.id === myId ? " me" : ""}"><span class="event-date">#${i + 1}</span>
+      <span class="event-title">${r.name}${r.id === myId ? " (toi)" : ""}</span><span class="ev-status-badge">${r.total_points} pts</span></div>`).join("")
+    || `<div class="empty">Pas encore de classement.</div>`;
 }
 
 /* ---------------- Effets ---------------- */
