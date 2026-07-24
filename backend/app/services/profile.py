@@ -94,6 +94,7 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
         "email": user.email,
         "department": user.department,
         "role": user.role.value,
+        "birthday": user.birthday.isoformat() if user.birthday else None,
         "total_points": user.total_points,
         "streak_days": compute_streak(db, user_id),
         **level_info(user.total_points),

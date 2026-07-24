@@ -58,6 +58,21 @@ def profile(db: Session = Depends(get_db), user: dict = Depends(get_current_user
         department=u.department,
         role=u.role.value,
         total_points=u.total_points,
+        birthday=u.birthday,
+    )
+
+
+@router.put("/profile/birthday", response_model=schemas.UserProfile)
+def set_birthday(data: schemas.BirthdayUpdate, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Déclare (ou retire) sa date d'anniversaire — aucune source WordPress fiable identifiée,
+    auto-déclaratif. Seuls jour/mois comptent, l'année n'est jamais affichée."""
+    u = db.get(m.User, user["id"])
+    u.birthday = data.birthday
+    db.commit()
+    db.refresh(u)
+    return schemas.UserProfile(
+        id=u.id, name=u.display_name, email=u.email, department=u.department,
+        role=u.role.value, total_points=u.total_points, birthday=u.birthday,
     )
 
 

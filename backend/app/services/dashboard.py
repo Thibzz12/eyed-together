@@ -1,7 +1,7 @@
 """Assemblage du tableau de bord d'accueil (cartes + données live)."""
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -39,6 +39,33 @@ def set_setting(db: Session, key: str, value: str) -> None:
         db.add(m.AppSetting(key=key, value=value))
     else:
         row.value = value
+
+
+def get_birthdays(db: Session) -> dict:
+    """Anniversaires du jour + des 7 prochains jours (auto-déclarés par chacun dans son profil).
+    Comparaison sur jour/mois uniquement, l'année de naissance n'est jamais utilisée."""
+    today = date.today()
+    users = db.scalars(select(m.User).where(m.User.birthday.isnot(None)))
+    today_list, upcoming = [], []
+    for u in users:
+        b = u.birthday
+        # Prochaine occurrence de cet anniversaire (cette année, ou l'an prochain si déjà passé).
+        try:
+            next_occurrence = b.replace(year=today.year)
+        except ValueError:
+            next_occurrence = date(today.year, 3, 1)  # 29 février sur année non bissextile
+        if next_occurrence < today:
+            try:
+                next_occurrence = b.replace(year=today.year + 1)
+            except ValueError:
+                next_occurrence = date(today.year + 1, 3, 1)
+        days_away = (next_occurrence - today).days
+        if days_away == 0:
+            today_list.append({"name": u.display_name})
+        elif days_away <= 7:
+            upcoming.append({"name": u.display_name, "days_away": days_away, "date": next_occurrence.isoformat()})
+    upcoming.sort(key=lambda x: x["days_away"])
+    return {"today": today_list, "upcoming": upcoming}
 
 
 def coworking_status(db: Session) -> dict:
@@ -94,6 +121,8 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
         return wp_cache.get("events") if "events" in wp_cache else fetch_events(limit=5)
     if key == "news":
         return wp_cache.get("news") if "news" in wp_cache else fetch_news(limit=4)
+    if key == "birthdays":
+        return get_birthdays(db)
     if key == "liens_utiles":
         rows = db.scalars(
             select(m.UsefulLink).where(m.UsefulLink.enabled.is_(True)).order_by(m.UsefulLink.position)
