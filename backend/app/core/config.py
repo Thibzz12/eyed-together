@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     # Vide = connexion WordPress désactivée (on reste en mode démo).
     WP_APP_SECRET: str = ""
 
+    # --- Administrateurs de l'application (liste blanche, PAS le rôle WordPress) ---
+    # Emails séparés par des virgules. Seules ces personnes ont accès à l'onglet Administration,
+    # peu importe leur rôle sur l'intranet WordPress (un admin WordPress n'est pas forcément
+    # admin de l'app EyeD Together — accès volontairement restreint).
+    ADMIN_EMAILS: str = "t.pirard@eyedpharma.com,o.vanbrabant@eyedpharma.com"
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.lower() == "production"

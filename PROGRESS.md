@@ -1,6 +1,6 @@
 # EyeD Together — Suivi d'avancement
 
-_Dernière mise à jour : 2026-07-23_
+_Dernière mise à jour : 2026-07-24_
 
 ## ✅ Fait (testé en conditions réelles)
 
@@ -63,6 +63,10 @@ _Pause demandée par Thibaud (2026-07-23) après Liens utiles : il teste l'app e
   - Conclusion : la date existe bien dans le champ ACF vu depuis l'admin WordPress, mais **le champ n'est pas coché "Afficher dans l'API REST"** dans son groupe de champs ACF (ou le nom du champ est différent de ce que devine l'app) — c'est un réglage côté WordPress, pas quelque chose de corrigeable depuis le code de l'app tant que l'API ne le renvoie pas.
   - **Action nécessaire côté WordPress (Thibaud, admin) :** Réglages > Custom Fields (ACF) > ouvrir le groupe de champs lié au type "Événements" > Réglages du groupe > activer "Afficher dans l'API REST" (ou équivalent selon la version d'ACF/du plugin utilisé) → puis me donner le nom exact du champ de date (ex. `date_evenement`) pour que je code la lecture réelle.
   - **✅ RÉSOLU (2026-07-23)** : le bon groupe était "Single : Événement" (rattaché au type de publication `Événement`), champs `date` (Sélecteur de date et heure) et `place` (Lieu). Thibaud a activé "Afficher dans l'API REST". Vérifié : `acf.date`/`acf.place` renvoyés (ex. "Jogging ELA 2026" → `2026-06-05 11:00:00`). Code adapté (`_event_fields()` dans `wordpress.py`) : la vraie date + le lieu (📍) sont utilisés partout (cartes, détail, dashboard, ICS), repli sur la date de publication si absent (cas des actualités). Tri désormais par vraie date décroissante (calculé côté app, l'API WordPress ne trie pas nativement sur un champ ACF). Testé : ordre chronologique correct, lieu affiché, mobile 375px sans débordement, zéro erreur console.
+
+## 🔒 Sécurité
+
+- [x] **Accès Administration restreint par liste blanche — FAIT (2026-07-24)** : avant, n'importe quel admin WordPress de l'intranet (potentiellement beaucoup de monde chez EyeD) devenait automatiquement admin de l'app. Remplacé par une **liste blanche d'emails** (`settings.ADMIN_EMAILS`, actuellement Thibaud `t.pirard@eyedpharma.com` + Olivier Vanbrabant `o.vanbrabant@eyedpharma.com`), appliquée à **chaque connexion** (`sync_admin_role()` dans `app/services/users.py`) — pas seulement à la création du compte. Un ancien admin retiré de la liste est automatiquement rétrogradé à sa prochaine connexion. Pour changer la liste : variable d'environnement `ADMIN_EMAILS` (emails séparés par des virgules) dans `.env`, ou modifier la valeur par défaut dans `app/core/config.py`. Testé par script isolé (allowlist + rétrogradation automatique) OK. Le compte démo (`/auth/dev-login`, désactivé en prod) reste admin par défaut pour faciliter les tests locaux, indépendamment de cette liste.
 
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
