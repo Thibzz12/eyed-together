@@ -277,11 +277,13 @@ async function viewAdmin() {
       <button data-tab="liens">Liens utiles</button>
       <button data-tab="quiz">Quiz</button>
       <button data-tab="medias">Médias</button>
+      <button data-tab="stats">Statistiques</button>
     </div>
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
     idees: renderAdminIdees, liens: renderAdminLiens, quiz: renderAdminQuiz, medias: renderAdminMedias,
+    stats: renderAdminStats,
   };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
@@ -674,6 +676,36 @@ async function renderAdminMedias() {
     });
     list.appendChild(row);
   }
+}
+
+/* ---- Administration : cockpit (KPI + alertes) ---- */
+async function renderAdminStats() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api("/api/admin/stats");
+  if (!ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
+  const k = data.kpis;
+  const tiles = [
+    { label: "Collaborateurs actifs (7j)", value: `${k.active_users_7d} / ${k.total_users}` },
+    { label: "Occupation coworking (aujourd'hui)", value: `${k.coworking_occupancy_pct}%` },
+    { label: "Réservations (7j)", value: k.reservations_week },
+    { label: "No-show (7j)", value: k.noshow_week },
+    { label: "Inscriptions événements", value: k.event_registrations },
+    { label: "Tentatives de quiz", value: k.quiz_attempts },
+    { label: "Score moyen quiz", value: k.quiz_score_avg_pct != null ? `${k.quiz_score_avg_pct}%` : "—" },
+    { label: "Idées soumises", value: `${k.ideas_total} (${k.ideas_votes} votes)` },
+    { label: "Médias publiés", value: k.media_total },
+  ];
+  body.innerHTML = `
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Vue d'ensemble de l'activité sur l'application.</p>
+    <div class="stats-grid">${tiles.map(t => `
+      <div class="card stat-tile"><div class="stat-value">${t.value}</div><div class="stat-label">${t.label}</div></div>`).join("")}</div>
+    <div class="card" style="margin-top:16px">
+      <h3>Alertes</h3>
+      <div class="idea-comment-list">${data.alerts.length
+        ? data.alerts.map(a => `<div class="idea-comment">⚠️ ${a}</div>`).join("")
+        : `<div class="empty">Rien à signaler ✓</div>`}</div>
+    </div>`;
 }
 
 /* ---- Administration : postes & espaces (capacités) ---- */

@@ -20,6 +20,7 @@ from app.services import ideas as ideas_svc
 from app.services import media as media_svc
 from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
+from app.services import stats as stats_svc
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
@@ -422,6 +423,12 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
     if link is not None:
         db.delete(link)
         db.commit()
+
+
+@router.get("/admin/stats")
+def admin_stats(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Cockpit : KPI agrégés + alertes."""
+    return {"kpis": stats_svc.get_kpis(db), "alerts": stats_svc.get_alerts(db)}
 
 
 @router.get("/notifications")

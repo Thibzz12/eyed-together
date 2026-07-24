@@ -277,6 +277,13 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .notif-title { font-size: .86rem; font-weight: 700; color: var(--navy); }
 .notif-body { font-size: .8rem; color: var(--muted); margin-top: 2px; }
 
+/* ---------------- Cockpit admin (KPI) ---------------- */
+.stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.stat-tile { padding: 14px; text-align: center; }
+.stat-value { font-size: 1.4rem; font-weight: 800; color: var(--navy); }
+.stat-label { font-size: .74rem; color: var(--muted); margin-top: 4px; }
+@media (min-width: 700px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+
 /* ---------------- Médias ---------------- */
 .media-embed { position: relative; width: 100%; padding-top: 56.25%; margin: 14px 0; border-radius: var(--radius-sm); overflow: hidden; background: #000; }
 .media-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; }
