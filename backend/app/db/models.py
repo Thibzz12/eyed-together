@@ -421,6 +421,21 @@ class MediaComment(Base):
     author: Mapped["User"] = relationship()
 
 
+class Notification(Base):
+    """Notification in-app (V1 : pas d'email/Teams/push, cf. PROGRESS.md — pas d'infra externe
+    disponible). Déclenchées automatiquement (rappel J-1 événement) ou manuellement par l'admin.
+    """
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(150))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    link: Mapped[str | None] = mapped_column(String(100), nullable=True)   # route interne, ex: "evenements"
+    read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Badge(Base):
     __tablename__ = "badges"
 

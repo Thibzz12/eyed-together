@@ -59,6 +59,12 @@ async function init() {
   document.getElementById("selConfirm").addEventListener("click", confirmSelection);
   document.getElementById("mobileMenuBtn").addEventListener("click", toggleMobileMenu);
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
+  document.getElementById("notifBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleNotifPanel(); });
+  document.addEventListener("click", (e) => {
+    const panel = document.getElementById("notifPanel");
+    if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target.id !== "notifBtn") panel.classList.add("hidden");
+  });
+  refreshNotifBadge();
   document.addEventListener("click", e => {
     const sb = document.querySelector(".sidebar");
     if (sb.classList.contains("open") && !sb.contains(e.target) && e.target.id !== "mobileMenuBtn" && !document.getElementById("mobileMenuBtn").contains(e.target)) closeMobileMenu();
@@ -302,20 +308,44 @@ async function renderAdminEvenements() {
         <div class="event-admin-info">
           <div class="ev-title">${ev.title}</div>
           <button class="link-more" data-toggle-reg="${ev.id}">${ev.registered_count} inscrit(s) — voir la liste</button>
+          <button class="link-more" data-toggle-notify="${ev.id}">📢 Notifier les inscrits</button>
         </div>
         <label class="event-admin-cap">Capacité
           <input class="da-pos" type="number" min="0" placeholder="illimité" value="${ev.capacity ?? ""}">
         </label>
       </div>
-      <div class="idea-comments hidden" id="evreg-${ev.id}"></div>`;
+      <div class="idea-comments hidden" id="evreg-${ev.id}"></div>
+      <div class="idea-comments hidden" id="evnotify-${ev.id}"></div>`;
     row.querySelector("input").addEventListener("change", async (e) => {
       const val = e.target.value === "" ? null : +e.target.value;
       const { ok } = await api(`/api/admin/events/${ev.id}/capacity`, { method: "PUT", body: JSON.stringify({ capacity: val }) });
       toast(ok ? "Capacité enregistrée ✓" : "Erreur", ok ? "success" : "error");
     });
+    row.querySelector("[data-toggle-notify]").addEventListener("click", () => toggleEventNotifyForm(ev));
     row.querySelector("[data-toggle-reg]").addEventListener("click", () => toggleEventRegistrations(ev.id));
     list.appendChild(row);
   }
+}
+
+function toggleEventNotifyForm(ev) {
+  const box = document.getElementById(`evnotify-${ev.id}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = `<form class="idea-form">
+    <input type="text" class="notify-title" placeholder="Titre" value="À propos de « ${ev.title} »" required>
+    <textarea class="notify-msg" placeholder="Message envoyé aux inscrits…" rows="2" required></textarea>
+    <button type="submit" class="btn-save">Envoyer la notification</button>
+  </form>`;
+  box.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = box.querySelector(".notify-title").value.trim();
+    const message = box.querySelector(".notify-msg").value.trim();
+    if (!title || !message) return;
+    const { ok, data } = await api(`/api/admin/events/${ev.id}/notify`, { method: "POST", body: JSON.stringify({ title, message }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast(`Notification envoyée à ${data.notified} personne(s) ✓`, "success");
+    box.classList.add("hidden"); box.innerHTML = "";
+  });
 }
 
 async function toggleEventRegistrations(eventId) {
@@ -1327,6 +1357,45 @@ async function loadMediaComments(mediaId) {
     if (!ok) return toast("Envoi impossible.", "error");
     loadMediaComments(mediaId);
   });
+}
+
+/* ============================================================
+   NOTIFICATIONS (in-app)
+   ============================================================ */
+async function refreshNotifBadge() {
+  const { data } = await api("/api/notifications/unread-count");
+  const badge = document.getElementById("notifBadge");
+  const count = data?.count || 0;
+  badge.textContent = count > 9 ? "9+" : count;
+  badge.classList.toggle("hidden", count === 0);
+}
+
+async function toggleNotifPanel() {
+  const panel = document.getElementById("notifPanel");
+  if (!panel.classList.contains("hidden")) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<div class="empty">Chargement…</div>`;
+  const items = (await api("/api/notifications")).data || [];
+  panel.innerHTML = `
+    <div class="notif-head"><b>Notifications</b>${items.some(n => !n.read) ? `<button class="link-more" id="notifReadAll">Tout marquer lu</button>` : ""}</div>
+    <div class="notif-list">${items.map(n => `
+      <div class="notif-item${n.read ? "" : " unread"}" data-notif="${n.id}" data-link="${n.link || ""}">
+        <div class="notif-title">${n.title}</div>
+        ${n.body ? `<div class="notif-body">${n.body}</div>` : ""}
+      </div>`).join("") || `<div class="empty">Aucune notification.</div>`}</div>`;
+  const readAllBtn = document.getElementById("notifReadAll");
+  if (readAllBtn) readAllBtn.addEventListener("click", async () => {
+    await api("/api/notifications/read-all", { method: "POST" });
+    refreshNotifBadge(); toggleNotifPanel(); toggleNotifPanel();
+  });
+  panel.querySelectorAll("[data-notif]").forEach(el => el.addEventListener("click", async () => {
+    await api(`/api/notifications/${el.dataset.notif}/read`, { method: "POST" });
+    refreshNotifBadge();
+    let link = el.dataset.link;
+    if (link && link.startsWith("event-reminder:")) link = "evenements";
+    if (link) { panel.classList.add("hidden"); goTo(link); }
+    else { el.classList.remove("unread"); }
+  }));
 }
 
 /* ---------------- Effets ---------------- */
