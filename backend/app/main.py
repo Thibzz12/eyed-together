@@ -16,6 +16,7 @@ from app.core.security_headers import SecurityHeadersMiddleware
 from app.db import models  # noqa: F401  -> enregistre les tables dans Base.metadata
 from app.db.base import Base
 from app.db.seed import seed_dashboard_if_empty, seed_demo_reservations_if_empty, seed_desks_if_empty
+from app.services.badges import seed_catalog_if_empty as seed_badges_if_empty
 from app.db.session import SessionLocal, engine
 from app.deps import get_current_user
 from app.services.events import EventError
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
             seed_desks_if_empty(db)
             seed_demo_reservations_if_empty(db)
             seed_dashboard_if_empty(db)
+            seed_badges_if_empty(db)
     yield
 
 

@@ -252,7 +252,28 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .search-bar input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: .95rem; font-family: inherit; }
 .search-section { margin-bottom: 14px; }
 .search-section h3 { margin: 0 0 10px; }
-.profile-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.profile-header-card { background: linear-gradient(135deg, var(--navy), #0d3a5c); color: #fff; }
+.profile-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.profile-sub { font-size: .82rem; color: rgba(255,255,255,.75); margin-top: 2px; }
+.level-card { background: rgba(255,255,255,.08); border-radius: var(--radius-sm); padding: 12px 14px; }
+.level-row { display: flex; justify-content: space-between; align-items: center; font-size: .9rem; margin-bottom: 8px; }
+.level-card .progress { background: rgba(255,255,255,.15); }
+.level-card .progress i { background: linear-gradient(90deg, var(--amber), #fbbf24); }
+.level-hint { font-size: .76rem; color: rgba(255,255,255,.7); margin-top: 6px; }
+
+.badges-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; }
+.badge-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: var(--radius-sm); background: #F1F5F9; opacity: .45; text-align: center; }
+.badge-tile.earned { opacity: 1; background: var(--amber-050); }
+.badge-icon { font-size: 1.5rem; }
+.badge-name { font-size: .66rem; font-weight: 600; color: var(--navy); line-height: 1.2; }
+
+.explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
+.explore-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #F9FAFC; cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--navy); font-family: inherit; }
+.explore-icon { font-size: 1.3rem; }
+
+.leaderboard-row.me { background: #EFF6FF; border-color: var(--blue); }
+.profile-setting-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
+.profile-setting-row:last-of-type { border-bottom: none; }
 
 /* ---------------- Quiz ---------------- */
 .quiz-question { margin-bottom: 12px; }
@@ -278,7 +299,10 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .notif-item:last-child { border-bottom: none; }
 .notif-item.unread { background: #F0F7FC; }
 .notif-item.unread .notif-title::before { content: "●"; color: var(--blue); margin-right: 6px; font-size: .6rem; }
+.notif-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .notif-title { font-size: .86rem; font-weight: 700; color: var(--navy); }
+.notif-del { border: none; background: none; color: var(--muted); cursor: pointer; font-size: .8rem; padding: 2px 4px; flex-shrink: 0; }
+.notif-del:hover { color: var(--red); }
 .notif-body { font-size: .8rem; color: var(--muted); margin-top: 2px; }
 
 /* ---------------- Cockpit admin (KPI) ---------------- */

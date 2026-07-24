@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
+from app.services.badges import get_user_badges
 
 LEVELS = [(300, "Platine"), (150, "Or"), (50, "Argent"), (0, "Bronze")]
 
@@ -56,14 +57,29 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
     )
     quiz_results = [{"quiz_title": a.quiz.title, "score": a.score, "total": a.total} for a in attempts]
 
+    next_threshold = min((t for t, _ in LEVELS if t > user.total_points), default=None)
+
     return {
         "id": user.id,
         "name": user.display_name,
+        "email": user.email,
         "department": user.department,
+        "role": user.role.value,
         "total_points": user.total_points,
         "level": _level_of(user.total_points),
+        "points_to_next_level": (next_threshold - user.total_points) if next_threshold is not None else None,
         "upcoming_status": upcoming_status,
         "upcoming_reservations": upcoming_reservations,
         "signed_ideas": signed_ideas,
         "quiz_results": quiz_results,
+        "badges": get_user_badges(db, user_id),
     }
+
+
+def get_leaderboard(db: Session, limit: int = 20) -> list[dict]:
+    """Classement général par points de collaboration (moteur d'engagement)."""
+    users = db.scalars(select(m.User).order_by(m.User.total_points.desc()).limit(limit))
+    return [
+        {"id": u.id, "name": u.display_name, "department": u.department, "total_points": u.total_points, "level": _level_of(u.total_points)}
+        for u in users
+    ]

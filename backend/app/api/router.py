@@ -17,11 +17,12 @@ from app.db.session import get_db
 from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
+from app.services import badges as badges_svc
 from app.services import media as media_svc
 from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import stats as stats_svc
-from app.services.profile import get_public_profile
+from app.services.profile import get_leaderboard, get_public_profile
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
@@ -228,6 +229,9 @@ def dashboard(db: Session = Depends(get_db), user: dict = Depends(get_current_us
     # (pas de scheduler pour un MVP : on le fait à la volée, au premier chargement de la page).
     svc.apply_noshow_penalties(db, user["id"])
     notif_svc.generate_event_reminders(db, user["id"])
+    for badge_name in badges_svc.check_and_award(db, user["id"]):
+        notif_svc.notify(db, user["id"], f"🏅 Badge débloqué : {badge_name}", "Regarde ton profil pour le découvrir !")
+    db.commit()
     return {"cards": build_dashboard(db, user["id"]), "user_name": user["name"]}
 
 
@@ -435,6 +439,12 @@ def user_profile(user_id: int, db: Session = Depends(get_db), _=Depends(get_curr
     return profile
 
 
+@router.get("/leaderboard")
+def leaderboard(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Classement général par points de collaboration."""
+    return get_leaderboard(db)
+
+
 @router.get("/admin/stats")
 def admin_stats(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Cockpit : KPI agrégés + alertes."""
@@ -455,6 +465,11 @@ def notifications_unread_count(db: Session = Depends(get_db), user: dict = Depen
 def read_notification(notification_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     notif_svc.mark_read(db, user["id"], notification_id)
     return {"ok": True}
+
+
+@router.delete("/notifications/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_notification(notification_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    notif_svc.delete(db, user["id"], notification_id)
 
 
 @router.post("/notifications/read-all")
