@@ -21,6 +21,7 @@ from app.services import media as media_svc
 from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import stats as stats_svc
+from app.services.profile import get_public_profile
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
@@ -425,6 +426,15 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
         db.commit()
 
 
+@router.get("/users/{user_id}/profile")
+def user_profile(user_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Profil public d'un collaborateur (statut, réservations, idées signées, quiz)."""
+    profile = get_public_profile(db, user_id)
+    if profile is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collaborateur introuvable.")
+    return profile
+
+
 @router.get("/admin/stats")
 def admin_stats(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Cockpit : KPI agrégés + alertes."""
@@ -497,6 +507,12 @@ def admin_create_media(data: schemas.MediaCreate, db: Session = Depends(get_db),
     return {"id": item.id}
 
 
+@router.patch("/admin/media/{media_id}")
+def admin_update_media(media_id: int, data: schemas.MediaCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    media_svc.update(db, media_id, data.type, data.title, data.description, data.url, data.comments_enabled, data.publish_at)
+    return {"ok": True}
+
+
 @router.delete("/admin/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_media(media_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
     media_svc.delete(db, media_id)
@@ -539,6 +555,18 @@ def admin_create_quiz(data: schemas.QuizCreate, db: Session = Depends(get_db), _
     return {"id": quiz.id}
 
 
+@router.get("/admin/quizzes/{quiz_id}")
+def admin_get_quiz(quiz_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Le quiz complet (questions + bonnes réponses), quel que soit son statut de publication."""
+    return quiz_svc.admin_get_quiz(db, quiz_id)
+
+
+@router.patch("/admin/quizzes/{quiz_id}")
+def admin_update_quiz(quiz_id: int, data: schemas.QuizCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    quiz_svc.update_quiz(db, quiz_id, data.title, data.description, data.publish_at)
+    return {"ok": True}
+
+
 @router.delete("/admin/quizzes/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_quiz(quiz_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
     quiz_svc.delete_quiz(db, quiz_id)
@@ -550,6 +578,14 @@ def admin_add_question(
 ):
     q = quiz_svc.add_question(db, quiz_id, data.text, data.type, [c.model_dump() for c in data.choices])
     return {"id": q.id}
+
+
+@router.patch("/admin/quizzes/questions/{question_id}")
+def admin_update_question(
+    question_id: int, data: schemas.QuestionCreate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    quiz_svc.update_question(db, question_id, data.text, data.type, [c.model_dump() for c in data.choices])
+    return {"ok": True}
 
 
 @router.delete("/admin/quizzes/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
