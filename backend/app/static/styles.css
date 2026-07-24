@@ -253,6 +253,17 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .search-section { margin-bottom: 14px; }
 .search-section h3 { margin: 0 0 10px; }
 
+/* ---------------- Quiz ---------------- */
+.quiz-question { margin-bottom: 12px; }
+.quiz-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.quiz-choice { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .88rem; cursor: pointer; }
+.quiz-choice input { accent-color: var(--blue); }
+.quiz-choice.correct { border-color: var(--green); background: var(--green-050); color: var(--green); font-weight: 600; }
+.quiz-choice.wrong { border-color: var(--red); background: #FEF2F2; color: var(--red); font-weight: 600; }
+.quiz-choice-row { display: flex; align-items: center; gap: 8px; }
+.quiz-choice-row .c-text { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .88rem; font-family: inherit; }
+.idea-form select { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .9rem; font-family: inherit; }
+
 /* ---------------- Services rapides ---------------- */
 .services-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin: 6px 0 20px; }
 .service-tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px 6px 11px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; box-shadow: var(--shadow-1); }

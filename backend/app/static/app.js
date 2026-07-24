@@ -94,6 +94,7 @@ const ROUTES = {
   presence: { title: "Ma présence", render: viewPresence },
   idees: { title: "Boîte à idées", render: viewIdees },
   recherche: { title: "Recherche", render: viewRecherche },
+  quiz: { title: "Quiz", render: viewQuiz },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -267,11 +268,12 @@ async function viewAdmin() {
       <button data-tab="evenements">Événements</button>
       <button data-tab="idees">Idées</button>
       <button data-tab="liens">Liens utiles</button>
+      <button data-tab="quiz">Quiz</button>
     </div>
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
-    idees: renderAdminIdees, liens: renderAdminLiens,
+    idees: renderAdminIdees, liens: renderAdminLiens, quiz: renderAdminQuiz,
   };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
@@ -472,6 +474,124 @@ async function delLink(id) {
   const { ok } = await api(`/api/admin/links/${id}`, { method: "DELETE" });
   if (ok) { toast("Lien supprimé", "success"); renderAdminLiens(); }
   else toast("Erreur", "error");
+}
+
+/* ---- Administration : quiz ---- */
+async function renderAdminQuiz() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const quizzes = (await api("/api/admin/quizzes")).data || [];
+  body.innerHTML = `
+    <div class="card">
+      <h3>Créer un quiz</h3>
+      <form id="quizCreateForm" class="idea-form">
+        <input id="qzTitle" type="text" placeholder="Titre du quiz" required maxlength="150">
+        <textarea id="qzDesc" placeholder="Description (optionnel)" rows="2"></textarea>
+        <label class="admin-toggle" style="justify-content:flex-start;gap:8px">Publication programmée (optionnel)
+          <input id="qzPublishAt" type="datetime-local"></label>
+        <button type="submit" class="btn-save">Créer</button>
+      </form>
+    </div>
+    <div id="quizAdminList"></div>`;
+  document.getElementById("quizCreateForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = document.getElementById("qzTitle").value.trim();
+    if (!title) return;
+    const description = document.getElementById("qzDesc").value.trim() || null;
+    const raw = document.getElementById("qzPublishAt").value;
+    const publish_at = raw ? new Date(raw).toISOString() : null;
+    const { ok, data } = await api("/api/admin/quizzes", { method: "POST", body: JSON.stringify({ title, description, publish_at }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Quiz créé ✓", "success");
+    renderAdminQuiz();
+  });
+  const list = document.getElementById("quizAdminList");
+  for (const qz of quizzes) {
+    const card = document.createElement("div"); card.className = "card"; card.style.marginBottom = "10px";
+    card.innerHTML = `
+      <div class="idea-head">
+        <div><div class="idea-title">${qz.title}</div>
+          <div class="idea-meta">${qz.question_count} question(s) · ${qz.attempt_count} réponse(s)${qz.publish_at ? ` · publié le ${fdate(qz.publish_at, { day: "numeric", month: "short" })}` : ""}</div></div>
+        <button class="link-more" data-del-quiz="${qz.id}">Supprimer</button>
+      </div>
+      <button class="link-more" data-toggle-questions="${qz.id}" style="margin-top:8px">+ Gérer les questions</button>
+      <div class="idea-comments hidden" id="qzq-${qz.id}"></div>`;
+    card.querySelector("[data-del-quiz]").addEventListener("click", async () => {
+      if (!confirm("Supprimer ce quiz et toutes ses réponses ?")) return;
+      await api(`/api/admin/quizzes/${qz.id}`, { method: "DELETE" });
+      toast("Quiz supprimé", "success"); renderAdminQuiz();
+    });
+    card.querySelector("[data-toggle-questions]").addEventListener("click", () => toggleQuizQuestions(qz.id));
+    list.appendChild(card);
+  }
+  if (!quizzes.length) list.innerHTML = `<div class="empty">Aucun quiz créé pour l'instant.</div>`;
+}
+
+function toggleQuizQuestions(quizId) {
+  const box = document.getElementById(`qzq-${quizId}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  renderQuestionEditor(quizId, box);
+}
+
+async function renderQuestionEditor(quizId, box) {
+  box.innerHTML = `<div class="empty">Chargement…</div>`;
+  const quiz = (await api(`/api/quizzes/${quizId}`)).data;
+  const existing = (quiz?.questions || []).map(q => `
+    <div class="idea-comment">${q.text} <button class="link-more" data-del-q="${q.id}" style="margin-left:8px">supprimer</button></div>`).join("")
+    || `<div class="empty">Aucune question.</div>`;
+  box.innerHTML = `<div style="margin-bottom:10px">${existing}</div>
+    <form id="qForm-${quizId}" class="idea-form">
+      <input type="text" class="q-text" placeholder="Texte de la question" required>
+      <select class="q-type">
+        <option value="qcm">QCM</option>
+        <option value="vrai_faux">Vrai / Faux</option>
+      </select>
+      <div class="q-choices"></div>
+      <button type="button" class="link-more" data-add-choice>+ Ajouter un choix</button>
+      <button type="submit" class="btn-save">Ajouter la question</button>
+    </form>`;
+  box.querySelectorAll("[data-del-q]").forEach(b => b.addEventListener("click", async () => {
+    await api(`/api/admin/quizzes/questions/${b.dataset.delQ}`, { method: "DELETE" });
+    toast("Question supprimée", "success"); renderQuestionEditor(quizId, box);
+  }));
+  const form = document.getElementById(`qForm-${quizId}`);
+  const choicesBox = form.querySelector(".q-choices");
+  const typeSel = form.querySelector(".q-type");
+
+  function choiceRow(text = "") {
+    const row = document.createElement("div"); row.className = "quiz-choice-row";
+    row.innerHTML = `<input type="radio" name="correct-${quizId}"><input type="text" class="c-text" value="${text}" placeholder="Choix">`;
+    choicesBox.appendChild(row);
+  }
+  function resetChoices() {
+    choicesBox.innerHTML = "";
+    if (typeSel.value === "vrai_faux") { choiceRow("Vrai"); choiceRow("Faux"); }
+    else { choiceRow(); choiceRow(); }
+  }
+  typeSel.addEventListener("change", resetChoices);
+  form.querySelector("[data-add-choice]").addEventListener("click", () => choiceRow());
+  resetChoices();
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = form.querySelector(".q-text").value.trim();
+    if (!text) return;
+    const rows = [...choicesBox.querySelectorAll(".quiz-choice-row")];
+    const choices = rows.map(r => ({
+      text: r.querySelector(".c-text").value.trim(),
+      is_correct: r.querySelector('input[type="radio"]').checked,
+    })).filter(c => c.text);
+    if (choices.length < 2 || !choices.some(c => c.is_correct)) {
+      return toast("Il faut au moins 2 choix et une bonne réponse cochée.", "error");
+    }
+    const { ok, data } = await api(`/api/admin/quizzes/${quizId}/questions`, {
+      method: "POST", body: JSON.stringify({ text, type: typeSel.value, choices }),
+    });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Question ajoutée ✓", "success");
+    renderQuestionEditor(quizId, box);
+  });
 }
 
 /* ---- Administration : postes & espaces (capacités) ---- */
@@ -1008,6 +1128,88 @@ function searchItemsHtml(key, items) {
     return items.map(l => `<div class="event-item" data-search-link="${l.url}"><span class="event-title">${l.icon || "🔗"} ${l.label}</span></div>`).join("");
   }
   return "";
+}
+
+/* ============================================================
+   VUE : QUIZ (passation + correction automatique + classement)
+   ============================================================ */
+async function viewQuiz() {
+  const view = document.getElementById("view");
+  view.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Réponds aux quiz publiés — correction immédiate, classement par quiz.</p>
+    <div id="quizList" class="idea-list"><div class="empty">Chargement…</div></div>`;
+  const list = document.getElementById("quizList");
+  const quizzes = (await api("/api/quizzes")).data || [];
+  list.innerHTML = quizzes.length ? "" : `<div class="empty">Aucun quiz disponible pour l'instant.</div>`;
+  for (const qz of quizzes) {
+    const card = document.createElement("div"); card.className = "card idea-card"; card.style.cursor = "pointer";
+    card.innerHTML = `<div class="idea-head">
+        <div><div class="idea-title">${qz.title}</div>
+          <div class="idea-meta">${qz.question_count} question(s)</div></div>
+        ${qz.completed ? `<span class="ev-status-badge">Score : ${qz.my_score}/${qz.my_total}</span>` : `<span class="event-reg-btn">Répondre</span>`}
+      </div>
+      ${qz.description ? `<p class="idea-desc">${qz.description}</p>` : ""}`;
+    card.addEventListener("click", () => openQuiz(qz.id));
+    list.appendChild(card);
+  }
+}
+
+async function openQuiz(quizId) {
+  const view = document.getElementById("view");
+  view.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api(`/api/quizzes/${quizId}`);
+  if (!ok) { view.innerHTML = `<div class="empty">Quiz introuvable.</div>`; return; }
+
+  const qHtml = data.questions.map((q, i) => `
+    <div class="card quiz-question">
+      <div class="idea-title">${i + 1}. ${q.text}</div>
+      <div class="quiz-choices">${q.choices.map(c => {
+        if (data.completed) {
+          const cls = c.is_correct ? "correct" : (c.chosen ? "wrong" : "");
+          return `<label class="quiz-choice ${cls}"><input type="radio" disabled ${c.chosen ? "checked" : ""}> ${c.text}${c.is_correct ? " ✓" : (c.chosen ? " ✕" : "")}</label>`;
+        }
+        return `<label class="quiz-choice"><input type="radio" name="q${q.id}" value="${c.id}"> ${c.text}</label>`;
+      }).join("")}</div>
+    </div>`).join("");
+
+  view.innerHTML = `
+    <button class="btn-back" id="backBtn">← Retour aux quiz</button>
+    <h2 class="ed-title">${data.title}</h2>
+    ${data.description ? `<p class="idea-desc">${data.description}</p>` : ""}
+    ${data.completed ? `<div class="ev-status-badge" style="display:inline-block;margin-bottom:14px">Ton score : ${data.score}/${data.total}</div>` : ""}
+    <form id="quizForm">${qHtml}
+      ${data.completed ? "" : `<button type="submit" class="btn-save">Valider mes réponses</button>`}
+    </form>
+    <button class="link-more" id="showLeaderboard" style="margin-top:14px">🏆 Voir le classement</button>
+    <div id="quizLeaderboard" class="idea-comments hidden"></div>`;
+
+  document.getElementById("backBtn").addEventListener("click", () => goTo("quiz"));
+  document.getElementById("showLeaderboard").addEventListener("click", () => toggleQuizLeaderboard(quizId));
+
+  if (!data.completed) {
+    document.getElementById("quizForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const answers = {};
+      for (const q of data.questions) {
+        const checked = document.querySelector(`input[name="q${q.id}"]:checked`);
+        if (checked) answers[q.id] = +checked.value;
+      }
+      const { ok, data: res } = await api(`/api/quizzes/${quizId}/attempt`, { method: "POST", body: JSON.stringify({ answers }) });
+      if (!ok) return toast(res?.detail || "Envoi impossible.", "error");
+      toast(`Score : ${res.score}/${res.total} ✓`, "success");
+      openQuiz(quizId);
+    });
+  }
+}
+
+async function toggleQuizLeaderboard(quizId) {
+  const box = document.getElementById("quizLeaderboard");
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="empty">Chargement…</div>`;
+  const rows = (await api(`/api/quizzes/${quizId}/leaderboard`)).data || [];
+  box.innerHTML = rows.length
+    ? rows.map((r, i) => `<div class="idea-comment"><b>${i + 1}. ${r.name}</b> <span>${r.score}/${r.total}</span></div>`).join("")
+    : `<div class="empty">Personne n'a encore répondu.</div>`;
 }
 
 /* ---------------- Effets ---------------- */

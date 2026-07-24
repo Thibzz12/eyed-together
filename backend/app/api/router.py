@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.deps import get_current_user, require_admin
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
+from app.services import quiz as quiz_svc
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
@@ -418,6 +419,61 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
     if link is not None:
         db.delete(link)
         db.commit()
+
+
+@router.get("/quizzes")
+def list_quizzes(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Quiz publiés, avec mon statut de passation."""
+    return quiz_svc.list_published_quizzes(db, user["id"])
+
+
+@router.get("/quizzes/{quiz_id}")
+def get_quiz(quiz_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Le quiz à passer, ou la correction si déjà passé."""
+    return quiz_svc.get_quiz_for_attempt(db, quiz_id, user["id"])
+
+
+@router.post("/quizzes/{quiz_id}/attempt")
+def attempt_quiz(
+    quiz_id: int, data: schemas.AttemptSubmit, db: Session = Depends(get_db), user: dict = Depends(get_current_user),
+):
+    """Soumet mes réponses : correction automatique immédiate."""
+    attempt = quiz_svc.submit_attempt(db, quiz_id, user["id"], data.answers)
+    return {"score": attempt.score, "total": attempt.total}
+
+
+@router.get("/quizzes/{quiz_id}/leaderboard")
+def quiz_leaderboard(quiz_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    return quiz_svc.leaderboard(db, quiz_id)
+
+
+@router.get("/admin/quizzes")
+def admin_list_quizzes(db: Session = Depends(get_db), _=Depends(require_admin)):
+    return quiz_svc.admin_list_quizzes(db)
+
+
+@router.post("/admin/quizzes", status_code=status.HTTP_201_CREATED)
+def admin_create_quiz(data: schemas.QuizCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    quiz = quiz_svc.create_quiz(db, data.title, data.description, data.publish_at)
+    return {"id": quiz.id}
+
+
+@router.delete("/admin/quizzes/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_quiz(quiz_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    quiz_svc.delete_quiz(db, quiz_id)
+
+
+@router.post("/admin/quizzes/{quiz_id}/questions", status_code=status.HTTP_201_CREATED)
+def admin_add_question(
+    quiz_id: int, data: schemas.QuestionCreate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    q = quiz_svc.add_question(db, quiz_id, data.text, data.type, [c.model_dump() for c in data.choices])
+    return {"id": q.id}
+
+
+@router.delete("/admin/quizzes/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_question(question_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    quiz_svc.delete_question(db, question_id)
 
 
 @router.get("/search")

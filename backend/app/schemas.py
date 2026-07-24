@@ -192,6 +192,28 @@ class IdeaStatusUpdate(BaseModel):
     status: str
 
 
+# ---------------------------------------------------------------- Quiz
+class QuizChoiceCreate(BaseModel):
+    text: str
+    is_correct: bool = False
+
+
+class QuestionCreate(BaseModel):
+    text: str
+    type: str = "qcm"
+    choices: list[QuizChoiceCreate]
+
+
+class QuizCreate(BaseModel):
+    title: str
+    description: str | None = None
+    publish_at: datetime | None = None
+
+
+class AttemptSubmit(BaseModel):
+    answers: dict[int, int]   # {question_id: choice_id}
+
+
 # ---------------------------------------------------------------- Présence (gamification)
 class PresenceEntry(BaseModel):
     """Qui est présent (a réservé) pour une date donnée."""
