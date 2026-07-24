@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: eyed-together
+    env: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: development   # garde la création auto des tables (SQLite) + /auth/dev-login pour le test rapide
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./coworking.db
+      - key: FRONTEND_ORIGIN
+        value: https://eyed-together.onrender.com
+      - key: WORDPRESS_URL
+        value: https://weared.team
+      - key: WP_APP_SECRET
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
