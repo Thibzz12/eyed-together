@@ -149,20 +149,32 @@ def _event_fields(it: dict, fallback_date: str) -> tuple[str, str | None]:
 
 
 def fetch_content_detail(rest_base: str, post_id: int) -> dict | None:
-    """Contenu complet d'un contenu WordPress (événement `evenement` ou actualité `posts`)."""
+    """Contenu complet d'un contenu WordPress (événement `evenement` ou actualité `posts`).
+
+    Mis en cache 5 min (comme les listes) : cet appel est fait pour chaque événement
+    inscrit à chaque chargement du tableau de bord ("mes_evenements") — sans cache,
+    c'était un aller-retour réseau non-cached vers l'intranet par événement inscrit,
+    la cause principale d'un accueil lent à charger.
+    """
+    cache_key = f"detail:{rest_base}:{post_id}"
+    now = time.time()
+    cached = _CACHE.get(cache_key)
+    if cached and now - cached[0] < _TTL_SECONDS:
+        return cached[1]
+
     url = f"{settings.WORDPRESS_URL}/wp-json/wp/v2/{rest_base}/{post_id}"
     try:
         resp = httpx.get(url, params={"_embed": 1}, timeout=8.0)
         resp.raise_for_status()
         it = resp.json()
     except Exception:
-        return None
+        return cached[1] if cached else None
     image = None
     media = it.get("_embedded", {}).get("wp:featuredmedia")
     if isinstance(media, list) and media and isinstance(media[0], dict):
         image = media[0].get("source_url")
     date, place = _event_fields(it, it.get("date", ""))
-    return {
+    result = {
         "id": it.get("id"),
         "title": _clean(it.get("title", {}).get("rendered", "")),
         "date": date,
@@ -171,6 +183,8 @@ def fetch_content_detail(rest_base: str, post_id: int) -> dict | None:
         "image": image,
         "content_html": _sanitize(it.get("content", {}).get("rendered", "")),
     }
+    _CACHE[cache_key] = (now, result)
+    return result
 
 
 def search_events(q: str, limit: int = 8) -> list[dict]:

@@ -172,18 +172,29 @@ def my_reservations(db: Session, user_id: int) -> list[m.Reservation]:
 
 
 def presence(db: Session, day: date) -> list[m.Reservation]:
-    """Qui est présent (réservations actives) pour une date donnée."""
-    return list(
-        db.scalars(
-            select(m.Reservation)
-            .where(
-                m.Reservation.reservation_date == day,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-            .order_by(m.Reservation.slot)
-            .options(joinedload(m.Reservation.user), joinedload(m.Reservation.desk))
+    """Qui est présent (réservations actives) pour une date donnée.
+
+    Une personne en réservation "Journée" a 2 lignes (AM+PM) : on ne garde que
+    la 1re par (user, poste) pour ne jamais l'afficher deux fois.
+    """
+    rows = db.scalars(
+        select(m.Reservation)
+        .where(
+            m.Reservation.reservation_date == day,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
         )
+        .order_by(m.Reservation.slot)
+        .options(joinedload(m.Reservation.user), joinedload(m.Reservation.desk))
     )
+    seen: set[tuple[int, int]] = set()
+    out = []
+    for r in rows:
+        key = (r.user_id, r.desk_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
 
 
 # --------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 """Assemblage du tableau de bord d'accueil (cartes + données live)."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from sqlalchemy import func, select
@@ -53,7 +54,8 @@ def coworking_status(db: Session) -> dict:
     return {"free": max(0, total - occupied), "total": total, "occupied": occupied}
 
 
-def _card_data(db: Session, key: str, user_id: int):
+def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None):
+    wp_cache = wp_cache or {}
     if key == "presence":
         row = db.scalar(
             select(m.DailyStatus).where(m.DailyStatus.user_id == user_id, m.DailyStatus.day == date.today())
@@ -72,17 +74,26 @@ def _card_data(db: Session, key: str, user_id: int):
             "checked_in": r.checked_in_at is not None,
         }
     if key == "project_progress":
+        target_raw = get_setting(db, "project_target_date", "")
+        days_left = None
+        if target_raw:
+            try:
+                days_left = (date.fromisoformat(target_raw) - date.today()).days
+            except ValueError:
+                days_left = None
         return {
             "value": int(get_setting(db, "project_progress_value", "0") or 0),
             "label": get_setting(db, "project_progress_label", ""),
+            "milestone_title": get_setting(db, "project_milestone_title", "Nouveaux locaux"),
+            "days_left": days_left,
         }
     if key == "team_presence":
         rows = res_svc.presence(db, date.today())
         return [{"name": r.user.display_name, "desk": r.desk.name} for r in rows]
     if key == "events":
-        return fetch_events(limit=5)
+        return wp_cache.get("events") if "events" in wp_cache else fetch_events(limit=5)
     if key == "news":
-        return fetch_news(limit=4)
+        return wp_cache.get("news") if "news" in wp_cache else fetch_news(limit=4)
     if key == "liens_utiles":
         rows = db.scalars(
             select(m.UsefulLink).where(m.UsefulLink.enabled.is_(True)).order_by(m.UsefulLink.position)
@@ -90,21 +101,45 @@ def _card_data(db: Session, key: str, user_id: int):
         return [{"label": l.label, "url": l.url, "icon": l.icon} for l in rows]
     if key == "mes_evenements":
         regs = events_svc.my_active_registrations(db, user_id)[:5]
-        items = []
-        for r in regs:
-            d = fetch_event_detail(r.wp_event_id)
-            if d:
-                items.append({"id": r.wp_event_id, "title": d["title"], "date": d["date"], "status": r.status.value})
-        return items
+        if not regs:
+            return []
+        # Les détails (dont chacun peut être un aller-retour réseau non-cached la 1re fois)
+        # sont récupérés en parallèle plutôt que l'un après l'autre.
+        with ThreadPoolExecutor(max_workers=len(regs)) as ex:
+            details = list(ex.map(lambda r: fetch_event_detail(r.wp_event_id), regs))
+        return [
+            {"id": r.wp_event_id, "title": d["title"], "date": d["date"], "status": r.status.value}
+            for r, d in zip(regs, details) if d
+        ]
     return None
 
 
 def build_dashboard(db: Session, user_id: int) -> list[dict]:
-    """Cartes activées, dans l'ordre, avec leurs données."""
+    """Cartes activées, dans l'ordre, avec leurs données.
+
+    Les appels réseau vers l'intranet WordPress (événements, actualités) sont lancés
+    en parallèle plutôt que l'un après l'autre — c'était la principale source de lenteur
+    au chargement de l'accueil (2 allers-retours réseau séquentiels avant, potentiellement
+    plus avec les événements inscrits).
+    """
     cards = db.scalars(
         select(m.DashboardCard).where(m.DashboardCard.enabled.is_(True)).order_by(m.DashboardCard.position)
     ).all()
+    enabled_keys = {c.key for c in cards}
+
+    wp_cache: dict = {}
+    wp_jobs = [k for k in ("events", "news") if k in enabled_keys]
+    if wp_jobs:
+        with ThreadPoolExecutor(max_workers=len(wp_jobs)) as ex:
+            futures = {
+                "events": ex.submit(fetch_events, limit=5) if "events" in wp_jobs else None,
+                "news": ex.submit(fetch_news, limit=4) if "news" in wp_jobs else None,
+            }
+            for k, f in futures.items():
+                if f is not None:
+                    wp_cache[k] = f.result()
+
     return [
-        {"key": c.key, "title": c.title, "highlighted": c.highlighted, "data": _card_data(db, c.key, user_id)}
+        {"key": c.key, "title": c.title, "highlighted": c.highlighted, "data": _card_data(db, c.key, user_id, wp_cache)}
         for c in cards
     ]

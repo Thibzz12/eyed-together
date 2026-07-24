@@ -101,6 +101,8 @@ class DashboardCardUpdate(BaseModel):
 class ProjectProgress(BaseModel):
     value: int
     label: str
+    milestone_title: str = "Nouveaux locaux"
+    target_date: date | None = None
 
 
 class StatusesUpdate(BaseModel):

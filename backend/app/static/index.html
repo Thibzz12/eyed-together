@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/jakarta.css">
-  <link rel="stylesheet" href="/static/styles.css?v=21">
+  <link rel="stylesheet" href="/static/styles.css?v=22">
 </head>
 <body>
 
@@ -58,6 +58,9 @@
       <header class="topbar">
         <h1 id="pageTitle">Accueil</h1>
         <div class="topbar-right">
+          <button class="search-btn menu-only-mobile" id="menuBtn" aria-label="Menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          </button>
           <button class="search-btn" id="searchBtn" aria-label="Rechercher">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           </button>
@@ -93,16 +96,37 @@
       <svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profil</span></a>
   </nav>
 
-  <!-- Barre de sélection (vue Réserver) -->
-  <div id="selectionBar" class="selection-bar hidden">
-    <div class="sel-info"><span class="sel-desk" id="selDesk"></span><span class="sel-meta" id="selMeta"></span></div>
-    <div class="sel-actions">
-      <button class="sel-cancel-sel" id="selDeselect">Annuler</button>
-      <button class="sel-confirm" id="selConfirm">Confirmer</button>
+  <!-- Feuille de réservation (vue Réserver) -->
+  <div id="reserveSheetBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet" id="reserveSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-eyebrow" id="sheetEyebrow">Réservation</div>
+      <div class="sheet-title" id="sheetTitle">Poste</div>
+      <div class="sheet-sub" id="sheetSub"></div>
+      <div id="sheetDuration">
+        <div class="sheet-label">Durée</div>
+        <div class="segmented" id="sheetSlotToggle">
+          <button data-slot="AM">Matin</button><button data-slot="PM">Après-midi</button><button data-slot="DAY" class="active">Journée</button>
+        </div>
+      </div>
+      <div id="sheetMineNotice" class="sheet-mine-notice hidden">Tu as déjà réservé ce poste pour ce créneau.</div>
+      <div class="sheet-actions">
+        <button class="btn sheet-cancel" id="sheetCancelBtn">Annuler</button>
+        <button class="btn btn-primary sheet-confirm" id="sheetConfirmBtn">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Menu (raccourcis Idées/Quiz/Médias/Recherche/Administration) -->
+  <div id="menuSheetBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet" id="menuSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" style="margin-bottom:14px">Menu</div>
+      <div class="menu-grid" id="menuGrid"></div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=21"></script>
+  <script src="/static/app.js?v=22"></script>
 </body>
 </html>
