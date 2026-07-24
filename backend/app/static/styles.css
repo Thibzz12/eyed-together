@@ -115,7 +115,7 @@ button, input { font-family: inherit; }
   padding-bottom: env(safe-area-inset-bottom, 0);
   box-shadow: 0 -2px 12px rgba(15,35,51,.05);
 }
-.tab-link { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .66rem; font-weight: 600; padding: 6px 2px; }
+.tab-link { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .66rem; font-weight: 600; padding: 6px 2px; border: none; background: none; font-family: inherit; cursor: pointer; }
 .tab-link .ic { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tab-link.active { color: var(--blue); }
 
@@ -252,6 +252,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .search-bar input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: .95rem; font-family: inherit; }
 .search-section { margin-bottom: 14px; }
 .search-section h3 { margin: 0 0 10px; }
+.profile-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 
 /* ---------------- Quiz ---------------- */
 .quiz-question { margin-bottom: 12px; }
@@ -262,6 +263,9 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .quiz-choice.wrong { border-color: var(--red); background: #FEF2F2; color: var(--red); font-weight: 600; }
 .quiz-choice-row { display: flex; align-items: center; gap: 8px; }
 .quiz-choice-row .c-text { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .88rem; font-family: inherit; }
+.choice-del { border: none; background: none; color: var(--red); cursor: pointer; font-size: .9rem; padding: 4px; flex-shrink: 0; }
+.edit-pencil { border: none; background: none; color: var(--muted); cursor: pointer; font-size: .85rem; padding: 2px 4px; }
+.edit-pencil:hover { color: var(--blue); }
 .idea-form select { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .9rem; font-family: inherit; }
 
 /* ---------------- Notifications ---------------- */
@@ -309,9 +313,13 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .admin-progress input[type="range"] { width: 100%; margin-top: 8px; accent-color: var(--blue); }
 .btn-save { margin-top: 18px; background: var(--blue); color: #fff; border: none; border-radius: var(--radius-sm); padding: 13px 26px; font-family: inherit; font-weight: 600; font-size: .95rem; cursor: pointer; width: 100%; }
 .btn-save:hover { filter: brightness(1.1); }
-.admin-tabs { display: flex; background: #E9EEF3; border-radius: var(--radius-sm); padding: 4px; margin-bottom: 18px; }
-.admin-tabs button { flex: 1; border: none; background: transparent; padding: 10px 14px; border-radius: 8px; font-weight: 600; font-size: .86rem; color: var(--muted); cursor: pointer; }
+.admin-tabs { display: flex; background: #E9EEF3; border-radius: var(--radius-sm); padding: 4px; margin-bottom: 18px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.admin-tabs button { flex: 1; min-width: 0; border: none; background: transparent; padding: 10px 8px; border-radius: 8px; font-weight: 600; font-size: .86rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .admin-tabs button.active { background: #fff; color: var(--blue); box-shadow: var(--shadow-1); }
+.content-subtabs { display: flex; gap: 6px; margin-bottom: 16px; }
+.content-subtabs button { border: 1px solid var(--line); background: #fff; padding: 7px 14px; border-radius: 999px; font-weight: 600; font-size: .82rem; color: var(--muted); cursor: pointer; }
+.content-subtabs button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+@media (max-width: 400px) { .admin-tabs button { font-size: .76rem; padding: 9px 4px; } }
 .desk-admin-head { display: none; }
 .desk-admin-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name del" "pos pos" "active active"; gap: 8px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
 .desk-admin-row input.da-name { grid-area: name; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: .9rem; font-weight: 600; min-width: 0; }

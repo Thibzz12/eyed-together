@@ -103,6 +103,22 @@ def create(
     return item
 
 
+def update(
+    db: Session, media_id: int, media_type: str, title: str, description: str | None, url: str,
+    comments_enabled: bool, publish_at: datetime | None,
+) -> None:
+    item = db.get(m.MediaItem, media_id)
+    if item is None:
+        raise MediaNotFound("Média introuvable.")
+    item.type = m.MediaType(media_type)
+    item.title = title
+    item.description = description
+    item.url = url
+    item.comments_enabled = comments_enabled
+    item.publish_at = publish_at
+    db.commit()
+
+
 def delete(db: Session, media_id: int) -> None:
     item = db.get(m.MediaItem, media_id)
     if item is not None:

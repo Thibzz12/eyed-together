@@ -53,11 +53,12 @@ async function init() {
   refreshPoints(0);
   if (state.profile.role === "admin") document.querySelector(".nav-admin").classList.remove("hidden");
 
-  document.querySelectorAll(".nav-link, .tab-link").forEach(a =>
+  document.querySelectorAll(".nav-link[data-route], .tab-link[data-route]").forEach(a =>
     a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
   document.getElementById("selDeselect").addEventListener("click", clearSelection);
   document.getElementById("selConfirm").addEventListener("click", confirmSelection);
   document.getElementById("mobileMenuBtn").addEventListener("click", toggleMobileMenu);
+  document.getElementById("tabMoreBtn").addEventListener("click", toggleMobileMenu);
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.getElementById("notifBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleNotifPanel(); });
   document.addEventListener("click", (e) => {
@@ -65,9 +66,11 @@ async function init() {
     if (!panel.classList.contains("hidden") && !panel.contains(e.target) && e.target.id !== "notifBtn") panel.classList.add("hidden");
   });
   refreshNotifBadge();
+  setInterval(refreshNotifBadge, 60000); // rafraîchit le badge même si le panneau reste fermé
   document.addEventListener("click", e => {
     const sb = document.querySelector(".sidebar");
-    if (sb.classList.contains("open") && !sb.contains(e.target) && e.target.id !== "mobileMenuBtn" && !document.getElementById("mobileMenuBtn").contains(e.target)) closeMobileMenu();
+    const toggleBtns = [document.getElementById("mobileMenuBtn"), document.getElementById("tabMoreBtn")];
+    if (sb.classList.contains("open") && !sb.contains(e.target) && !toggleBtns.some(b => b && b.contains(e.target))) closeMobileMenu();
   });
   window.addEventListener("hashchange", router);
   router();
@@ -271,19 +274,15 @@ async function viewAdmin() {
   view.innerHTML = `
     <div class="admin-tabs">
       <button data-tab="accueil" class="active">Accueil</button>
-      <button data-tab="espaces">Postes &amp; espaces</button>
+      <button data-tab="espaces">Coworking</button>
       <button data-tab="evenements">Événements</button>
-      <button data-tab="idees">Idées</button>
-      <button data-tab="liens">Liens utiles</button>
-      <button data-tab="quiz">Quiz</button>
-      <button data-tab="medias">Médias</button>
+      <button data-tab="contenu">Contenu</button>
       <button data-tab="stats">Statistiques</button>
     </div>
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
-    idees: renderAdminIdees, liens: renderAdminLiens, quiz: renderAdminQuiz, medias: renderAdminMedias,
-    stats: renderAdminStats,
+    contenu: renderAdminContenu, stats: renderAdminStats,
   };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
@@ -364,11 +363,12 @@ async function toggleEventRegistrations(eventId) {
 async function renderAdminAccueil() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const [dash, st] = await Promise.all([api("/api/admin/dashboard"), api("/api/admin/statuses")]);
+  const [dash, st, links] = await Promise.all([api("/api/admin/dashboard"), api("/api/admin/statuses"), api("/api/admin/links")]);
   if (!dash.ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
   adminState = {
     cards: dash.data.cards.slice(), progress: dash.data.project_progress,
     statusesAll: (st.data && st.data.all) || [], statusesEnabled: new Set((st.data && st.data.enabled) || []),
+    links: links.data || [],
   };
   renderAdminCards();
 }
@@ -387,6 +387,14 @@ function renderAdminCards() {
     </div>`).join("");
   const statusRows = adminState.statusesAll.map(key => `
     <label class="admin-toggle"><input type="checkbox" data-statuskey="${key}" ${adminState.statusesEnabled.has(key) ? "checked" : ""}> ${STATUS[key] || key}</label>`).join("");
+  const linksRows = adminState.links.map(l => `
+    <div class="desk-admin-row" data-id="${l.id}">
+      <input class="da-name" style="max-width:50px" value="${l.icon || ""}" data-field="icon" placeholder="🔗">
+      <input class="da-name" value="${l.label}" data-field="label" placeholder="Libellé">
+      <input class="da-name" value="${l.url}" data-field="url" placeholder="https://…">
+      <label class="admin-toggle"><input type="checkbox" data-field="enabled" ${l.enabled ? "checked" : ""}> Actif</label>
+      <button class="da-del" data-del-link="${l.id}" title="Supprimer">✕</button>
+    </div>`).join("");
   body.innerHTML = `
     <p class="sub" style="color:var(--muted);margin:0 0 16px">Configure l'accueil des collaborateurs : active/désactive les cartes, change l'ordre, mets en avant.</p>
     <div class="card"><h3>Cartes de l'accueil</h3><div class="admin-cards">${rows}</div></div>
@@ -401,7 +409,18 @@ function renderAdminCards() {
       <p class="sub" style="color:var(--muted);margin:0 0 10px">Décoche un statut pour le retirer des choix proposés aux employés.</p>
       <div class="admin-progress">${statusRows}</div>
     </div>
-    <button class="btn-save" id="adminSave">Enregistrer</button>`;
+    <button class="btn-save" id="adminSave">Enregistrer</button>
+    <div class="card" style="margin-top:16px">
+      <h3>Liens utiles</h3>
+      <p class="sub" style="color:var(--muted);margin:0 0 10px">Liens externes affichés sur l'accueil (mutuelle, intranet, RH…). Icône = un emoji.</p>
+      <form id="linkAddForm" class="idea-form link-add-form" style="margin-bottom:14px">
+        <input id="linkIcon" type="text" placeholder="🔗" maxlength="4">
+        <input id="linkLabel" type="text" placeholder="Libellé (ex : Mutuelle)" required maxlength="100">
+        <input id="linkUrl" type="text" placeholder="https://… ou mailto:contact@eyedpharma.com" required maxlength="500">
+        <button type="submit" class="btn-save">Ajouter un lien</button>
+      </form>
+      <div class="desk-admin-list">${linksRows || `<div class="empty">Aucun lien pour l'instant.</div>`}</div>
+    </div>`;
   body.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => moveCard(+b.dataset.up, -1)));
   body.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => moveCard(+b.dataset.down, 1)));
   body.querySelectorAll("[data-enabled]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.enabled].enabled = cb.checked; }));
@@ -412,6 +431,24 @@ function renderAdminCards() {
   const range = document.getElementById("ppRange");
   range.addEventListener("input", () => document.getElementById("ppVal").textContent = range.value);
   document.getElementById("adminSave").addEventListener("click", saveAdmin);
+
+  document.getElementById("linkAddForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const icon = document.getElementById("linkIcon").value.trim() || "🔗";
+    const label = document.getElementById("linkLabel").value.trim();
+    const url = document.getElementById("linkUrl").value.trim();
+    if (!label || !url) return;
+    const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Lien ajouté ✓", "success");
+    renderAdminAccueil();
+  });
+  body.querySelectorAll(".desk-admin-list [data-field]").forEach(inp => inp.addEventListener("change", () => {
+    const id = +inp.closest("[data-id]").dataset.id;
+    const val = inp.type === "checkbox" ? inp.checked : inp.value;
+    patchLink(id, { [inp.dataset.field]: val });
+  }));
+  body.querySelectorAll("[data-del-link]").forEach(b => b.addEventListener("click", () => delLink(+b.dataset.delLink)));
 }
 
 function moveCard(i, dir) {
@@ -428,9 +465,27 @@ async function saveAdmin() {
   else toast("Erreur d'enregistrement.", "error");
 }
 
-/* ---- Administration : workflow de la boîte à idées ---- */
-async function renderAdminIdees() {
+/* ---- Administration : Contenu (sous-onglets Idées / Quiz / Médias) ---- */
+function renderAdminContenu() {
   const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="content-subtabs">
+      <button data-sub="idees" class="active">Idées</button>
+      <button data-sub="quiz">Quiz</button>
+      <button data-sub="medias">Médias</button>
+    </div>
+    <div id="contenuBody"></div>`;
+  const SUB = { idees: renderAdminIdees, quiz: renderAdminQuiz, medias: renderAdminMedias };
+  body.querySelectorAll(".content-subtabs button").forEach(b => b.addEventListener("click", () => {
+    body.querySelectorAll(".content-subtabs button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    SUB[b.dataset.sub]("contenuBody");
+  }));
+  renderAdminIdees("contenuBody");
+}
+
+/* ---- Administration : workflow de la boîte à idées ---- */
+async function renderAdminIdees(targetId = "adminBody") {
+  const body = document.getElementById(targetId);
   body.innerHTML = `<div class="empty">Chargement…</div>`;
   const ideas = (await api("/api/ideas")).data || [];
   if (!ideas.length) { body.innerHTML = `<div class="empty">Aucune idée soumise.</div>`; return; }
@@ -452,53 +507,7 @@ async function renderAdminIdees() {
   }
 }
 
-/* ---- Administration : liens utiles ---- */
-async function renderAdminLiens() {
-  const body = document.getElementById("adminBody");
-  body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const { ok, data } = await api("/api/admin/links");
-  if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
-  body.innerHTML = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les liens externes affichés sur l'accueil : mutuelle, RH, intranet (ex. ${window.location.protocol}//weared.team), documents partagés, etc. Icône = un emoji (ex. 🍽️, 🏥, 📄).</p>
-    <div class="card">
-      <h3>Ajouter un lien</h3>
-      <form id="linkAddForm" class="idea-form link-add-form">
-        <input id="linkIcon" type="text" placeholder="🔗" maxlength="4">
-        <input id="linkLabel" type="text" placeholder="Libellé (ex : Mutuelle)" required maxlength="100">
-        <input id="linkUrl" type="text" placeholder="https://… ou mailto:contact@eyedpharma.com" required maxlength="500">
-        <button type="submit" class="btn-save">Ajouter</button>
-      </form>
-    </div>
-    <div class="card"><h3>Liens existants</h3><div class="desk-admin-list" id="linksList"></div></div>`;
-  document.getElementById("linkAddForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const icon = document.getElementById("linkIcon").value.trim() || "🔗";
-    const label = document.getElementById("linkLabel").value.trim();
-    const url = document.getElementById("linkUrl").value.trim();
-    if (!label || !url) return;
-    const { ok, data } = await api("/api/admin/links", { method: "POST", body: JSON.stringify({ label, url, icon }) });
-    if (!ok) return toast(data?.detail || "Erreur", "error");
-    toast("Lien ajouté ✓", "success");
-    renderAdminLiens();
-  });
-  const list = document.getElementById("linksList");
-  for (const l of data) {
-    const row = document.createElement("div"); row.className = "desk-admin-row"; row.dataset.id = l.id;
-    row.innerHTML = `
-      <input class="da-name" style="max-width:50px" value="${l.icon || ""}" data-field="icon" placeholder="🔗">
-      <input class="da-name" value="${l.label}" data-field="label" placeholder="Libellé">
-      <input class="da-name" value="${l.url}" data-field="url" placeholder="https://…">
-      <label class="admin-toggle"><input type="checkbox" data-field="enabled" ${l.enabled ? "checked" : ""}> Actif</label>
-      <button class="da-del" title="Supprimer">✕</button>`;
-    row.querySelectorAll("[data-field]").forEach(inp => inp.addEventListener("change", () => {
-      const val = inp.type === "checkbox" ? inp.checked : inp.value;
-      patchLink(l.id, { [inp.dataset.field]: val });
-    }));
-    row.querySelector(".da-del").addEventListener("click", () => delLink(l.id));
-    list.appendChild(row);
-  }
-  if (!data.length) list.innerHTML = `<div class="empty">Aucun lien pour l'instant — ajoute le premier ci-dessus.</div>`;
-}
-
+/* Liens utiles : rendu fusionné dans renderAdminCards() (onglet Accueil). */
 async function patchLink(id, patch) {
   const { ok } = await api(`/api/admin/links/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
   toast(ok ? "Enregistré ✓" : "Erreur", ok ? "success" : "error");
@@ -506,13 +515,13 @@ async function patchLink(id, patch) {
 async function delLink(id) {
   if (!confirm("Supprimer ce lien ?")) return;
   const { ok } = await api(`/api/admin/links/${id}`, { method: "DELETE" });
-  if (ok) { toast("Lien supprimé", "success"); renderAdminLiens(); }
+  if (ok) { toast("Lien supprimé", "success"); renderAdminAccueil(); }
   else toast("Erreur", "error");
 }
 
 /* ---- Administration : quiz ---- */
-async function renderAdminQuiz() {
-  const body = document.getElementById("adminBody");
+async function renderAdminQuiz(targetId = "adminBody") {
+  const body = document.getElementById(targetId);
   body.innerHTML = `<div class="empty">Chargement…</div>`;
   const quizzes = (await api("/api/admin/quizzes")).data || [];
   body.innerHTML = `
@@ -537,28 +546,56 @@ async function renderAdminQuiz() {
     const { ok, data } = await api("/api/admin/quizzes", { method: "POST", body: JSON.stringify({ title, description, publish_at }) });
     if (!ok) return toast(data?.detail || "Erreur", "error");
     toast("Quiz créé ✓", "success");
-    renderAdminQuiz();
+    renderAdminQuiz(targetId);
   });
   const list = document.getElementById("quizAdminList");
   for (const qz of quizzes) {
     const card = document.createElement("div"); card.className = "card"; card.style.marginBottom = "10px";
     card.innerHTML = `
       <div class="idea-head">
-        <div><div class="idea-title">${qz.title}</div>
+        <div><div class="idea-title">${qz.title} <button class="edit-pencil" data-edit-quiz="${qz.id}" title="Modifier">✎</button></div>
           <div class="idea-meta">${qz.question_count} question(s) · ${qz.attempt_count} réponse(s)${qz.publish_at ? ` · publié le ${fdate(qz.publish_at, { day: "numeric", month: "short" })}` : ""}</div></div>
         <button class="link-more" data-del-quiz="${qz.id}">Supprimer</button>
       </div>
+      <div class="idea-comments hidden" id="qzedit-${qz.id}"></div>
       <button class="link-more" data-toggle-questions="${qz.id}" style="margin-top:8px">+ Gérer les questions</button>
       <div class="idea-comments hidden" id="qzq-${qz.id}"></div>`;
     card.querySelector("[data-del-quiz]").addEventListener("click", async () => {
       if (!confirm("Supprimer ce quiz et toutes ses réponses ?")) return;
       await api(`/api/admin/quizzes/${qz.id}`, { method: "DELETE" });
-      toast("Quiz supprimé", "success"); renderAdminQuiz();
+      toast("Quiz supprimé", "success"); renderAdminQuiz(targetId);
     });
+    card.querySelector("[data-edit-quiz]").addEventListener("click", () => toggleQuizEdit(qz, targetId));
     card.querySelector("[data-toggle-questions]").addEventListener("click", () => toggleQuizQuestions(qz.id));
     list.appendChild(card);
   }
   if (!quizzes.length) list.innerHTML = `<div class="empty">Aucun quiz créé pour l'instant.</div>`;
+}
+
+function toggleQuizEdit(qz, targetId) {
+  const box = document.getElementById(`qzedit-${qz.id}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  const publishVal = qz.publish_at ? qz.publish_at.slice(0, 16) : "";
+  box.innerHTML = `<form class="idea-form">
+    <input type="text" class="qz-edit-title" value="${qz.title.replace(/"/g, "&quot;")}" required>
+    <textarea class="qz-edit-desc" rows="2">${qz.description || ""}</textarea>
+    <label class="admin-toggle" style="justify-content:flex-start;gap:8px">Publication programmée (optionnel)
+      <input type="datetime-local" class="qz-edit-publish" value="${publishVal}"></label>
+    <button type="submit" class="btn-save">Enregistrer</button>
+  </form>`;
+  box.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = box.querySelector(".qz-edit-title").value.trim();
+    if (!title) return;
+    const description = box.querySelector(".qz-edit-desc").value.trim() || null;
+    const raw = box.querySelector(".qz-edit-publish").value;
+    const publish_at = raw ? new Date(raw).toISOString() : null;
+    const { ok, data } = await api(`/api/admin/quizzes/${qz.id}`, { method: "PATCH", body: JSON.stringify({ title, description, publish_at }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Quiz mis à jour ✓", "success");
+    renderAdminQuiz(targetId);
+  });
 }
 
 function toggleQuizQuestions(quizId) {
@@ -568,12 +605,15 @@ function toggleQuizQuestions(quizId) {
   renderQuestionEditor(quizId, box);
 }
 
-async function renderQuestionEditor(quizId, box) {
+async function renderQuestionEditor(quizId, box, editingQuestion = null) {
   box.innerHTML = `<div class="empty">Chargement…</div>`;
-  const quiz = (await api(`/api/quizzes/${quizId}`)).data;
+  const quiz = (await api(`/api/admin/quizzes/${quizId}`)).data;
   const existing = (quiz?.questions || []).map(q => `
-    <div class="idea-comment">${q.text} <button class="link-more" data-del-q="${q.id}" style="margin-left:8px">supprimer</button></div>`).join("")
-    || `<div class="empty">Aucune question.</div>`;
+    <div class="idea-comment">${q.text}
+      <button class="edit-pencil" data-edit-q="${q.id}" title="Modifier">✎</button>
+      <button class="link-more" data-del-q="${q.id}" style="margin-left:6px">supprimer</button>
+    </div>`).join("") || `<div class="empty">Aucune question.</div>`;
+
   box.innerHTML = `<div style="margin-bottom:10px">${existing}</div>
     <form id="qForm-${quizId}" class="idea-form">
       <input type="text" class="q-text" placeholder="Texte de la question" required>
@@ -583,19 +623,32 @@ async function renderQuestionEditor(quizId, box) {
       </select>
       <div class="q-choices"></div>
       <button type="button" class="link-more" data-add-choice>+ Ajouter un choix</button>
-      <button type="submit" class="btn-save">Ajouter la question</button>
+      <button type="submit" class="btn-save">${editingQuestion ? "Enregistrer la question" : "Ajouter la question"}</button>
+      ${editingQuestion ? `<button type="button" class="link-more" data-cancel-edit>Annuler la modification</button>` : ""}
     </form>`;
   box.querySelectorAll("[data-del-q]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Supprimer cette question ?")) return;
     await api(`/api/admin/quizzes/questions/${b.dataset.delQ}`, { method: "DELETE" });
     toast("Question supprimée", "success"); renderQuestionEditor(quizId, box);
   }));
+  box.querySelectorAll("[data-edit-q]").forEach(b => b.addEventListener("click", () => {
+    const q = quiz.questions.find(x => x.id === +b.dataset.editQ);
+    renderQuestionEditor(quizId, box, q);
+  }));
+
   const form = document.getElementById(`qForm-${quizId}`);
   const choicesBox = form.querySelector(".q-choices");
   const typeSel = form.querySelector(".q-type");
+  const cancelBtn = form.querySelector("[data-cancel-edit]");
+  if (cancelBtn) cancelBtn.addEventListener("click", () => renderQuestionEditor(quizId, box));
 
-  function choiceRow(text = "") {
+  function choiceRow(text = "", correct = false) {
     const row = document.createElement("div"); row.className = "quiz-choice-row";
-    row.innerHTML = `<input type="radio" name="correct-${quizId}"><input type="text" class="c-text" value="${text}" placeholder="Choix">`;
+    row.innerHTML = `<input type="radio" name="correct-${quizId}" ${correct ? "checked" : ""}><input type="text" class="c-text" value="${text.replace(/"/g, "&quot;")}" placeholder="Choix"><button type="button" class="choice-del" title="Retirer ce choix">✕</button>`;
+    row.querySelector(".choice-del").addEventListener("click", () => {
+      if (choicesBox.querySelectorAll(".quiz-choice-row").length > 2) row.remove();
+      else toast("Il faut au moins 2 choix.", "error");
+    });
     choicesBox.appendChild(row);
   }
   function resetChoices() {
@@ -603,9 +656,17 @@ async function renderQuestionEditor(quizId, box) {
     if (typeSel.value === "vrai_faux") { choiceRow("Vrai"); choiceRow("Faux"); }
     else { choiceRow(); choiceRow(); }
   }
+
+  if (editingQuestion) {
+    form.querySelector(".q-text").value = editingQuestion.text;
+    typeSel.value = editingQuestion.type;
+    choicesBox.innerHTML = "";
+    editingQuestion.choices.forEach(c => choiceRow(c.text, c.is_correct));
+  } else {
+    resetChoices();
+  }
   typeSel.addEventListener("change", resetChoices);
   form.querySelector("[data-add-choice]").addEventListener("click", () => choiceRow());
-  resetChoices();
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -619,18 +680,21 @@ async function renderQuestionEditor(quizId, box) {
     if (choices.length < 2 || !choices.some(c => c.is_correct)) {
       return toast("Il faut au moins 2 choix et une bonne réponse cochée.", "error");
     }
-    const { ok, data } = await api(`/api/admin/quizzes/${quizId}/questions`, {
-      method: "POST", body: JSON.stringify({ text, type: typeSel.value, choices }),
+    const path = editingQuestion
+      ? `/api/admin/quizzes/questions/${editingQuestion.id}`
+      : `/api/admin/quizzes/${quizId}/questions`;
+    const { ok, data } = await api(path, {
+      method: editingQuestion ? "PATCH" : "POST", body: JSON.stringify({ text, type: typeSel.value, choices }),
     });
     if (!ok) return toast(data?.detail || "Erreur", "error");
-    toast("Question ajoutée ✓", "success");
+    toast(editingQuestion ? "Question mise à jour ✓" : "Question ajoutée ✓", "success");
     renderQuestionEditor(quizId, box);
   });
 }
 
 /* ---- Administration : médias ---- */
-async function renderAdminMedias() {
-  const body = document.getElementById("adminBody");
+async function renderAdminMedias(targetId = "adminBody") {
+  const body = document.getElementById(targetId);
   body.innerHTML = `<div class="empty">Chargement…</div>`;
   const items = (await api("/api/admin/media")).data || [];
   body.innerHTML = `
@@ -659,23 +723,55 @@ async function renderAdminMedias() {
     const { ok, data } = await api("/api/admin/media", { method: "POST", body: JSON.stringify(body) });
     if (!ok) return toast(data?.detail || "Erreur", "error");
     toast("Média ajouté ✓", "success");
-    renderAdminMedias();
+    renderAdminMedias(targetId);
   });
   const list = document.getElementById("mediaAdminList");
   list.innerHTML = items.length ? "" : `<div class="empty">Aucun média pour l'instant.</div>`;
   for (const it of items) {
     const row = document.createElement("div"); row.className = "event-admin-row"; row.style.marginBottom = "8px";
     row.innerHTML = `<div class="event-admin-top">
-      <div class="event-admin-info"><div class="ev-title">${MEDIA_TYPE_LABEL[it.type] || it.type} · ${it.title}</div></div>
+      <div class="event-admin-info"><div class="ev-title">${MEDIA_TYPE_LABEL[it.type] || it.type} · ${it.title} <button class="edit-pencil" data-edit-media="${it.id}" title="Modifier">✎</button></div></div>
       <button class="link-more" data-del-media="${it.id}">Supprimer</button>
-    </div>`;
+    </div>
+    <div class="idea-comments hidden" id="mdedit-${it.id}"></div>`;
     row.querySelector("[data-del-media]").addEventListener("click", async () => {
       if (!confirm("Supprimer ce média ?")) return;
       await api(`/api/admin/media/${it.id}`, { method: "DELETE" });
-      toast("Média supprimé", "success"); renderAdminMedias();
+      toast("Média supprimé", "success"); renderAdminMedias(targetId);
     });
+    row.querySelector("[data-edit-media]").addEventListener("click", () => toggleMediaEdit(it, targetId));
     list.appendChild(row);
   }
+}
+
+function toggleMediaEdit(it, targetId) {
+  const box = document.getElementById(`mdedit-${it.id}`);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  box.innerHTML = `<form class="idea-form">
+    <select class="md-edit-type"><option value="video">Vidéo</option><option value="album">Album photo</option></select>
+    <input type="text" class="md-edit-title" value="${it.title.replace(/"/g, "&quot;")}" required maxlength="150">
+    <textarea class="md-edit-desc" rows="2">${it.description || ""}</textarea>
+    <input type="text" class="md-edit-url" value="${it.url}" required maxlength="500">
+    <label class="admin-toggle"><input type="checkbox" class="md-edit-comments" ${it.comments_enabled ? "checked" : ""}> Commentaires activés</label>
+    <button type="submit" class="btn-save">Enregistrer</button>
+  </form>`;
+  box.querySelector(".md-edit-type").value = it.type;
+  box.querySelector("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = box.querySelector(".md-edit-title").value.trim();
+    const url = box.querySelector(".md-edit-url").value.trim();
+    if (!title || !url) return;
+    const body = {
+      type: box.querySelector(".md-edit-type").value, title,
+      description: box.querySelector(".md-edit-desc").value.trim() || null,
+      url, comments_enabled: box.querySelector(".md-edit-comments").checked,
+    };
+    const { ok, data } = await api(`/api/admin/media/${it.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Média mis à jour ✓", "success");
+    renderAdminMedias(targetId);
+  });
 }
 
 /* ---- Administration : cockpit (KPI + alertes) ---- */
@@ -1222,11 +1318,12 @@ async function runSearch(q) {
   results.querySelectorAll("[data-search-event]").forEach(el => el.addEventListener("click", () => openEvent(+el.dataset.searchEvent)));
   results.querySelectorAll("[data-search-news]").forEach(el => el.addEventListener("click", () => openNews(+el.dataset.searchNews)));
   results.querySelectorAll("[data-search-link]").forEach(el => el.addEventListener("click", () => window.open(el.dataset.searchLink, "_blank", "noopener")));
+  results.querySelectorAll("[data-search-user]").forEach(el => el.addEventListener("click", () => openUserProfile(+el.dataset.searchUser)));
 }
 
 function searchItemsHtml(key, items) {
   if (key === "collaborateurs") {
-    return items.map(u => `<div class="event-item"><span class="colleague-av" style="background:${colorFor(u.name)};width:28px;height:28px;font-size:.7rem;flex-shrink:0">${initials(u.name)}</span>
+    return items.map(u => `<div class="event-item" data-search-user="${u.id}"><span class="colleague-av" style="background:${colorFor(u.name)};width:28px;height:28px;font-size:.7rem;flex-shrink:0">${initials(u.name)}</span>
       <span class="event-title">${u.name}${u.department ? ` · <span class="muted">${u.department}</span>` : ""}</span></div>`).join("");
   }
   if (key === "evenements") {
@@ -1421,13 +1518,49 @@ async function toggleNotifPanel() {
     refreshNotifBadge(); toggleNotifPanel(); toggleNotifPanel();
   });
   panel.querySelectorAll("[data-notif]").forEach(el => el.addEventListener("click", async () => {
+    if (!el.classList.contains("unread")) return;
     await api(`/api/notifications/${el.dataset.notif}/read`, { method: "POST" });
+    el.classList.remove("unread");
     refreshNotifBadge();
-    let link = el.dataset.link;
-    if (link && link.startsWith("event-reminder:")) link = "evenements";
-    if (link) { panel.classList.add("hidden"); goTo(link); }
-    else { el.classList.remove("unread"); }
   }));
+}
+
+/* ============================================================
+   PROFIL PUBLIC D'UN COLLABORATEUR (depuis la recherche)
+   ============================================================ */
+async function openUserProfile(userId) {
+  const view = document.getElementById("view");
+  view.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api(`/api/users/${userId}/profile`);
+  if (!ok) { view.innerHTML = `<div class="empty">Profil introuvable.</div>`; return; }
+  document.getElementById("pageTitle").textContent = data.name;
+
+  const statusRows = data.upcoming_status.map(s => `
+    <div class="event-item"><span class="event-date">${fdate(s.day, { weekday: "short", day: "numeric" })}</span>
+      <span class="event-title">${STATUS[s.status] || s.status}</span></div>`).join("") || `<div class="empty">Aucun statut déclaré.</div>`;
+
+  const resRows = data.upcoming_reservations.map(r => `
+    <div class="event-item"><span class="event-date">${fdate(r.date, { day: "numeric", month: "short" })}</span>
+      <span class="event-title">Poste ${r.desk} · ${slotLabel(r.slot)}</span></div>`).join("") || `<div class="empty">Aucune réservation à venir.</div>`;
+
+  const ideaRows = data.signed_ideas.map(i => `
+    <div class="event-item"><span class="event-title">${i.title} <span class="muted">· ${IDEA_STATUS_LABEL[i.status] || i.status}</span></span></div>`).join("") || `<div class="empty">Aucune idée signée.</div>`;
+
+  const quizRows = data.quiz_results.map(q => `
+    <div class="event-item"><span class="event-title">${q.quiz_title}</span><span class="ev-status-badge">${q.score}/${q.total}</span></div>`).join("") || `<div class="empty">Aucun quiz passé.</div>`;
+
+  view.innerHTML = `
+    <button class="btn-back" id="backBtn">← Retour à la recherche</button>
+    <div class="card profile-header">
+      <div class="colleague-av" style="background:${colorFor(data.name)};width:52px;height:52px;font-size:1.1rem">${initials(data.name)}</div>
+      <div><div class="idea-title" style="font-size:1.1rem">${data.name}</div>
+        <div class="idea-meta">${data.department ? data.department + " · " : ""}Niveau ${data.level} · ${data.total_points} pts</div></div>
+    </div>
+    <div class="card search-section"><h3>Présence des prochains jours</h3><div class="list">${statusRows}</div></div>
+    <div class="card search-section"><h3>Réservations à venir</h3><div class="list">${resRows}</div></div>
+    <div class="card search-section"><h3>Idées soumises</h3><div class="list">${ideaRows}</div></div>
+    <div class="card search-section"><h3>Quiz passés</h3><div class="list">${quizRows}</div></div>`;
+  document.getElementById("backBtn").addEventListener("click", () => goTo("recherche"));
 }
 
 /* ---------------- Effets ---------------- */

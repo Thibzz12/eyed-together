@@ -158,6 +158,41 @@ def create_quiz(db: Session, title: str, description: str | None, publish_at: da
     return quiz
 
 
+def admin_get_quiz(db: Session, quiz_id: int) -> dict:
+    """Le quiz complet POUR L'ADMIN (questions + bonnes réponses visibles), quel que soit
+    son statut de publication — distinct de `get_quiz_for_attempt` qui est réservé aux employés
+    et masque tout tant que le quiz n'est pas publié (c'était le bug : l'éditeur de questions
+    utilisait par erreur l'endpoint employé, donc rien ne s'affichait pour un quiz programmé).
+    """
+    quiz = db.get(m.Quiz, quiz_id)
+    if quiz is None:
+        raise QuizNotFound("Quiz introuvable.")
+    questions = db.scalars(
+        select(m.QuizQuestion).where(m.QuizQuestion.quiz_id == quiz_id)
+        .order_by(m.QuizQuestion.position).options(joinedload(m.QuizQuestion.choices))
+    ).unique()
+    return {
+        "id": quiz.id, "title": quiz.title, "description": quiz.description,
+        "publish_at": quiz.publish_at.isoformat() if quiz.publish_at else None,
+        "questions": [
+            {
+                "id": qq.id, "text": qq.text, "type": qq.type.value,
+                "choices": [{"id": c.id, "text": c.text, "is_correct": c.is_correct} for c in qq.choices],
+            } for qq in questions
+        ],
+    }
+
+
+def update_quiz(db: Session, quiz_id: int, title: str, description: str | None, publish_at: datetime | None) -> None:
+    quiz = db.get(m.Quiz, quiz_id)
+    if quiz is None:
+        raise QuizNotFound("Quiz introuvable.")
+    quiz.title = title
+    quiz.description = description
+    quiz.publish_at = publish_at
+    db.commit()
+
+
 def delete_quiz(db: Session, quiz_id: int) -> None:
     quiz = db.get(m.Quiz, quiz_id)
     if quiz is not None:
@@ -181,6 +216,21 @@ def add_question(db: Session, quiz_id: int, text: str, qtype: str, choices: list
     db.commit()
     db.refresh(question)
     return question
+
+
+def update_question(db: Session, question_id: int, text: str, qtype: str, choices: list[dict]) -> None:
+    """Remplace entièrement le texte, le type et les choix d'une question existante."""
+    question = db.get(m.QuizQuestion, question_id)
+    if question is None:
+        raise QuizNotFound("Question introuvable.")
+    question.text = text
+    question.type = m.QuestionType(qtype)
+    for c in list(question.choices):
+        db.delete(c)
+    db.flush()
+    for i, c in enumerate(choices):
+        db.add(m.QuizChoice(question_id=question_id, text=c["text"], is_correct=bool(c.get("is_correct")), position=i))
+    db.commit()
 
 
 def delete_question(db: Session, question_id: int) -> None:
