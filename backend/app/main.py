@@ -114,6 +114,12 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/robots.txt", include_in_schema=False)
+def robots():
+    """Interdit l'indexation par les moteurs de recherche (app interne, accès par lien direct uniquement)."""
+    return FileResponse(_STATIC_DIR / "robots.txt")
+
+
 @app.get("/api/me", tags=["auth"])
 def me(user: dict = Depends(get_current_user)):
     """Route protégée : renvoie l'utilisateur de session (léger)."""
