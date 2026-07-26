@@ -41,11 +41,54 @@ button, input { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
 
 /* ---------------- Connexion ---------------- */
-.login { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: radial-gradient(circle at 30% 20%, #0d3a5c, #061627); padding: 24px 18px; }
-.login-card { background: var(--card); border-radius: 20px; padding: 36px 28px; width: 100%; max-width: 380px; text-align: center; box-shadow: 0 30px 70px rgba(0,20,35,.35); }
-.login-logo { width: 96px; max-width: 50%; margin-bottom: 8px; opacity: .8; }
-.login-card h1 { font-size: 1.4rem; color: var(--blue); }
-.login-card .subtitle { color: var(--muted); margin: 6px 0 24px; font-size: .92rem; }
+.login {
+  position: relative; overflow: hidden;
+  min-height: 100vh; min-height: 100dvh;
+  background:
+    radial-gradient(circle at 22% 8%, rgba(56,189,248,.16), transparent 42%),
+    radial-gradient(circle at 82% 96%, rgba(2,132,199,.14), transparent 46%),
+    linear-gradient(160deg, #0d3a5c 0%, var(--navy) 45%, #050f1c 100%);
+}
+
+.login-aperture {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(120vw, 620px); height: min(120vw, 620px);
+  pointer-events: none;
+}
+.login-aperture-rings { transform-origin: 200px 200px; animation: login-aperture-spin 160s linear infinite; }
+@keyframes login-aperture-spin { to { transform: rotate(360deg); } }
+
+.login-content {
+  position: relative; z-index: 1;
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 56px 26px max(32px, env(safe-area-inset-bottom));
+}
+.login-badge {
+  background: #fff; border-radius: var(--radius-sm); padding: 10px 14px;
+  box-shadow: 0 12px 28px -10px rgba(0,0,0,.5);
+}
+.login-badge img { display: block; width: 132px; max-width: 100%; }
+
+.login-middle { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; max-width: 360px; }
+
+.login-copy { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 34px; }
+.login-copy h1 { color: #fff; font-size: 2.1rem; letter-spacing: -.02em; }
+.login-copy .subtitle { color: rgba(255,255,255,.68); margin: 10px 0 0; font-size: .96rem; }
+
+.login-actions { width: 100%; }
+.login-actions .login-hint { color: rgba(255,255,255,.55); }
+
+.login .btn { border-radius: 999px; padding: 15px 18px; text-align: center; }
+.login .btn-primary { background: #fff; color: var(--navy); box-shadow: 0 14px 30px -12px rgba(0,0,0,.5); }
+.login .btn-primary:hover { filter: none; background: #F8FAFC; }
+.login .btn-ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.3); }
+.login .btn-ghost:hover { background: rgba(255,255,255,.06); }
+
+@media (min-width: 820px) {
+  .login-content { padding-top: 72px; padding-bottom: 56px; }
+  .login-copy h1 { font-size: 2.5rem; }
+}
 .btn { display: block; width: 100%; padding: 14px 18px; margin: 9px 0; border-radius: var(--radius-sm); font-weight: 600; font-size: .95rem; text-decoration: none; cursor: pointer; border: none; transition: filter .12s ease, transform .08s ease; -webkit-tap-highlight-color: transparent; }
 .btn:active { transform: scale(.98); }
 .btn-primary { background: var(--blue); color: #fff; }
@@ -403,7 +446,8 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 /* ---------------- Tables avec sièges groupés ---------------- */
 .section-eyebrow { font-size: .7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 10px; }
 .table-card { padding: 16px 8px; }
-.table-scroll { display: flex; gap: 20px; overflow-x: auto; padding: 4px 8px 6px; align-items: flex-start; }
+.table-scroll { display: flex; flex-direction: column; gap: 20px; padding: 4px 8px 6px; }
+.table-scroll-row { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: flex-start; }
 /* Tables orientées VERTICALEMENT pour coller au plan réel (tables du haut vers le bas,
    sièges de part et d'autre) : le widget est une colonne (surface au centre en hauteur),
    chaque "rangée" de sièges est en fait une colonne verticale. */
