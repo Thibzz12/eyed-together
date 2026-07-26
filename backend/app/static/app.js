@@ -810,19 +810,23 @@ function toggleMediaEdit(it, targetId) {
 const CHART_COLORS = ["#0284C7", "#10B981", "#F59E0B", "#F43F5E", "#7A4E86", "#0891b2"];
 
 function svgBarChart(data, { height = 160 } = {}) {
+  // Les libellés (dates) sont rendus en HTML normal sous le graphique, PAS en <text> SVG :
+  // avec preserveAspectRatio="none" (nécessaire pour que les barres remplissent la largeur),
+  // le texte SVG se retrouve étiré non-uniformément et devient illisible sur petit écran (mobile).
   const max = Math.max(1, ...data.map(d => d.value));
   const n = data.length;
   const barW = 100 / n;
   const showEvery = n > 10 ? 2 : 1;
   const bars = data.map((d, i) => {
-    const h = max ? (d.value / max) * (height - 26) : 0;
+    const h = max ? (d.value / max) * height : 0;
     const x = i * barW;
-    const label = i % showEvery === 0 ? `<text x="${x + barW / 2}%" y="${height - 4}" font-size="8.5" text-anchor="middle" fill="#94A3B8">${d.label}</text>` : "";
     return `<g><title>${d.label} : ${d.value}</title>
-      <rect x="${x + barW * 0.18}%" y="${height - 18 - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#0284C7"></rect>
-      ${label}</g>`;
+      <rect x="${x + barW * 0.18}%" y="${height - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#0284C7"></rect>
+      </g>`;
   }).join("");
-  return `<svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" class="chart-svg" style="height:${height}px">${bars}</svg>`;
+  const labels = data.map((d, i) => `<span>${i % showEvery === 0 ? d.label : ""}</span>`).join("");
+  return `<svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" class="chart-svg" style="height:${height}px">${bars}</svg>
+    <div class="chart-labels">${labels}</div>`;
 }
 
 function svgDonutChart(data) {
