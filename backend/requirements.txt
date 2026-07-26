@@ -15,3 +15,6 @@ pydantic-settings==2.7.1
 msal==1.31.1                   # Microsoft Entra ID (SSO)
 itsdangerous==2.2.0            # Signature des cookies de session
 slowapi==0.1.9                 # Rate limiting (anti brute-force / spam)
+
+# --- Intégration WordPress (lecture événements/actus) ---
+httpx==0.28.1
