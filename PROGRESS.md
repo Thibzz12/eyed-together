@@ -132,6 +132,15 @@ _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut 
 - [x] **Bulles calmes réservables par créneau de 15 min** : 2 nouveaux postes (BC-1, BC-2, zone "Bulles calmes"), nouvelle section dédiée sur la page Réserver avec sélecteur d'heure début/fin (pas de demi-journée). Chevauchement vérifié en code (pas de contrainte base, plusieurs réservations à des horaires différents partageant le même poste/date). Pas de points de gamification pour ces réservations (éviterait un farming par réservations à répétition) ; annulation neutre côté points en conséquence.
 - [x] Migration `timeslot_reservations` : ajoute `start_time`/`end_time` à `reservations`, nouveau membre d'enum `ReservationSlot.TIMESLOT`, et adapte l'index unique (desk_id, date, slot) pour exclure les créneaux "timeslot" de la contrainte d'unicité par créneau (plusieurs bulles à des horaires différents doivent pouvoir coexister).
 
+## 🎯 Retouches suite tests utilisateur (2026-07-27, 8e vague)
+
+- [x] **Bug corrigé — décalage de date d'un jour** : `state.date` et plusieurs autres endroits (jour sélectionné, "Ma présence") utilisaient `.toISOString().slice(0,10)` (UTC) au lieu de la date LOCALE — sélectionner "27" pouvait afficher/réserver "26" selon l'heure et le fuseau. Nouvelle fonction `toLocalISODate()`, tous les usages corrigés (page Réserver ET page Ma présence, qui avait le même bug).
+- [x] **Bulles calmes exclues de la capacité totale** : `coworking_status()` (dashboard), KPI "Occupation coworking" et graphiques de réservations (stats.py) ne comptent plus les 2 bulles calmes comme des postes de coworking.
+- [x] **Icône "Réserver une place"** : remplacée par une icône de chaise (réutilise l'icône déjà utilisée pour la carte "Ma réservation" — cohérence visuelle), au lieu de l'icône générique en grille.
+- [x] **"Services rapides" retiré** : remplacé par "Liens utiles" (déjà existant), qui reprend son rôle de mise en avant. 2 liens par défaut ajoutés : Intranet EyeD + Commande du midi (email à confirmer/ajuster par Thibaud si besoin — pas de source fiable dans le briefing pour l'URL exacte de commande).
+- [x] **Noms des bureaux/bulles modifiables en admin** : nouvelle section "Noms affichés" dans Administration → Coworking (4 champs), reflété immédiatement sur la page Réserver. Stocké dans `AppSetting` (pas de nouvelle table) via `reservations.py::get_room_labels()`/`set_room_label()`.
+- [x] **Présence matin/après-midi séparée** : `DailyStatus` avait un seul statut par jour ; remplacé par `status_am`/`status_pm` (migration `daily_status_am_pm`, avec rattrapage des déclarations existantes : l'ancien statut unique devient matin ET après-midi). Affiché en cercle plein si les deux sont identiques, ou en deux couleurs (dégradé gauche/droite) sinon — sur l'accueil, la page "Ma présence" (pastille du jour + grille + vue de la semaine).
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)

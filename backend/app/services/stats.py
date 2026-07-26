@@ -30,10 +30,14 @@ def get_kpis(db: Session) -> dict:
         select(m.EventRegistration.user_id).where(m.EventRegistration.created_at >= week_ago).distinct()
     ))
 
-    total_desks = db.scalar(select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True))) or 0
+    # Les bulles calmes (créneaux 15 min) ne comptent pas comme des postes de coworking.
+    total_desks = db.scalar(
+        select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True), m.Desk.zone != "Bulles calmes")
+    ) or 0
     occupied_today = db.scalar(
-        select(func.count(func.distinct(m.Reservation.desk_id))).where(
+        select(func.count(func.distinct(m.Reservation.desk_id))).join(m.Desk).where(
             m.Reservation.reservation_date == today, m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Desk.zone != "Bulles calmes",
         )
     ) or 0
 
@@ -81,12 +85,14 @@ def get_charts(db: Session) -> dict:
     """Séries de données pour les graphiques du cockpit (barres/donut)."""
     today = date.today()
 
-    # Réservations par jour, 14 derniers jours (barres)
+    # Réservations par jour, 14 derniers jours (barres) — bulles calmes exclues (créneaux
+    # 15 min, pas des réservations de poste).
     start14 = today - timedelta(days=13)
     rows = db.execute(
-        select(m.Reservation.reservation_date, func.count()).where(
+        select(m.Reservation.reservation_date, func.count()).join(m.Desk).where(
             m.Reservation.reservation_date >= start14, m.Reservation.reservation_date <= today,
             m.Reservation.status != m.ReservationStatus.CANCELLED,
+            m.Desk.zone != "Bulles calmes",
         ).group_by(m.Reservation.reservation_date)
     ).all()
     by_day = {d.isoformat(): c for d, c in rows}
@@ -125,9 +131,10 @@ def get_charts(db: Session) -> dict:
     # Réservations par jour, 14 prochains jours (barres) — pour anticiper la saturation.
     end14 = today + timedelta(days=13)
     future_rows = db.execute(
-        select(m.Reservation.reservation_date, func.count(func.distinct(m.Reservation.desk_id))).where(
+        select(m.Reservation.reservation_date, func.count(func.distinct(m.Reservation.desk_id))).join(m.Desk).where(
             m.Reservation.reservation_date >= today, m.Reservation.reservation_date <= end14,
             m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Desk.zone != "Bulles calmes",
         ).group_by(m.Reservation.reservation_date)
     ).all()
     future_by_day = {d.isoformat(): c for d, c in future_rows}

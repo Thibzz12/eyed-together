@@ -33,6 +33,40 @@ ROOM_ZONES = {"Bureau 1", "Bureau 2"}
 
 # Bulles calmes : réservables par créneau libre (pas de demi-journée), en tranches de 15 min.
 POD_ZONE = "Bulles calmes"
+
+# Noms affichés des salles/bulles, modifiables par l'admin (stockés dans AppSetting —
+# pas d'import de dashboard.py ici pour éviter un import circulaire, dashboard.py important
+# déjà ce module).
+_ROOM_LABEL_KEYS = {"Bureau 1": "room_label_bureau1", "Bureau 2": "room_label_bureau2"}
+_POD_LABEL_KEYS = {"BC-1": "pod_label_bc1", "BC-2": "pod_label_bc2"}
+_POD_LABEL_DEFAULTS = {"BC-1": "Bulle calme 1", "BC-2": "Bulle calme 2"}
+
+
+def get_room_labels(db: Session) -> dict[str, str]:
+    """Noms affichés actuels des 2 bureaux et des 2 bulles calmes (valeur par défaut si
+    jamais personnalisés)."""
+    labels: dict[str, str] = {}
+    for zone, key in _ROOM_LABEL_KEYS.items():
+        row = db.get(m.AppSetting, key)
+        labels[zone] = row.value if row else zone
+    for desk_name, key in _POD_LABEL_KEYS.items():
+        row = db.get(m.AppSetting, key)
+        labels[desk_name] = row.value if row else _POD_LABEL_DEFAULTS[desk_name]
+    return labels
+
+
+def set_room_label(db: Session, ref: str, label: str) -> None:
+    """Renomme un bureau (ref = "Bureau 1"/"Bureau 2") ou une bulle calme (ref = "BC-1"/"BC-2")."""
+    key = _ROOM_LABEL_KEYS.get(ref) or _POD_LABEL_KEYS.get(ref)
+    if not key:
+        raise ReservationError("Référence de salle ou de bulle inconnue.")
+    label = label.strip() or ref
+    row = db.get(m.AppSetting, key)
+    if row is None:
+        db.add(m.AppSetting(key=key, value=label))
+    else:
+        row.value = label
+    db.commit()
 TIMESLOT_STEP_MINUTES = 15
 MIN_TIMESLOT_MINUTES = 15
 MAX_TIMESLOT_MINUTES = 120

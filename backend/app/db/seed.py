@@ -91,6 +91,26 @@ def limit_bureau_seats_if_needed(db: Session) -> int:
     return len(desks)
 
 
+# Liens utiles par défaut — remplacent l'ancienne section "Services rapides" (retirée),
+# le rôle de mise en avant des liens externes revient entièrement à cette rubrique.
+_DEFAULT_USEFUL_LINKS = [
+    ("Intranet EyeD", "https://weared.team", "🌐", 0),
+    ("Commande du midi", "mailto:restauration@eyedpharma.com", "🍽️", 1),
+]
+
+
+def seed_useful_links_if_missing(db: Session) -> int:
+    """Ajoute les liens utiles par défaut s'ils n'existent pas encore (idempotent, par label)."""
+    existing = {label for (label,) in db.execute(select(m.UsefulLink.label)).all()}
+    missing = [x for x in _DEFAULT_USEFUL_LINKS if x[0] not in existing]
+    if not missing:
+        return 0
+    for label, url, icon, position in missing:
+        db.add(m.UsefulLink(label=label, url=url, icon=icon, position=position, enabled=True))
+    db.commit()
+    return len(missing)
+
+
 def seed_pods_if_missing(db: Session) -> int:
     """Ajoute les postes "bulle calme" (BC-1, BC-2) s'ils manquent — rattrape les bases
     déjà seedées avant l'introduction de cette zone. Idempotent."""

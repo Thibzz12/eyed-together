@@ -226,7 +226,9 @@ class DailyStatus(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     day: Mapped[date] = mapped_column(Date, index=True)
-    status: Mapped[WorkStatus] = mapped_column(_enum(WorkStatus), nullable=False)
+    # Statut séparé matin/après-midi (remplace l'ancien statut unique pour la journée).
+    status_am: Mapped[WorkStatus | None] = mapped_column(_enum(WorkStatus), nullable=True)
+    status_pm: Mapped[WorkStatus | None] = mapped_column(_enum(WorkStatus), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
