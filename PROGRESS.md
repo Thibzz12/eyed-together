@@ -116,6 +116,15 @@ _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut 
 - [x] **Médias** : laissé en l'état sur demande du manager ("peut-être pas nécessaire mais on va le laisser, il suffira de l'enlever si besoin") — aucune action.
 - [x] Migration `user_birthday` (colonne `users.birthday`) appliquée à la vraie base de dev (`coworking.db`, racine du repo) — celle-ci datait d'avant l'introduction d'Alembic et n'était pas stampée ; stampée à `eb7998c4fa5d` puis mise à jour vers `head`.
 
+## 🚀 Déploiement Render + suite (2026-07-26, 6e vague)
+
+- [x] **Déploiement de test sur Render.com** : l'hébergement FTP fourni par EyeD s'est avéré être un compte mutualisé PHP/WordPress (weared.team, Matomo), sans support Python — confirmé en explorant la structure du compte (`.webhosting/`, `subsites/matomo.weared.team/vendor` = 100% PHP). `render.yaml` ajouté (Python 3.12 forcé — la 3.14 par défaut fait échouer la compilation de `pydantic-core`). Dépendance `httpx` oubliée dans `requirements.txt` corrigée au passage (présente dans le venv local par effet de bord, jamais déclarée).
+- [x] **Page de connexion refaite** : design plein écran sombre avec motif d'anneaux façon iris en filigrane (inspiré d'une maquette fournie), logo en badge, boutons pilule, bloc titre+actions regroupé et centré. Corrige au passage un bug préexistant (barre d'onglets mobile visible par-dessus l'écran de connexion).
+- [x] **Réserve (mobile)** : les tables de l'open space débordaient horizontalement. Regroupées par paires sur des lignes séparées (Table 1+2, puis Table 3+4 — colle au plan réel), tout rentre à l'écran.
+- [x] **robots.txt + noindex** : l'app de test n'est pas censée être indexée par les moteurs de recherche (accès par lien direct uniquement).
+- [x] **Utilisateurs de démo supprimés** (Camille Dubois, Marc Lefevre, Sarah Khan — anciennes données de peuplement du plan). `seed.py::cleanup_demo_colleagues_if_present()` les retire automatiquement au démarrage si encore présents (idempotent, tourne aussi sur Render). Le compte de démo (`/auth/dev-login`) s'appelle maintenant simplement "Démo".
+- [x] **Quiz → sondages** : un quiz peut maintenant être créé en mode "Sondage" (case à cocher à la création) — pas de bonne réponse, pas de score ni de classement ; une fois répondu, affiche la répartition des votes en barres de pourcentage par choix plutôt qu'une correction. Nouvelle colonne `quizzes.is_survey` (migration `quiz_is_survey`). Bug trouvé et corrigé pendant les tests : l'itérateur des questions était épuisé avant d'être réutilisé, ce qui renvoyait un sondage vide une fois répondu.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)

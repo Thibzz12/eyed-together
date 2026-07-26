@@ -335,6 +335,9 @@ class Quiz(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # NULL = publié immédiatement. Dans le futur = planifié (invisible des employés jusque-là).
     publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Sondage = pas de bonne réponse, pas de score/classement ; on affiche la répartition
+    # des votes une fois qu'on a répondu, plutôt qu'une correction.
+    is_survey: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     questions: Mapped[list["QuizQuestion"]] = relationship(

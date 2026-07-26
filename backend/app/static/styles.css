@@ -334,6 +334,14 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .quiz-choice.wrong { border-color: var(--red); background: #FEF2F2; color: var(--red); font-weight: 600; }
 .quiz-choice-row { display: flex; align-items: center; gap: 8px; }
 .quiz-choice-row .c-text { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .88rem; font-family: inherit; }
+
+/* ---------------- Sondages (résultats en barres) ---------------- */
+.survey-result { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.survey-result.chosen { border-color: var(--blue); background: var(--blue-050); }
+.survey-result-row { display: flex; align-items: center; justify-content: space-between; font-size: .88rem; margin-bottom: 6px; }
+.survey-result-row b { color: var(--blue); }
+.survey-bar { height: 8px; border-radius: 999px; background: #E9EEF3; overflow: hidden; }
+.survey-bar i { display: block; height: 100%; background: var(--blue); border-radius: 999px; transition: width .4s ease; }
 .choice-del { border: none; background: none; color: var(--red); cursor: pointer; font-size: .9rem; padding: 4px; flex-shrink: 0; }
 .edit-pencil { border: none; background: none; color: var(--muted); cursor: pointer; font-size: .85rem; padding: 2px 4px; }
 .edit-pencil:hover { color: var(--blue); }

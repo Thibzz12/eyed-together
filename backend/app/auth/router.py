@@ -155,7 +155,7 @@ def dev_login(request: Request, db: Session = Depends(get_db)):
     fake_claims = {
         "oid": "dev-user-0001",
         "preferred_username": "thibaud.test@entreprise.com",
-        "name": "Thibaud (compte démo)",
+        "name": "Démo",
     }
     user = upsert_user_from_claims(db, fake_claims)
     # Le compte démo est admin, pour pouvoir tester l'espace d'administration.
