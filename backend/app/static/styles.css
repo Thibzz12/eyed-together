@@ -43,7 +43,7 @@ button, input { font-family: inherit; }
 /* ---------------- Connexion ---------------- */
 .login { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: radial-gradient(circle at 30% 20%, #0d3a5c, #061627); padding: 24px 18px; }
 .login-card { background: var(--card); border-radius: 20px; padding: 36px 28px; width: 100%; max-width: 380px; text-align: center; box-shadow: 0 30px 70px rgba(0,20,35,.35); }
-.login-logo { width: 168px; max-width: 78%; margin-bottom: 18px; }
+.login-logo { width: 96px; max-width: 50%; margin-bottom: 8px; opacity: .8; }
 .login-card h1 { font-size: 1.4rem; color: var(--blue); }
 .login-card .subtitle { color: var(--muted); margin: 6px 0 24px; font-size: .92rem; }
 .btn { display: block; width: 100%; padding: 14px 18px; margin: 9px 0; border-radius: var(--radius-sm); font-weight: 600; font-size: .95rem; text-decoration: none; cursor: pointer; border: none; transition: filter .12s ease, transform .08s ease; -webkit-tap-highlight-color: transparent; }
