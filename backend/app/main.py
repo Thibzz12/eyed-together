@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -94,6 +95,9 @@ app.add_middleware(
 
 # --- En-têtes de sécurité ---
 app.add_middleware(SecurityHeadersMiddleware)
+
+# --- Compression : réduit la taille des réponses JSON/JS/CSS, sensible sur mobile ---
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # --- CORS strict : seule l'origine du frontend est autorisée ---
 app.add_middleware(

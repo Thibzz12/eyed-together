@@ -48,10 +48,12 @@ function levelOf(pts) {
 
 /* ---------------- Démarrage ---------------- */
 async function init() {
-  const { ok, data } = await api("/api/profile");
+  // /api/profile et /api/statuses sont indépendants : lancés en parallèle plutôt que
+  // l'un après l'autre pour économiser un aller-retour réseau au démarrage (sensible
+  // surtout en mobile/latence élevée).
+  const [{ ok, data }, st] = await Promise.all([api("/api/profile"), api("/api/statuses")]);
   if (!ok) { document.getElementById("login").classList.remove("hidden"); setupLoginForm(); return; }
   state.profile = data;
-  const st = await api("/api/statuses");
   state.enabledStatuses = (st.data && st.data.enabled) || Object.keys(STATUS);
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("tabbar").classList.remove("hidden");
