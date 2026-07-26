@@ -9,7 +9,7 @@ Six entités :
 """
 
 import enum
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     Boolean,
@@ -22,6 +22,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
     func,
     text,
@@ -42,6 +43,7 @@ class UserRole(str, enum.Enum):
 class ReservationSlot(str, enum.Enum):
     AM = "AM"   # Matin
     PM = "PM"   # Après-midi
+    TIMESLOT = "timeslot"  # créneau libre en minutes (bulles calmes) — voir start_time/end_time
 
 
 class ReservationStatus(str, enum.Enum):
@@ -157,14 +159,17 @@ class Reservation(Base):
         #    …mais UNIQUEMENT pour les réservations actives. Une réservation annulée
         #    (conservée pour l'audit) ne bloque pas une nouvelle réservation du même créneau.
         #    Index partiel compatible SQLite ET PostgreSQL.
+        #    Exclut les créneaux "timeslot" (bulles calmes) : plusieurs réservations à
+        #    des horaires différents partagent le même (desk_id, date, slot='timeslot') —
+        #    le chevauchement est vérifié en code (voir services/reservations.py), pas en base.
         Index(
             "uq_active_reservation",
             "desk_id",
             "reservation_date",
             "slot",
             unique=True,
-            sqlite_where=text("status = 'booked'"),
-            postgresql_where=text("status = 'booked'"),
+            sqlite_where=text("status = 'booked' AND slot != 'timeslot'"),
+            postgresql_where=text("status = 'booked' AND slot != 'timeslot'"),
         ),
     )
 
@@ -177,6 +182,9 @@ class Reservation(Base):
     )
     reservation_date: Mapped[date] = mapped_column(Date, index=True)
     slot: Mapped[ReservationSlot] = mapped_column(_enum(ReservationSlot))
+    # Uniquement pour slot=TIMESLOT (bulles calmes) : créneau en heure:minute, pas de demi-journée.
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     status: Mapped[ReservationStatus] = mapped_column(
         _enum(ReservationStatus), default=ReservationStatus.BOOKED, nullable=False
     )

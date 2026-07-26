@@ -4,7 +4,7 @@ Rôle : valider automatiquement ce qui entre, et formater proprement ce qui sort
 (Séparés des modèles ORM pour ne jamais exposer la base telle quelle.)
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -52,6 +52,8 @@ class ReservationRead(BaseModel):
     id: int
     reservation_date: date
     slot: ReservationSlot
+    start_time: time | None = None   # uniquement pour slot=timeslot (bulles calmes)
+    end_time: time | None = None
     status: ReservationStatus
     checked_in_at: datetime | None = None
     desk: DeskRead
@@ -64,6 +66,28 @@ class DeskAvailability(BaseModel):
     desk: DeskRead
     is_available: bool
     booked_by: str | None = None   # nom de la personne si le poste est pris
+
+
+# ---------------------------------------------------------------- Réservation de salle entière
+class RoomBookingCreate(BaseModel):
+    zone: str                              # "Bureau 1" ou "Bureau 2"
+    reservation_date: date
+    slot: Literal["AM", "PM", "DAY"]
+
+
+# ---------------------------------------------------------------- Bulles calmes (créneaux 15 min)
+class TimeslotBookingCreate(BaseModel):
+    desk_id: int
+    reservation_date: date
+    start_time: time
+    end_time: time
+
+
+class TimeslotRead(BaseModel):
+    id: int
+    start_time: time
+    end_time: time
+    user_name: str
 
 
 # ---------------------------------------------------------------- Postes (administration)

@@ -20,6 +20,8 @@ DESK_POSITIONS: dict[str, tuple[float, float]] = {
     "T3-4": (52, 16), "T3-5": (60, 16), "T3-6": (68, 16),
     "T4-1": (78, 8), "T4-2": (86, 8), "T4-3": (94, 8),
     "T4-4": (78, 16), "T4-5": (86, 16), "T4-6": (94, 16),
+    # --- Bulles calmes (entre l'open space et les bureaux) ---
+    "BC-1": (46, 24), "BC-2": (54, 24),
 }
 
 

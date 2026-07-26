@@ -20,6 +20,7 @@ from app.db.seed import (
     limit_bureau_seats_if_needed,
     seed_dashboard_if_empty,
     seed_desks_if_empty,
+    seed_pods_if_missing,
 )
 from app.services.badges import seed_catalog_if_empty as seed_badges_if_empty
 from app.db.session import SessionLocal, engine
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
             seed_desks_if_empty(db)
             cleanup_demo_colleagues_if_present(db)
             limit_bureau_seats_if_needed(db)
+            seed_pods_if_missing(db)
             seed_dashboard_if_empty(db)
             seed_badges_if_empty(db)
     yield

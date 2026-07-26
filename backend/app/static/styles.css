@@ -185,7 +185,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .dash-cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 6px; }
 
 /* ---------------- Accueil : grille de cartes ---------------- */
-.dash-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; align-items: start; }
+.dash-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; align-items: start; grid-auto-flow: dense; }
 .dash-card { display: flex; flex-direction: column; gap: 4px; }
 .dash-card.highlight { border-color: var(--blue); background: linear-gradient(180deg, var(--blue-050), #fff); }
 .card-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
@@ -219,13 +219,14 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .rc-btn.primary { border-color: var(--green); background: var(--green-050); color: var(--green); }
 
 /* ---------------- Bannière projet (Building Our Future Home) ---------------- */
+/* .dash-card.highlight (2 classes) est plus spécifique que .banner-card (1 classe) et gagnait
+   la cascade, écrasant le dégradé marine par un fond pâle bleu-blanc -> texte blanc illisible.
+   Règle combinée pour garantir que la bannière l'emporte toujours. */
+.dash-card.highlight.banner-card,
 .banner-card { background: linear-gradient(135deg, var(--navy) 0%, #0c3355 60%, #0284C7 130%); color: #fff; position: relative; overflow: hidden; border: none; box-shadow: var(--shadow-2); }
 .banner-top2 { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .banner-eyebrow { font-size: .68rem; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: .08em; }
 .banner-title { font-size: 1.15rem; font-weight: 800; margin-top: 4px; }
-.banner-countdown { text-align: right; flex-shrink: 0; }
-.bc-num { display: block; font-size: 1.3rem; font-weight: 800; color: #fff; line-height: 1; }
-.bc-label { display: block; font-size: .68rem; color: #93C5FD; margin-top: 3px; font-weight: 600; }
 .banner-progress { margin-top: 16px; position: relative; }
 .bp-row { display: flex; justify-content: space-between; font-size: .8rem; font-weight: 600; color: #CBD5E1; margin-bottom: 6px; }
 .bp-pct { color: #7dd3fc; font-weight: 700; }
@@ -472,6 +473,27 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .tseat.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); cursor: not-allowed; color: #9F1239; }
 .tseat.selected { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 3px 9px rgba(2,132,199,.45); }
 .tseat.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+/* ---------------- Réservation de salle entière (Bureau 1/2) ---------------- */
+.room-book-btn {
+  border: 1px solid var(--blue); background: #fff; color: var(--blue); font-family: inherit;
+  font-weight: 700; font-size: .7rem; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  white-space: nowrap; margin-top: 2px;
+}
+.room-book-btn:disabled { border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+.room-book-btn.mine { border-color: var(--navy); background: var(--navy); color: #fff; }
+
+/* ---------------- Bulles calmes ---------------- */
+.pod-card { margin-bottom: 10px; }
+.pod-slots { display: flex; flex-direction: column; gap: 6px; }
+.pod-slot { display: flex; align-items: center; gap: 8px; font-size: .84rem; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; }
+.pod-slot b, .pod-slot > span:first-child { font-weight: 700; color: var(--navy); }
+.pod-slot-who { color: var(--muted); flex: 1; }
+.pod-slot.mine { background: var(--blue-050); border-color: var(--blue-100); }
+.pod-slot-cancel { border: none; background: none; color: var(--red); cursor: pointer; font-weight: 700; padding: 2px 4px; font-size: .9rem; }
+.pod-time-row { display: flex; gap: 14px; margin: 4px 0 18px; }
+.pod-time-row label { flex: 1; font-size: .82rem; color: var(--muted); font-weight: 600; display: flex; flex-direction: column; gap: 6px; }
+.pod-time-row input[type="time"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .95rem; font-family: inherit; color: var(--ink); }
 
 /* ---------------- Plan réel (image, non interactif — juste visuel) ---------------- */
 .plan-panel { padding: 12px; margin-top: 6px; }
