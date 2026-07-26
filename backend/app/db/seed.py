@@ -53,6 +53,11 @@ _DEMO_DESKS = [
 ]
 
 
+# Bureaux fermés limités à 4 places sur les 6 physiques (demande du manager : peur de
+# l'effet "boîte à sardines"). Désactivées par défaut, réactivables depuis l'admin si besoin.
+_DEFAULT_INACTIVE_DESKS = {"B1-5", "B1-6", "B2-5", "B2-6"}
+
+
 def seed_desks_if_empty(db: Session) -> int:
     """Crée les postes de démo (avec leur position) uniquement si la table est vide."""
     from app.floorplan import position_for
@@ -62,9 +67,23 @@ def seed_desks_if_empty(db: Session) -> int:
         return 0
     for (n, z, f, feat) in _DEMO_DESKS:
         x, y = position_for(n)
-        db.add(m.Desk(name=n, zone=z, floor=f, features=feat, pos_x=x, pos_y=y))
+        db.add(m.Desk(name=n, zone=z, floor=f, features=feat, pos_x=x, pos_y=y, is_active=n not in _DEFAULT_INACTIVE_DESKS))
     db.commit()
     return len(_DEMO_DESKS)
+
+
+def limit_bureau_seats_if_needed(db: Session) -> int:
+    """Désactive les 2 dernières places de chaque bureau fermé si elles sont encore actives
+    (rattrape les bases déjà seedées avant l'introduction de cette limite). Idempotent."""
+    desks = db.scalars(
+        select(m.Desk).where(m.Desk.name.in_(_DEFAULT_INACTIVE_DESKS), m.Desk.is_active.is_(True))
+    ).all()
+    if not desks:
+        return 0
+    for d in desks:
+        d.is_active = False
+    db.commit()
+    return len(desks)
 
 
 # Anciens collègues fictifs de démo (retirés — l'app ne doit plus afficher de faux profils).
