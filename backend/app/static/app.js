@@ -44,6 +44,7 @@ async function init() {
   const st = await api("/api/statuses");
   state.enabledStatuses = (st.data && st.data.enabled) || Object.keys(STATUS);
   document.getElementById("app").classList.remove("hidden");
+  document.getElementById("tabbar").classList.remove("hidden");
   document.getElementById("userName").textContent = state.profile.name;
   document.getElementById("userLevel").textContent = "Niveau " + levelOf(state.profile.total_points);
   const av = document.getElementById("avatar");
@@ -1028,17 +1029,24 @@ function renderTables() {
 
   function section(title, tables) {
     if (!tables.length) return "";
-    const widgets = tables.map(t => `
-      <div class="table-widget-wrap">
-        <div class="table-widget">
-          <div class="ts-row">${t.topSeats.map(seatHtml).join("")}</div>
-          <div class="ts-surface">${t.cap} pl.</div>
-          <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
-        </div>
-        <div class="ts-label">${t.label}</div>
-      </div>`).join("");
+    // Groupées par paires (colle au plan réel : les tables voisines restent côte à côte
+    // sur la même ligne, plutôt qu'un enchaînement qui coupe les paires au retour à la ligne).
+    const rows = [];
+    for (let i = 0; i < tables.length; i += 2) rows.push(tables.slice(i, i + 2));
+    const rowsHtml = rows.map(row => {
+      const widgets = row.map(t => `
+        <div class="table-widget-wrap">
+          <div class="table-widget">
+            <div class="ts-row">${t.topSeats.map(seatHtml).join("")}</div>
+            <div class="ts-surface">${t.cap} pl.</div>
+            <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
+          </div>
+          <div class="ts-label">${t.label}</div>
+        </div>`).join("");
+      return `<div class="table-scroll-row">${widgets}</div>`;
+    }).join("");
     return `<div class="section-eyebrow">${title}</div>
-      <div class="card table-card"><div class="table-scroll scroll">${widgets}</div></div>`;
+      <div class="card table-card"><div class="table-scroll scroll">${rowsHtml}</div></div>`;
   }
   function seatHtml(item) {
     const mineHere = !item.is_available && item.booked_by === state.profile.name;
