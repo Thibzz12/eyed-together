@@ -553,10 +553,12 @@ async function renderAdminQuiz(targetId = "adminBody") {
   const quizzes = (await api("/api/admin/quizzes")).data || [];
   body.innerHTML = `
     <div class="card">
-      <h3>Créer un quiz</h3>
+      <h3>Créer un quiz ou un sondage</h3>
       <form id="quizCreateForm" class="idea-form">
-        <input id="qzTitle" type="text" placeholder="Titre du quiz" required maxlength="150">
+        <input id="qzTitle" type="text" placeholder="Titre" required maxlength="150">
         <textarea id="qzDesc" placeholder="Description (optionnel)" rows="2"></textarea>
+        <label class="admin-toggle" style="justify-content:flex-start;gap:8px">
+          <input id="qzIsSurvey" type="checkbox"> Sondage (pas de bonne réponse, juste recueillir les avis)</label>
         <label class="admin-toggle" style="justify-content:flex-start;gap:8px">Publication programmée (optionnel)
           <input id="qzPublishAt" type="datetime-local"></label>
         <button type="submit" class="btn-save">Créer</button>
@@ -568,11 +570,12 @@ async function renderAdminQuiz(targetId = "adminBody") {
     const title = document.getElementById("qzTitle").value.trim();
     if (!title) return;
     const description = document.getElementById("qzDesc").value.trim() || null;
+    const is_survey = document.getElementById("qzIsSurvey").checked;
     const raw = document.getElementById("qzPublishAt").value;
     const publish_at = raw ? new Date(raw).toISOString() : null;
-    const { ok, data } = await api("/api/admin/quizzes", { method: "POST", body: JSON.stringify({ title, description, publish_at }) });
+    const { ok, data } = await api("/api/admin/quizzes", { method: "POST", body: JSON.stringify({ title, description, publish_at, is_survey }) });
     if (!ok) return toast(data?.detail || "Erreur", "error");
-    toast("Quiz créé ✓", "success");
+    toast(is_survey ? "Sondage créé ✓" : "Quiz créé ✓", "success");
     renderAdminQuiz(targetId);
   });
   const list = document.getElementById("quizAdminList");
@@ -580,7 +583,7 @@ async function renderAdminQuiz(targetId = "adminBody") {
     const card = document.createElement("div"); card.className = "card"; card.style.marginBottom = "10px";
     card.innerHTML = `
       <div class="idea-head">
-        <div><div class="idea-title">${qz.title} <button class="edit-pencil" data-edit-quiz="${qz.id}" title="Modifier">✎</button></div>
+        <div><div class="idea-title">${qz.title} <span class="idea-status-badge">${qz.is_survey ? "Sondage" : "Quiz"}</span> <button class="edit-pencil" data-edit-quiz="${qz.id}" title="Modifier">✎</button></div>
           <div class="idea-meta">${qz.question_count} question(s) · ${qz.attempt_count} réponse(s)${qz.publish_at ? ` · publié le ${fdate(qz.publish_at, { day: "numeric", month: "short" })}` : ""}</div></div>
         <button class="link-more" data-del-quiz="${qz.id}">Supprimer</button>
       </div>
@@ -593,7 +596,7 @@ async function renderAdminQuiz(targetId = "adminBody") {
       toast("Quiz supprimé", "success"); renderAdminQuiz(targetId);
     });
     card.querySelector("[data-edit-quiz]").addEventListener("click", () => toggleQuizEdit(qz, targetId));
-    card.querySelector("[data-toggle-questions]").addEventListener("click", () => toggleQuizQuestions(qz.id));
+    card.querySelector("[data-toggle-questions]").addEventListener("click", () => toggleQuizQuestions(qz.id, qz.is_survey));
     list.appendChild(card);
   }
   if (!quizzes.length) list.innerHTML = `<div class="empty">Aucun quiz créé pour l'instant.</div>`;
@@ -618,21 +621,21 @@ function toggleQuizEdit(qz, targetId) {
     const description = box.querySelector(".qz-edit-desc").value.trim() || null;
     const raw = box.querySelector(".qz-edit-publish").value;
     const publish_at = raw ? new Date(raw).toISOString() : null;
-    const { ok, data } = await api(`/api/admin/quizzes/${qz.id}`, { method: "PATCH", body: JSON.stringify({ title, description, publish_at }) });
+    const { ok, data } = await api(`/api/admin/quizzes/${qz.id}`, { method: "PATCH", body: JSON.stringify({ title, description, publish_at, is_survey: qz.is_survey }) });
     if (!ok) return toast(data?.detail || "Erreur", "error");
     toast("Quiz mis à jour ✓", "success");
     renderAdminQuiz(targetId);
   });
 }
 
-function toggleQuizQuestions(quizId) {
+function toggleQuizQuestions(quizId, isSurvey = false) {
   const box = document.getElementById(`qzq-${quizId}`);
   if (!box.classList.contains("hidden")) { box.classList.add("hidden"); box.innerHTML = ""; return; }
   box.classList.remove("hidden");
-  renderQuestionEditor(quizId, box);
+  renderQuestionEditor(quizId, box, null, isSurvey);
 }
 
-async function renderQuestionEditor(quizId, box, editingQuestion = null) {
+async function renderQuestionEditor(quizId, box, editingQuestion = null, isSurvey = false) {
   box.innerHTML = `<div class="empty">Chargement…</div>`;
   const quiz = (await api(`/api/admin/quizzes/${quizId}`)).data;
   const existing = (quiz?.questions || []).map(q => `
@@ -656,22 +659,23 @@ async function renderQuestionEditor(quizId, box, editingQuestion = null) {
   box.querySelectorAll("[data-del-q]").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Supprimer cette question ?")) return;
     await api(`/api/admin/quizzes/questions/${b.dataset.delQ}`, { method: "DELETE" });
-    toast("Question supprimée", "success"); renderQuestionEditor(quizId, box);
+    toast("Question supprimée", "success"); renderQuestionEditor(quizId, box, null, isSurvey);
   }));
   box.querySelectorAll("[data-edit-q]").forEach(b => b.addEventListener("click", () => {
     const q = quiz.questions.find(x => x.id === +b.dataset.editQ);
-    renderQuestionEditor(quizId, box, q);
+    renderQuestionEditor(quizId, box, q, isSurvey);
   }));
 
   const form = document.getElementById(`qForm-${quizId}`);
   const choicesBox = form.querySelector(".q-choices");
   const typeSel = form.querySelector(".q-type");
   const cancelBtn = form.querySelector("[data-cancel-edit]");
-  if (cancelBtn) cancelBtn.addEventListener("click", () => renderQuestionEditor(quizId, box));
+  if (cancelBtn) cancelBtn.addEventListener("click", () => renderQuestionEditor(quizId, box, null, isSurvey));
 
   function choiceRow(text = "", correct = false) {
     const row = document.createElement("div"); row.className = "quiz-choice-row";
-    row.innerHTML = `<input type="radio" name="correct-${quizId}" ${correct ? "checked" : ""}><input type="text" class="c-text" value="${text.replace(/"/g, "&quot;")}" placeholder="Choix"><button type="button" class="choice-del" title="Retirer ce choix">✕</button>`;
+    const correctInput = isSurvey ? "" : `<input type="radio" name="correct-${quizId}" ${correct ? "checked" : ""}>`;
+    row.innerHTML = `${correctInput}<input type="text" class="c-text" value="${text.replace(/"/g, "&quot;")}" placeholder="Choix"><button type="button" class="choice-del" title="Retirer ce choix">✕</button>`;
     row.querySelector(".choice-del").addEventListener("click", () => {
       if (choicesBox.querySelectorAll(".quiz-choice-row").length > 2) row.remove();
       else toast("Il faut au moins 2 choix.", "error");
@@ -702,10 +706,11 @@ async function renderQuestionEditor(quizId, box, editingQuestion = null) {
     const rows = [...choicesBox.querySelectorAll(".quiz-choice-row")];
     const choices = rows.map(r => ({
       text: r.querySelector(".c-text").value.trim(),
-      is_correct: r.querySelector('input[type="radio"]').checked,
+      is_correct: isSurvey ? false : r.querySelector('input[type="radio"]').checked,
     })).filter(c => c.text);
-    if (choices.length < 2 || !choices.some(c => c.is_correct)) {
-      return toast("Il faut au moins 2 choix et une bonne réponse cochée.", "error");
+    if (choices.length < 2) return toast("Il faut au moins 2 choix.", "error");
+    if (!isSurvey && !choices.some(c => c.is_correct)) {
+      return toast("Il faut cocher une bonne réponse.", "error");
     }
     const path = editingQuestion
       ? `/api/admin/quizzes/questions/${editingQuestion.id}`
@@ -715,7 +720,7 @@ async function renderQuestionEditor(quizId, box, editingQuestion = null) {
     });
     if (!ok) return toast(data?.detail || "Erreur", "error");
     toast(editingQuestion ? "Question mise à jour ✓" : "Question ajoutée ✓", "success");
-    renderQuestionEditor(quizId, box);
+    renderQuestionEditor(quizId, box, null, isSurvey);
   });
 }
 
@@ -1488,10 +1493,13 @@ async function viewQuiz() {
   list.innerHTML = quizzes.length ? "" : `<div class="empty">Aucun quiz disponible pour l'instant.</div>`;
   for (const qz of quizzes) {
     const card = document.createElement("div"); card.className = "card idea-card"; card.style.cursor = "pointer";
+    const statusBadge = qz.completed
+      ? (qz.is_survey ? `<span class="ev-status-badge">Merci d'avoir répondu ✓</span>` : `<span class="ev-status-badge">Score : ${qz.my_score}/${qz.my_total}</span>`)
+      : `<span class="event-reg-btn">${qz.is_survey ? "Donner mon avis" : "Répondre"}</span>`;
     card.innerHTML = `<div class="idea-head">
-        <div><div class="idea-title">${qz.title}</div>
+        <div><div class="idea-title">${qz.title} <span class="idea-status-badge">${qz.is_survey ? "Sondage" : "Quiz"}</span></div>
           <div class="idea-meta">${qz.question_count} question(s)</div></div>
-        ${qz.completed ? `<span class="ev-status-badge">Score : ${qz.my_score}/${qz.my_total}</span>` : `<span class="event-reg-btn">Répondre</span>`}
+        ${statusBadge}
       </div>
       ${qz.description ? `<p class="idea-desc">${qz.description}</p>` : ""}`;
     card.addEventListener("click", () => openQuiz(qz.id));
@@ -1509,6 +1517,14 @@ async function openQuiz(quizId) {
     <div class="card quiz-question">
       <div class="idea-title">${i + 1}. ${q.text}</div>
       <div class="quiz-choices">${q.choices.map(c => {
+        if (data.completed && data.is_survey) {
+          const totalVotes = q.choices.reduce((s, x) => s + x.votes, 0);
+          const pct = totalVotes ? Math.round((c.votes / totalVotes) * 100) : 0;
+          return `<div class="survey-result ${c.chosen ? "chosen" : ""}">
+            <div class="survey-result-row"><span>${c.text}${c.chosen ? " · ton choix" : ""}</span><b>${pct}%</b></div>
+            <div class="survey-bar"><i style="width:${pct}%"></i></div>
+          </div>`;
+        }
         if (data.completed) {
           const cls = c.is_correct ? "correct" : (c.chosen ? "wrong" : "");
           return `<label class="quiz-choice ${cls}"><input type="radio" disabled ${c.chosen ? "checked" : ""}> ${c.text}${c.is_correct ? " ✓" : (c.chosen ? " ✕" : "")}</label>`;
@@ -1517,19 +1533,24 @@ async function openQuiz(quizId) {
       }).join("")}</div>
     </div>`).join("");
 
+  const statusHtml = data.completed
+    ? `<div class="ev-status-badge" style="display:inline-block;margin-bottom:14px">${data.is_survey ? "Merci d'avoir répondu !" : `Ton score : ${data.score}/${data.total}`}</div>`
+    : "";
+
   view.innerHTML = `
-    <button class="btn-back" id="backBtn">← Retour aux quiz</button>
+    <button class="btn-back" id="backBtn">← Retour ${data.is_survey ? "aux sondages" : "aux quiz"}</button>
     <h2 class="ed-title">${data.title}</h2>
     ${data.description ? `<p class="idea-desc">${data.description}</p>` : ""}
-    ${data.completed ? `<div class="ev-status-badge" style="display:inline-block;margin-bottom:14px">Ton score : ${data.score}/${data.total}</div>` : ""}
+    ${statusHtml}
     <form id="quizForm">${qHtml}
-      ${data.completed ? "" : `<button type="submit" class="btn-save">Valider mes réponses</button>`}
+      ${data.completed ? "" : `<button type="submit" class="btn-save">${data.is_survey ? "Envoyer ma réponse" : "Valider mes réponses"}</button>`}
     </form>
-    <button class="link-more" id="showLeaderboard" style="margin-top:14px">🏆 Voir le classement</button>
-    <div id="quizLeaderboard" class="idea-comments hidden"></div>`;
+    ${data.is_survey ? "" : `<button class="link-more" id="showLeaderboard" style="margin-top:14px">🏆 Voir le classement</button>
+    <div id="quizLeaderboard" class="idea-comments hidden"></div>`}`;
 
   document.getElementById("backBtn").addEventListener("click", () => goTo("quiz"));
-  document.getElementById("showLeaderboard").addEventListener("click", () => toggleQuizLeaderboard(quizId));
+  const lbBtn = document.getElementById("showLeaderboard");
+  if (lbBtn) lbBtn.addEventListener("click", () => toggleQuizLeaderboard(quizId));
 
   if (!data.completed) {
     document.getElementById("quizForm").addEventListener("submit", async (e) => {
@@ -1541,7 +1562,7 @@ async function openQuiz(quizId) {
       }
       const { ok, data: res } = await api(`/api/quizzes/${quizId}/attempt`, { method: "POST", body: JSON.stringify({ answers }) });
       if (!ok) return toast(res?.detail || "Envoi impossible.", "error");
-      toast(`Score : ${res.score}/${res.total} ✓`, "success");
+      toast(data.is_survey ? "Merci pour ta réponse ✓" : `Score : ${res.score}/${res.total} ✓`, "success");
       openQuiz(quizId);
     });
   }

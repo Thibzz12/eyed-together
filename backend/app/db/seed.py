@@ -67,56 +67,22 @@ def seed_desks_if_empty(db: Session) -> int:
     return len(_DEMO_DESKS)
 
 
-# Collègues fictifs pour peupler le plan en démo (nom, e-mail, département).
-_DEMO_COLLEAGUES = [
-    ("Camille Dubois", "camille.dubois@demo.com", "Marketing"),
-    ("Marc Lefevre", "marc.lefevre@demo.com", "R&D"),
-    ("Sarah Khan", "sarah.khan@demo.com", "Ventes"),
-]
-# Postes occupés par ces collègues (aujourd'hui, matin).
-_DEMO_BOOKINGS = [("B1-2", 0), ("B2-1", 1), ("B1-5", 2)]
+# Anciens collègues fictifs de démo (retirés — l'app ne doit plus afficher de faux profils).
+_DEMO_COLLEAGUE_OIDS = [f"demo-colleague-{i}" for i in range(3)]
 
 
-def seed_demo_reservations_if_empty(db: Session) -> int:
-    """Crée des collègues de démo + leurs réservations du jour (idempotent).
-
-    Basé sur l'existence des collègues démo, pour peupler le plan même si
-    l'utilisateur a déjà ses propres réservations.
-    """
-    if db.scalar(select(m.User).where(m.User.entra_oid == "demo-colleague-0")):
-        return 0  # déjà fait
-    users = [
-        m.User(entra_oid=f"demo-colleague-{i}", email=email, display_name=name, department=dept)
-        for i, (name, email, dept) in enumerate(_DEMO_COLLEAGUES)
-    ]
-    db.add_all(users)
-    db.flush()
-
-    desks = {d.name: d for d in db.scalars(select(m.Desk))}
-    today = date.today()
-    created = 0
-    for desk_name, user_idx in _DEMO_BOOKINGS:
-        desk = desks.get(desk_name)
-        if not desk:
-            continue
-        # Ne pas entrer en conflit avec une réservation déjà présente sur ce créneau.
-        taken = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.desk_id == desk.id,
-                m.Reservation.reservation_date == today,
-                m.Reservation.slot == m.ReservationSlot.AM,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if taken:
-            continue
-        db.add(m.Reservation(
-            user_id=users[user_idx].id, desk_id=desk.id,
-            reservation_date=today, slot=m.ReservationSlot.AM,
-        ))
-        created += 1
+def cleanup_demo_colleagues_if_present(db: Session) -> int:
+    """Supprime les anciens collègues fictifs (Camille, Marc, Sarah) et leurs réservations,
+    s'ils existent encore d'un précédent démarrage. Idempotent : ne fait rien s'ils sont déjà partis."""
+    users = db.scalars(select(m.User).where(m.User.entra_oid.in_(_DEMO_COLLEAGUE_OIDS))).all()
+    if not users:
+        return 0
+    user_ids = [u.id for u in users]
+    db.query(m.Reservation).filter(m.Reservation.user_id.in_(user_ids)).delete(synchronize_session=False)
+    for u in users:
+        db.delete(u)
     db.commit()
-    return created
+    return len(users)
 
 
 # Cartes d'accueil par défaut (clé, titre, position, mise en avant).

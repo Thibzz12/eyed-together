@@ -585,7 +585,7 @@ def admin_list_quizzes(db: Session = Depends(get_db), _=Depends(require_admin)):
 
 @router.post("/admin/quizzes", status_code=status.HTTP_201_CREATED)
 def admin_create_quiz(data: schemas.QuizCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    quiz = quiz_svc.create_quiz(db, data.title, data.description, data.publish_at)
+    quiz = quiz_svc.create_quiz(db, data.title, data.description, data.publish_at, data.is_survey)
     return {"id": quiz.id}
 
 
@@ -597,7 +597,7 @@ def admin_get_quiz(quiz_id: int, db: Session = Depends(get_db), _=Depends(requir
 
 @router.patch("/admin/quizzes/{quiz_id}")
 def admin_update_quiz(quiz_id: int, data: schemas.QuizCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    quiz_svc.update_quiz(db, quiz_id, data.title, data.description, data.publish_at)
+    quiz_svc.update_quiz(db, quiz_id, data.title, data.description, data.publish_at, data.is_survey)
     return {"ok": True}
 
 

@@ -220,6 +220,7 @@ class QuizCreate(BaseModel):
     title: str
     description: str | None = None
     publish_at: datetime | None = None
+    is_survey: bool = False
 
 
 class AttemptSubmit(BaseModel):

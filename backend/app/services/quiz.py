@@ -29,7 +29,8 @@ def _is_published(quiz: m.Quiz) -> bool:
 
 
 def list_published_quizzes(db: Session, user_id: int) -> list[dict]:
-    """Quiz publiés, avec mon statut (déjà passé ou non, mon score)."""
+    """Quiz publiés, avec mon statut (déjà passé ou non, mon score) — sondages inclus
+    (sans score, juste "répondu" ou non)."""
     quizzes = db.scalars(
         select(m.Quiz).options(joinedload(m.Quiz.questions))
     ).unique()
@@ -42,12 +43,26 @@ def list_published_quizzes(db: Session, user_id: int) -> list[dict]:
         )
         out.append({
             "id": q.id, "title": q.title, "description": q.description,
+            "is_survey": q.is_survey,
             "question_count": len(q.questions),
-            "my_score": my_attempt.score if my_attempt else None,
-            "my_total": my_attempt.total if my_attempt else None,
+            "my_score": my_attempt.score if my_attempt and not q.is_survey else None,
+            "my_total": my_attempt.total if my_attempt and not q.is_survey else None,
             "completed": my_attempt is not None,
         })
     return out
+
+
+def _survey_results(db: Session, quiz_id: int, questions: list[m.QuizQuestion]) -> dict[int, dict[int, int]]:
+    """Nombre de votes par choix, pour chaque question d'un sondage (toutes tentatives confondues)."""
+    tallies = {qq.id: {c.id: 0 for c in qq.choices} for qq in questions}
+    attempts = db.scalars(select(m.QuizAttempt).where(m.QuizAttempt.quiz_id == quiz_id))
+    for a in attempts:
+        chosen = json.loads(a.answers_json or "{}")
+        for qid_str, choice_id in chosen.items():
+            qid = int(qid_str)
+            if qid in tallies and choice_id in tallies[qid]:
+                tallies[qid][choice_id] += 1
+    return tallies
 
 
 def get_quiz_for_attempt(db: Session, quiz_id: int, user_id: int) -> dict:
@@ -59,16 +74,34 @@ def get_quiz_for_attempt(db: Session, quiz_id: int, user_id: int) -> dict:
     my_attempt = db.scalar(
         select(m.QuizAttempt).where(m.QuizAttempt.quiz_id == quiz_id, m.QuizAttempt.user_id == user_id)
     )
-    questions = db.scalars(
+    questions = list(db.scalars(
         select(m.QuizQuestion).where(m.QuizQuestion.quiz_id == quiz_id)
         .order_by(m.QuizQuestion.position).options(joinedload(m.QuizQuestion.choices))
-    ).unique()
+    ).unique())
 
     if my_attempt:
         chosen = json.loads(my_attempt.answers_json or "{}")
+        if quiz.is_survey:
+            tallies = _survey_results(db, quiz_id, questions)
+            return {
+                "id": quiz.id, "title": quiz.title, "description": quiz.description,
+                "is_survey": True, "completed": True, "score": None, "total": None,
+                "questions": [
+                    {
+                        "id": qq.id, "text": qq.text,
+                        "choices": [
+                            {
+                                "id": c.id, "text": c.text,
+                                "votes": tallies[qq.id][c.id],
+                                "chosen": chosen.get(str(qq.id)) == c.id,
+                            } for c in qq.choices
+                        ],
+                    } for qq in questions
+                ],
+            }
         return {
             "id": quiz.id, "title": quiz.title, "description": quiz.description,
-            "completed": True, "score": my_attempt.score, "total": my_attempt.total,
+            "is_survey": False, "completed": True, "score": my_attempt.score, "total": my_attempt.total,
             "questions": [
                 {
                     "id": qq.id, "text": qq.text,
@@ -83,7 +116,7 @@ def get_quiz_for_attempt(db: Session, quiz_id: int, user_id: int) -> dict:
         }
     return {
         "id": quiz.id, "title": quiz.title, "description": quiz.description,
-        "completed": False, "score": None, "total": None,
+        "is_survey": quiz.is_survey, "completed": False, "score": None, "total": None,
         "questions": [
             {"id": qq.id, "text": qq.text, "choices": [{"id": c.id, "text": c.text} for c in qq.choices]}
             for qq in questions
@@ -103,19 +136,21 @@ def submit_attempt(db: Session, quiz_id: int, user_id: int, answers: dict[int, i
         select(m.QuizQuestion).where(m.QuizQuestion.quiz_id == quiz_id).options(joinedload(m.QuizQuestion.choices))
     ).unique())
 
+    # Sondage : pas de bonne réponse, juste enregistrer la participation (pas de points de score).
     score = 0
-    for qq in questions:
-        chosen_id = answers.get(qq.id)
-        correct_choice = next((c for c in qq.choices if c.is_correct), None)
-        if chosen_id is not None and correct_choice is not None and chosen_id == correct_choice.id:
-            score += 1
+    if not quiz.is_survey:
+        for qq in questions:
+            chosen_id = answers.get(qq.id)
+            correct_choice = next((c for c in qq.choices if c.is_correct), None)
+            if chosen_id is not None and correct_choice is not None and chosen_id == correct_choice.id:
+                score += 1
 
     attempt = m.QuizAttempt(
         quiz_id=quiz_id, user_id=user_id, score=score, total=len(questions),
         answers_json=json.dumps({str(k): v for k, v in answers.items()}),
     )
     db.add(attempt)
-    if score > 0:
+    if not quiz.is_survey and score > 0:
         award_points(db, user_id, score * POINTS_PER_CORRECT_ANSWER, "quiz_correct_answers")
     db.commit()
     db.refresh(attempt)
@@ -144,14 +179,15 @@ def admin_list_quizzes(db: Session) -> list[dict]:
         ) or 0
         out.append({
             "id": q.id, "title": q.title, "description": q.description,
+            "is_survey": q.is_survey,
             "publish_at": q.publish_at.isoformat() if q.publish_at else None,
             "question_count": len(q.questions), "attempt_count": attempt_count,
         })
     return out
 
 
-def create_quiz(db: Session, title: str, description: str | None, publish_at: datetime | None) -> m.Quiz:
-    quiz = m.Quiz(title=title, description=description, publish_at=publish_at)
+def create_quiz(db: Session, title: str, description: str | None, publish_at: datetime | None, is_survey: bool = False) -> m.Quiz:
+    quiz = m.Quiz(title=title, description=description, publish_at=publish_at, is_survey=is_survey)
     db.add(quiz)
     db.commit()
     db.refresh(quiz)
@@ -173,6 +209,7 @@ def admin_get_quiz(db: Session, quiz_id: int) -> dict:
     ).unique()
     return {
         "id": quiz.id, "title": quiz.title, "description": quiz.description,
+        "is_survey": quiz.is_survey,
         "publish_at": quiz.publish_at.isoformat() if quiz.publish_at else None,
         "questions": [
             {
@@ -183,13 +220,14 @@ def admin_get_quiz(db: Session, quiz_id: int) -> dict:
     }
 
 
-def update_quiz(db: Session, quiz_id: int, title: str, description: str | None, publish_at: datetime | None) -> None:
+def update_quiz(db: Session, quiz_id: int, title: str, description: str | None, publish_at: datetime | None, is_survey: bool = False) -> None:
     quiz = db.get(m.Quiz, quiz_id)
     if quiz is None:
         raise QuizNotFound("Quiz introuvable.")
     quiz.title = title
     quiz.description = description
     quiz.publish_at = publish_at
+    quiz.is_survey = is_survey
     db.commit()
 
 
