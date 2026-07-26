@@ -69,13 +69,20 @@ def get_birthdays(db: Session) -> dict:
 
 
 def coworking_status(db: Session) -> dict:
-    """Nombre de postes libres / total pour aujourd'hui."""
+    """Nombre de postes libres / total pour aujourd'hui.
+
+    Les bulles calmes ne comptent pas dans la capacité : ce sont des créneaux de 15 min,
+    pas des postes de travail au même titre que les bureaux/l'open space.
+    """
     today = date.today()
-    total = db.scalar(select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True))) or 0
+    total = db.scalar(
+        select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True), m.Desk.zone != "Bulles calmes")
+    ) or 0
     occupied = db.scalar(
-        select(func.count(func.distinct(m.Reservation.desk_id))).where(
+        select(func.count(func.distinct(m.Reservation.desk_id))).join(m.Desk).where(
             m.Reservation.reservation_date == today,
             m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Desk.zone != "Bulles calmes",
         )
     ) or 0
     return {"free": max(0, total - occupied), "total": total, "occupied": occupied}
@@ -87,7 +94,10 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
         row = db.scalar(
             select(m.DailyStatus).where(m.DailyStatus.user_id == user_id, m.DailyStatus.day == date.today())
         )
-        return {"status": row.status.value if row else None}
+        return {
+            "status_am": row.status_am.value if row and row.status_am else None,
+            "status_pm": row.status_pm.value if row and row.status_pm else None,
+        }
     if key == "coworking_status":
         return coworking_status(db)
     if key == "next_reservation":

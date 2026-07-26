@@ -75,6 +75,11 @@ class RoomBookingCreate(BaseModel):
     slot: Literal["AM", "PM", "DAY"]
 
 
+class RoomLabelUpdate(BaseModel):
+    ref: str        # "Bureau 1" / "Bureau 2" / "BC-1" / "BC-2"
+    label: str
+
+
 # ---------------------------------------------------------------- Bulles calmes (créneaux 15 min)
 class TimeslotBookingCreate(BaseModel):
     desk_id: int
@@ -141,12 +146,14 @@ class StatusesUpdate(BaseModel):
 # ---------------------------------------------------------------- Statut de présence (déclaration)
 class DailyStatusRead(BaseModel):
     day: date
-    status: WorkStatus
+    status_am: WorkStatus | None = None
+    status_pm: WorkStatus | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class DailyStatusDeclare(BaseModel):
     day: date
+    slot: Literal["AM", "PM"]
     status: WorkStatus
 
 

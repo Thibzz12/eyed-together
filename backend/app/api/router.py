@@ -174,6 +174,19 @@ def book_timeslot(
     return svc.book_timeslot(db, user["id"], data.desk_id, data.reservation_date, data.start_time, data.end_time)
 
 
+@router.get("/room-labels")
+def room_labels(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Noms affichés actuels des bureaux et bulles calmes."""
+    return svc.get_room_labels(db)
+
+
+@router.patch("/admin/room-labels")
+def update_room_label(data: schemas.RoomLabelUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Renomme un bureau ou une bulle calme — reflété immédiatement sur la page Réserver."""
+    svc.set_room_label(db, data.ref, data.label)
+    return {"ok": True}
+
+
 def _enrich_event(db: Session, ev: dict, user_id: int) -> dict:
     """Ajoute capacité, nb d'inscrits et mon statut à un événement WordPress."""
     reg = events_svc.my_registration(db, user_id, ev["id"])
@@ -428,7 +441,7 @@ def set_status(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """Déclare (ou met à jour) mon statut de présence pour une journée."""
+    """Déclare (ou met à jour) mon statut de présence pour le matin ou l'après-midi d'une journée."""
     row = db.scalar(
         select(m.DailyStatus).where(
             m.DailyStatus.user_id == user["id"],
@@ -436,10 +449,12 @@ def set_status(
         )
     )
     if row is None:
-        row = m.DailyStatus(user_id=user["id"], day=data.day, status=data.status)
+        row = m.DailyStatus(user_id=user["id"], day=data.day)
         db.add(row)
+    if data.slot == "AM":
+        row.status_am = data.status
     else:
-        row.status = data.status
+        row.status_pm = data.status
     db.commit()
     db.refresh(row)
     return row

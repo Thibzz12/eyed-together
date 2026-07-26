@@ -63,7 +63,13 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
             m.DailyStatus.user_id == user_id, m.DailyStatus.day >= today, m.DailyStatus.day <= today + timedelta(days=6),
         ).order_by(m.DailyStatus.day)
     )
-    upcoming_status = [{"day": s.day.isoformat(), "status": s.status.value} for s in statuses]
+    upcoming_status = [
+        {
+            "day": s.day.isoformat(),
+            "status_am": s.status_am.value if s.status_am else None,
+            "status_pm": s.status_pm.value if s.status_pm else None,
+        } for s in statuses
+    ]
 
     reservations = db.scalars(
         select(m.Reservation).where(

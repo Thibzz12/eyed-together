@@ -2,10 +2,20 @@
    EyeD Together — application multi-pages (JavaScript natif)
    ============================================================ */
 
+// Date du jour (calendrier LOCAL) au format AAAA-MM-JJ. Ne JAMAIS utiliser
+// .toISOString().slice(0,10) pour une date de calendrier : ça convertit en UTC, ce qui
+// peut décaler d'un jour selon l'heure et le fuseau (bug réel : "27" sélectionné mais
+// réservation affichée au "26"). Uniquement pour un vrai timestamp (ex: publish_at),
+// .toISOString() reste correct.
+function toLocalISODate(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 const state = {
   profile: null,
   // vue Réserver
-  date: new Date().toISOString().slice(0, 10),
+  date: toLocalISODate(new Date()),
   slot: "DAY",
   floor: null,
   availability: [],
@@ -159,20 +169,13 @@ const STATUS_ICON = {
 
 async function viewAccueil() {
   const view = document.getElementById("view");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toLocalISODate(new Date());
   view.innerHTML = `
       <div class="hero-banner">
         <div class="hb-greet"><span class="hb-muted">Bonjour,</span> <span class="hb-name">${firstName(state.profile.name)}</span></div>
         <div class="hb-status"><span class="hb-dot"></span>Connecté · SSO EyeD</div>
       </div>
-      <div class="dash-grid" id="dashGrid"><div class="empty">Chargement…</div></div>
-      <h3 class="section-title">Services rapides</h3>
-      <div class="services-grid">
-        <a class="service-tile" href="mailto:restauration@eyedpharma.com"><span class="service-ic" style="background:#E0F2FE"><svg viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h18M12 11v9M4 11c0-4 4-7 8-7s8 3 8 7"/></svg></span><span>Restauration</span></a>
-        <a class="service-tile" href="https://weared.team" target="_blank" rel="noopener"><span class="service-ic" style="background:#F3E8FF"><svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></span><span>Intranet</span></a>
-        <a class="service-tile" href="mailto:support-it@eyedpharma.com"><span class="service-ic" style="background:#FFF1F2"><svg viewBox="0 0 24 24" fill="none" stroke="#F43F5E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10"/><path d="M2 17h20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg></span><span>Support IT</span></a>
-        <a class="service-tile" href="mailto:rh@eyedpharma.com"><span class="service-ic" style="background:#ECFDF5"><svg viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg></span><span>Ressources humaines</span></a>
-      </div>`;
+      <div class="dash-grid" id="dashGrid"><div class="empty">Chargement…</div></div>`;
   const d = (await api("/api/dashboard")).data;
   const cards = (d && d.cards) || [];
   document.getElementById("dashGrid").innerHTML =
@@ -187,12 +190,15 @@ function renderCard(c) {
   let inner = "", extraClass = "";
 
   if (c.key === "presence") {
-    const cur = data && data.status;
+    const amCur = data && data.status_am;
+    const pmCur = data && data.status_pm;
+    const seg = (slot, cur) => `<div class="status-seg">${enabledStatusEntries().map(([k, l]) =>
+      `<button class="status-seg-btn${cur === k ? " on" : ""}" data-slot="${slot}" data-status="${k}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[k]}</svg>
+        <span>${l}</span></button>`).join("")}</div>`;
     inner = `<div class="card-label">${c.title}</div>
-      <div class="status-seg">${enabledStatusEntries().map(([k, l]) =>
-        `<button class="status-seg-btn${cur === k ? " on" : ""}" data-status="${k}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[k]}</svg>
-          <span>${l}</span></button>`).join("")}</div>`;
+      <div class="status-half-label">Matin</div>${seg("AM", amCur)}
+      <div class="status-half-label">Après-midi</div>${seg("PM", pmCur)}`;
   } else if (c.key === "next_reservation") {
     extraClass = " reservation-card";
     if (data) {
@@ -279,9 +285,9 @@ function wireDashboard(today) {
     toast("Présence confirmée ✓", "success"); viewAccueil();
   }));
   view.querySelectorAll("[data-status]").forEach(el => el.addEventListener("click", async () => {
-    const ok = await setStatus(today, el.dataset.status);
+    const ok = await setStatus(today, el.dataset.slot, el.dataset.status);
     if (ok) {
-      view.querySelectorAll("[data-status]").forEach(b => b.classList.remove("on"));
+      view.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(b => b.classList.remove("on"));
       el.classList.add("on");
     }
   }));
@@ -896,11 +902,21 @@ async function renderAdminStats() {
 async function renderAdminEspaces() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const { ok, data } = await api("/api/admin/desks");
+  const [{ ok, data }, labelsRes] = await Promise.all([api("/api/admin/desks"), api("/api/room-labels")]);
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  const labels = labelsRes.data || {};
   const groups = {};
   for (const d of data) (groups[d.zone || "Sans bureau"] ||= []).push(d);
-  let html = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les postes et la capacité de chaque bureau. Chaque changement est enregistré immédiatement.</p>`;
+  let html = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les postes et la capacité de chaque bureau. Chaque changement est enregistré immédiatement.</p>
+    <div class="card">
+      <h3>Noms affichés</h3>
+      <div class="room-label-grid">
+        <label>Bureau 1 <input class="room-label-input" data-ref="Bureau 1" value="${(labels["Bureau 1"] || "Bureau 1").replace(/"/g, "&quot;")}"></label>
+        <label>Bureau 2 <input class="room-label-input" data-ref="Bureau 2" value="${(labels["Bureau 2"] || "Bureau 2").replace(/"/g, "&quot;")}"></label>
+        <label>Bulle calme 1 <input class="room-label-input" data-ref="BC-1" value="${(labels["BC-1"] || "Bulle calme 1").replace(/"/g, "&quot;")}"></label>
+        <label>Bulle calme 2 <input class="room-label-input" data-ref="BC-2" value="${(labels["BC-2"] || "Bulle calme 2").replace(/"/g, "&quot;")}"></label>
+      </div>
+    </div>`;
   for (const [zone, desks] of Object.entries(groups)) {
     const active = desks.filter(d => d.is_active).length;
     html += `<div class="card"><div class="card-head">
@@ -931,6 +947,10 @@ async function renderAdminEspaces() {
     row.querySelector(".da-del").addEventListener("click", () => delDesk(id));
   });
   body.querySelectorAll("[data-add]").forEach(b => b.addEventListener("click", () => addDesk(b.dataset.add)));
+  body.querySelectorAll(".room-label-input").forEach(inp => inp.addEventListener("change", async () => {
+    const { ok } = await api("/api/admin/room-labels", { method: "PATCH", body: JSON.stringify({ ref: inp.dataset.ref, label: inp.value }) });
+    toast(ok ? "Nom enregistré ✓" : "Erreur", ok ? "success" : "error");
+  }));
 }
 
 async function patchDesk(id, patch) {
@@ -971,7 +991,7 @@ function viewReserver() {
   document.getElementById("view").innerHTML = `
     <div class="resa-daypicker scroll">
       ${days.map(d => {
-        const iso = d.toISOString().slice(0, 10);
+        const iso = toLocalISODate(d);
         return `<button class="day-pill" data-day="${iso}">
           <span class="dp-d">${d.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
           <span class="dp-n">${d.getDate()}</span></button>`;
@@ -1008,12 +1028,14 @@ function viewReserver() {
 const ROOM_ZONES = ["Bureau 1", "Bureau 2"];
 
 async function loadReserve() {
-  const [avail, mine] = await Promise.all([
+  const [avail, mine, labels] = await Promise.all([
     api(`/api/availability?date=${state.date}&slot=${state.slot}`),
     api("/api/reservations/me"),
+    api("/api/room-labels"),
   ]);
   state.availability = avail.data || [];
   state.myReservations = mine.data || [];
+  state.roomLabels = labels.data || {};
 
   const roomResults = await Promise.all(
     ROOM_ZONES.map(z => api(`/api/reservations/room?zone=${encodeURIComponent(z)}&date=${state.date}`))
@@ -1039,7 +1061,7 @@ function groupIntoTables(items) {
   }
   return Object.values(groups).map(g => {
     g.items.sort((a, b) => a.desk.name.localeCompare(b.desk.name));
-    const label = g.zone.startsWith("Bureau") ? g.zone : `Table ${g.key.replace(/^T/, "")}`;
+    const label = g.zone.startsWith("Bureau") ? ((state.roomLabels && state.roomLabels[g.zone]) || g.zone) : `Table ${g.key.replace(/^T/, "")}`;
     const half = Math.ceil(g.items.length / 2);
     return { ...g, label, cap: g.items.length, topSeats: g.items.slice(0, half), botSeats: g.items.slice(half) };
   });
@@ -1106,11 +1128,11 @@ function renderTables() {
 function onRoomButtonClick(zone) {
   const myIds = (state.myRoomReservations && state.myRoomReservations[zone]) || [];
   if (myIds.length) {
-    state.selected = { type: "room", zone, name: `Salle — ${zone}`, mine: true, resIds: myIds };
+    state.selected = { type: "room", zone, name: `Salle — ${(state.roomLabels && state.roomLabels[zone]) || zone}`, mine: true, resIds: myIds };
   } else {
     const items = state.availability.filter(x => x.desk.zone === zone);
     if (!items.every(x => x.is_available)) return toast("Cette salle n'est plus disponible.", "error");
-    state.selected = { type: "room", zone, name: `Salle — ${zone}`, mine: false, resIds: [] };
+    state.selected = { type: "room", zone, name: `Salle — ${(state.roomLabels && state.roomLabels[zone]) || zone}`, mine: false, resIds: [] };
   }
   openReserveSheet();
 }
@@ -1139,6 +1161,7 @@ function renderPodsSection() {
 }
 
 function podLabel(name) {
+  if (state.roomLabels && state.roomLabels[name]) return state.roomLabels[name];
   return name === "BC-1" ? "Bulle calme 1" : name === "BC-2" ? "Bulle calme 2" : name;
 }
 
@@ -1235,7 +1258,7 @@ function renderMyReservations() {
   const box = document.getElementById("myReservations"); if (!box) return;
   if (!state.myReservations.length) { box.innerHTML = `<div class="empty">Aucune réservation à venir.</div>`; return; }
   box.innerHTML = "";
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = toLocalISODate(new Date());
   for (const r of state.myReservations) {
     const isTimeslot = r.slot === "timeslot";
     const isToday = r.reservation_date === todayIso;
@@ -1378,10 +1401,10 @@ async function viewPresence() {
   const view = document.getElementById("view");
   const days = []; const d = new Date();
   while (days.length < 7) { if (d.getDay() !== 0 && d.getDay() !== 6) days.push(new Date(d)); d.setDate(d.getDate() + 1); }
-  const from = days[0].toISOString().slice(0, 10), to = days[days.length - 1].toISOString().slice(0, 10);
+  const from = toLocalISODate(days[0]), to = toLocalISODate(days[days.length - 1]);
   const rows = (await api(`/api/status/me?from=${from}&to=${to}`)).data || [];
-  const byDay = {}; for (const r of rows) byDay[r.day] = r.status;
-  presenceState = { days, byDay, selected: days[0].toISOString().slice(0, 10) };
+  const byDay = {}; for (const r of rows) byDay[r.day] = { am: r.status_am, pm: r.status_pm };
+  presenceState = { days, byDay, selected: toLocalISODate(days[0]) };
 
   view.innerHTML = `
     <div class="hero-banner presence-hero">
@@ -1402,13 +1425,14 @@ async function viewPresence() {
 function renderPresenceDaystrip() {
   const box = document.getElementById("presenceDaystrip");
   box.innerHTML = presenceState.days.map(day => {
-    const iso = day.toISOString().slice(0, 10);
-    const status = presenceState.byDay[iso];
-    const dotColor = status ? STATUS_COLOR[status] : "transparent";
+    const iso = toLocalISODate(day);
+    const s = presenceState.byDay[iso] || {};
+    const amColor = s.am ? STATUS_COLOR[s.am] : "transparent";
+    const pmColor = s.pm ? STATUS_COLOR[s.pm] : "transparent";
     return `<button class="pd-pill${iso === presenceState.selected ? " active" : ""}" data-day="${iso}">
       <span class="pd-d">${day.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
       <span class="pd-n">${day.getDate()}</span>
-      <span class="pd-dot" style="background:${dotColor}"></span></button>`;
+      <span class="pd-dot" style="background:linear-gradient(to right, ${amColor} 50%, ${pmColor} 50%)"></span></button>`;
   }).join("");
   box.querySelectorAll("[data-day]").forEach(b => b.addEventListener("click", () => {
     presenceState.selected = b.dataset.day;
@@ -1418,33 +1442,45 @@ function renderPresenceDaystrip() {
 
 function renderPresenceStatusGrid() {
   const iso = presenceState.selected;
-  const day = presenceState.days.find(d => d.toISOString().slice(0, 10) === iso);
+  const day = presenceState.days.find(d => toLocalISODate(d) === iso);
   document.getElementById("presenceDayTitle").textContent = day.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const grid = document.getElementById("presenceStatusGrid");
-  const current = presenceState.byDay[iso];
-  grid.innerHTML = enabledStatusEntries().map(([key, lbl]) => `
-    <button class="presence-status-tile${current === key ? " on" : ""}" data-status="${key}" style="--tile-color:${STATUS_COLOR[key]}">
+  const s = presenceState.byDay[iso] || {};
+  const tiles = (slot, current) => enabledStatusEntries().map(([key, lbl]) => `
+    <button class="presence-status-tile${current === key ? " on" : ""}" data-slot="${slot}" data-status="${key}" style="--tile-color:${STATUS_COLOR[key]}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[key]}</svg>
       <span>${lbl}</span>
     </button>`).join("");
+  grid.innerHTML = `
+    <div class="status-half-label">Matin</div>
+    <div class="presence-status-tiles">${tiles("AM", s.am)}</div>
+    <div class="status-half-label">Après-midi</div>
+    <div class="presence-status-tiles">${tiles("PM", s.pm)}</div>`;
   grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", async () => {
-    const ok = await setStatus(iso, b.dataset.status);
-    if (ok) { presenceState.byDay[iso] = b.dataset.status; renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList(); }
+    const slot = b.dataset.slot;
+    const ok = await setStatus(iso, slot, b.dataset.status);
+    if (ok) {
+      presenceState.byDay[iso] = { ...(presenceState.byDay[iso] || {}), [slot === "AM" ? "am" : "pm"]: b.dataset.status };
+      renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList();
+    }
   }));
 }
 
 function renderPresenceWeekList() {
   const box = document.getElementById("presenceWeekList");
+  const badge = (status) => status
+    ? `<span class="ev-status-badge" style="background:${STATUS_COLOR[status]}22;color:${STATUS_COLOR[status]}">${STATUS[status] || status}</span>`
+    : `<span class="muted">—</span>`;
   box.innerHTML = presenceState.days.map(day => {
-    const iso = day.toISOString().slice(0, 10);
-    const status = presenceState.byDay[iso];
+    const iso = toLocalISODate(day);
+    const s = presenceState.byDay[iso] || {};
     return `<div class="event-item"><span class="event-date">${day.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</span>
-      <span class="event-title">${status ? `<span class="ev-status-badge" style="background:${STATUS_COLOR[status]}22;color:${STATUS_COLOR[status]}">${STATUS[status] || status}</span>` : `<span class="muted">Non déclaré</span>`}</span></div>`;
+      <span class="event-title">Matin : ${badge(s.am)} · Après-midi : ${badge(s.pm)}</span></div>`;
   }).join("");
 }
 
-async function setStatus(day, status) {
-  const { ok, data } = await api("/api/status/me", { method: "PUT", body: JSON.stringify({ day, status }) });
+async function setStatus(day, slot, status) {
+  const { ok, data } = await api("/api/status/me", { method: "PUT", body: JSON.stringify({ day, slot, status }) });
   if (!ok) { toast(data?.detail || "Impossible d'enregistrer.", "error"); return false; }
   toast("Présence enregistrée ✓", "success"); return true;
 }
