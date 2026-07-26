@@ -50,7 +50,12 @@ _DEMO_DESKS = [
     ("T4-4", "Open Space", "Rez-de-chaussée", "Table 4"),
     ("T4-5", "Open Space", "Rez-de-chaussée", "Table 4"),
     ("T4-6", "Open Space", "Rez-de-chaussée", "Table 4"),
+    ("BC-1", "Bulles calmes", "Rez-de-chaussée", "Cabine individuelle"),
+    ("BC-2", "Bulles calmes", "Rez-de-chaussée", "Cabine individuelle"),
 ]
+
+# Noms des postes "bulle calme" — réservables par créneau de 15 min plutôt qu'en demi-journée.
+POD_DESK_NAMES = {"BC-1", "BC-2"}
 
 
 # Bureaux fermés limités à 4 places sur les 6 physiques (demande du manager : peur de
@@ -84,6 +89,22 @@ def limit_bureau_seats_if_needed(db: Session) -> int:
         d.is_active = False
     db.commit()
     return len(desks)
+
+
+def seed_pods_if_missing(db: Session) -> int:
+    """Ajoute les postes "bulle calme" (BC-1, BC-2) s'ils manquent — rattrape les bases
+    déjà seedées avant l'introduction de cette zone. Idempotent."""
+    from app.floorplan import position_for
+
+    existing = {n for (n,) in db.execute(select(m.Desk.name).where(m.Desk.name.in_(POD_DESK_NAMES))).all()}
+    missing = [d for d in _DEMO_DESKS if d[0] in POD_DESK_NAMES and d[0] not in existing]
+    if not missing:
+        return 0
+    for (n, z, f, feat) in missing:
+        x, y = position_for(n)
+        db.add(m.Desk(name=n, zone=z, floor=f, features=feat, pos_x=x, pos_y=y, is_active=True))
+    db.commit()
+    return len(missing)
 
 
 # Anciens collègues fictifs de démo (retirés — l'app ne doit plus afficher de faux profils).

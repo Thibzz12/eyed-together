@@ -132,6 +132,48 @@ def checkin_reservation(
     return svc.check_in(db, user["id"], reservation_id)
 
 
+@router.post("/reservations/room", response_model=list[schemas.ReservationRead], status_code=status.HTTP_201_CREATED)
+def book_room(
+    data: schemas.RoomBookingCreate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Réserve toute la salle (Bureau 1 ou 2) — bloqué si un seul poste y est déjà réservé."""
+    return svc.book_room(db, user["id"], data.zone, data.reservation_date, data.slot)
+
+
+@router.get("/reservations/room")
+def my_room_reservation(
+    zone: str = Query(...),
+    day: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """IDs de mes réservations pour cette salle/date (vide si je n'ai pas réservé la salle)."""
+    return {"reservation_ids": svc.my_room_reservation_ids(db, user["id"], zone, day)}
+
+
+@router.get("/pods/{desk_id}/timeslots", response_model=list[schemas.TimeslotRead])
+def pod_timeslots(
+    desk_id: int,
+    day: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Créneaux déjà réservés pour une bulle calme, ce jour-là."""
+    return svc.get_pod_bookings(db, desk_id, day)
+
+
+@router.post("/reservations/timeslot", response_model=schemas.ReservationRead, status_code=status.HTTP_201_CREATED)
+def book_timeslot(
+    data: schemas.TimeslotBookingCreate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Réserve une bulle calme sur un créneau de 15 min."""
+    return svc.book_timeslot(db, user["id"], data.desk_id, data.reservation_date, data.start_time, data.end_time)
+
+
 def _enrich_event(db: Session, ev: dict, user_id: int) -> dict:
     """Ajoute capacité, nb d'inscrits et mon statut à un événement WordPress."""
     reg = events_svc.my_registration(db, user_id, ev["id"])

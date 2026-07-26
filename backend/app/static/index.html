@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/jakarta.css">
-  <link rel="stylesheet" href="/static/styles.css?v=35">
+  <link rel="stylesheet" href="/static/styles.css?v=37">
 </head>
 <body>
 
@@ -138,6 +138,24 @@
     </div>
   </div>
 
+  <!-- Feuille de réservation d'une bulle calme (créneau libre en minutes) -->
+  <div id="podSheetBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet" id="podSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-eyebrow">Bulle calme</div>
+      <div class="sheet-title" id="podSheetTitle">Bulle</div>
+      <div class="sheet-sub" id="podSheetSub"></div>
+      <div class="pod-time-row">
+        <label>Début <input type="time" id="podStart" step="900"></label>
+        <label>Fin <input type="time" id="podEnd" step="900"></label>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn sheet-cancel" id="podCancelBtn">Annuler</button>
+        <button class="btn btn-primary sheet-confirm" id="podConfirmBtn">Réserver</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Menu (raccourcis Idées/Quiz/Médias/Recherche/Administration) -->
   <div id="menuSheetBackdrop" class="sheet-backdrop hidden">
     <div class="sheet" id="menuSheet">
@@ -148,6 +166,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=38"></script>
 </body>
 </html>

@@ -30,7 +30,7 @@ async function api(path, options = {}) {
 function colorFor(n) { let s = 0; for (const c of n || "?") s += c.charCodeAt(0); return PALETTE[s % PALETTE.length]; }
 function initials(n) { return (n || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase(); }
 function firstName(n) { return (n || "").split(/\s+/)[0]; }
-function slotLabel(s) { return s === "AM" ? "Matin" : s === "PM" ? "Après-midi" : "Journée"; }
+function slotLabel(s) { return s === "AM" ? "Matin" : s === "PM" ? "Après-midi" : s === "timeslot" ? "Créneau" : "Journée"; }
 function fdate(iso, opt) { return new Date(iso).toLocaleDateString("fr-FR", opt || { weekday: "long", day: "numeric", month: "long" }); }
 function levelOf(pts) {
   if (pts >= 300) return "Platine"; if (pts >= 150) return "Or"; if (pts >= 50) return "Argent"; return "Bronze";
@@ -65,6 +65,11 @@ async function init() {
     sheetSlot = b.dataset.slot;
     document.querySelectorAll("#sheetSlotToggle button").forEach(x => x.classList.toggle("active", x === b));
   }));
+  document.getElementById("podCancelBtn").addEventListener("click", closePodSheet);
+  document.getElementById("podConfirmBtn").addEventListener("click", confirmPodSheet);
+  document.getElementById("podSheetBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "podSheetBackdrop") closePodSheet();
+  });
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.getElementById("menuBtn").addEventListener("click", openMenuSheet);
   document.getElementById("menuSheetBackdrop").addEventListener("click", (e) => {
@@ -204,13 +209,8 @@ function renderCard(c) {
     }
   } else if (c.key === "project_progress") {
     extraClass = " banner-card";
-    const daysLeft = data.days_left;
-    const countdown = daysLeft != null
-      ? `<div class="banner-countdown"><span class="bc-num">${daysLeft >= 0 ? "J-" + daysLeft : "J+" + (-daysLeft)}</span><span class="bc-label">${daysLeft >= 0 ? "jours restants" : "jours de retard"}</span></div>`
-      : "";
     inner = `<div class="banner-top2">
         <div><div class="banner-eyebrow">Building Our Future Home</div><div class="banner-title">${data.milestone_title || c.title}</div></div>
-        ${countdown}
       </div>
       <div class="banner-progress"><div class="bp-row"><span>${data.label || ""}</span><span class="bp-pct">${data.value}%</span></div>
       <div class="progress"><i style="width:${data.value}%"></i></div></div>`;
@@ -1005,6 +1005,8 @@ function viewReserver() {
   loadReserve();
 }
 
+const ROOM_ZONES = ["Bureau 1", "Bureau 2"];
+
 async function loadReserve() {
   const [avail, mine] = await Promise.all([
     api(`/api/availability?date=${state.date}&slot=${state.slot}`),
@@ -1012,6 +1014,18 @@ async function loadReserve() {
   ]);
   state.availability = avail.data || [];
   state.myReservations = mine.data || [];
+
+  const roomResults = await Promise.all(
+    ROOM_ZONES.map(z => api(`/api/reservations/room?zone=${encodeURIComponent(z)}&date=${state.date}`))
+  );
+  state.myRoomReservations = {};
+  ROOM_ZONES.forEach((z, i) => { state.myRoomReservations[z] = (roomResults[i].data && roomResults[i].data.reservation_ids) || []; });
+
+  const podDesks = state.availability.filter(x => x.desk.zone === "Bulles calmes").map(x => x.desk);
+  const podResults = await Promise.all(podDesks.map(d => api(`/api/pods/${d.id}/timeslots?date=${state.date}`)));
+  state.podBookings = {};
+  podDesks.forEach((d, i) => { state.podBookings[d.id] = podResults[i].data || []; });
+
   renderTables(); renderMyReservations();
 }
 
@@ -1036,7 +1050,16 @@ function renderTables() {
   const bureaux = groupIntoTables(state.availability.filter(x => x.desk.zone && x.desk.zone.startsWith("Bureau")));
   const openspace = groupIntoTables(state.availability.filter(x => x.desk.zone === "Open Space"));
 
-  function section(title, tables) {
+  function roomButtonHtml(t) {
+    const myIds = (state.myRoomReservations && state.myRoomReservations[t.zone]) || [];
+    const mine = myIds.length > 0;
+    const free = t.items.every(x => x.is_available);
+    if (mine) return `<button class="room-book-btn mine" data-room-zone="${t.zone}">Salle réservée (vous) · Annuler</button>`;
+    if (free) return `<button class="room-book-btn" data-room-zone="${t.zone}">Réserver toute la salle</button>`;
+    return `<button class="room-book-btn" data-room-zone="${t.zone}" disabled title="Un poste de cette salle est déjà réservé">Salle indisponible</button>`;
+  }
+
+  function section(title, tables, isRoom) {
     if (!tables.length) return "";
     // Groupées par paires (colle au plan réel : les tables voisines restent côte à côte
     // sur la même ligne, plutôt qu'un enchaînement qui coupe les paires au retour à la ligne).
@@ -1051,6 +1074,7 @@ function renderTables() {
             <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
           </div>
           <div class="ts-label">${t.label}</div>
+          ${isRoom ? roomButtonHtml(t) : ""}
         </div>`).join("");
       return `<div class="table-scroll-row">${widgets}</div>`;
     }).join("");
@@ -1065,13 +1089,97 @@ function renderTables() {
     const label = mineHere ? "moi" : !item.is_available ? initials(item.booked_by) : "";
     return `<button class="tseat ${cls}" data-desk="${item.desk.id}" title="${item.desk.name}${item.is_available ? " — disponible" : mineHere ? " — votre place" : " — occupé par " + item.booked_by}">${label}</button>`;
   }
-  box.innerHTML = section("Bureaux fermés", bureaux) + section("Open space · postes individuels", openspace);
+  box.innerHTML = section("Bureaux fermés", bureaux, true) + section("Open space · postes individuels", openspace, false) + renderPodsSection();
   box.querySelectorAll(".tseat").forEach(btn => {
     const id = +btn.dataset.desk;
     const item = state.availability.find(a => a.desk.id === id);
     const mineHere = !item.is_available && item.booked_by === state.profile.name;
     if (item.is_available || mineHere) btn.addEventListener("click", () => selectSeat(item, mineHere));
   });
+  box.querySelectorAll("[data-room-zone]").forEach(btn => {
+    if (!btn.disabled) btn.addEventListener("click", () => onRoomButtonClick(btn.dataset.roomZone));
+  });
+  box.querySelectorAll("[data-open-pod]").forEach(btn => btn.addEventListener("click", () => openPodSheet(+btn.dataset.openPod)));
+  box.querySelectorAll("[data-cancel-pod]").forEach(btn => btn.addEventListener("click", () => cancelPodBooking(+btn.dataset.cancelPod)));
+}
+
+function onRoomButtonClick(zone) {
+  const myIds = (state.myRoomReservations && state.myRoomReservations[zone]) || [];
+  if (myIds.length) {
+    state.selected = { type: "room", zone, name: `Salle — ${zone}`, mine: true, resIds: myIds };
+  } else {
+    const items = state.availability.filter(x => x.desk.zone === zone);
+    if (!items.every(x => x.is_available)) return toast("Cette salle n'est plus disponible.", "error");
+    state.selected = { type: "room", zone, name: `Salle — ${zone}`, mine: false, resIds: [] };
+  }
+  openReserveSheet();
+}
+
+function renderPodsSection() {
+  const podItems = state.availability.filter(x => x.desk.zone === "Bulles calmes");
+  if (!podItems.length) return "";
+  const cards = podItems.map(item => {
+    const d = item.desk;
+    const bookings = (state.podBookings && state.podBookings[d.id]) || [];
+    const rows = bookings.map(b => {
+      const mine = b.user_name === state.profile.name;
+      return `<div class="pod-slot${mine ? " mine" : ""}">
+        <span>${b.start_time.slice(0, 5)}–${b.end_time.slice(0, 5)}</span>
+        <span class="pod-slot-who">${mine ? "Toi" : b.user_name}</span>
+        ${mine ? `<button class="pod-slot-cancel" data-cancel-pod="${b.id}" title="Annuler">✕</button>` : ""}
+      </div>`;
+    }).join("") || `<div class="empty" style="padding:2px 0">Aucun créneau réservé.</div>`;
+    return `<div class="card pod-card">
+      <div class="card-head"><h3>${podLabel(d.name)}</h3>
+        <button class="link-more" data-open-pod="${d.id}">+ Réserver un créneau</button></div>
+      <div class="pod-slots">${rows}</div>
+    </div>`;
+  }).join("");
+  return `<div class="section-eyebrow">Bulles calmes · créneaux de 15 min</div>${cards}`;
+}
+
+function podLabel(name) {
+  return name === "BC-1" ? "Bulle calme 1" : name === "BC-2" ? "Bulle calme 2" : name;
+}
+
+let podDeskId = null;
+
+function openPodSheet(deskId) {
+  podDeskId = deskId;
+  const item = state.availability.find(x => x.desk.id === deskId);
+  document.getElementById("podSheetTitle").textContent = item ? podLabel(item.desk.name) : "Bulle calme";
+  document.getElementById("podSheetSub").textContent = fdate(state.date, { weekday: "long", day: "numeric", month: "long" });
+  // Par défaut : le prochain quart d'heure, pour 30 min.
+  const now = new Date();
+  let mins = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  const fmt = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  document.getElementById("podStart").value = fmt(mins);
+  document.getElementById("podEnd").value = fmt(mins + 30);
+  document.getElementById("podSheetBackdrop").classList.remove("hidden");
+}
+function closePodSheet() {
+  document.getElementById("podSheetBackdrop").classList.add("hidden");
+  podDeskId = null;
+}
+async function confirmPodSheet() {
+  if (!podDeskId) return;
+  const start_time = document.getElementById("podStart").value;
+  const end_time = document.getElementById("podEnd").value;
+  if (!start_time || !end_time) return toast("Choisis une heure de début et de fin.", "error");
+  const { ok, data } = await api("/api/reservations/timeslot", {
+    method: "POST",
+    body: JSON.stringify({ desk_id: podDeskId, reservation_date: state.date, start_time, end_time }),
+  });
+  if (!ok) return toast(data?.detail || "Réservation impossible.", "error");
+  toast("Bulle réservée ✓", "success");
+  closePodSheet();
+  loadReserve();
+}
+async function cancelPodBooking(id) {
+  const { ok, data } = await api(`/api/reservations/${id}`, { method: "DELETE" });
+  if (!ok) return toast(data?.detail || "Annulation impossible.", "error");
+  toast("Créneau annulé.");
+  loadReserve();
 }
 
 let sheetSlot = "DAY";
@@ -1093,15 +1201,19 @@ function clearSelection() {
 }
 function openReserveSheet() {
   if (!state.selected) return;
+  const isRoom = state.selected.type === "room";
   sheetSlot = "DAY";
-  document.getElementById("sheetTitle").textContent = "Poste " + state.selected.name;
-  document.getElementById("sheetSub").textContent = `${state.selected.zone || "Open space"} · ${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })}`;
+  document.getElementById("sheetTitle").textContent = isRoom ? state.selected.name : "Poste " + state.selected.name;
+  document.getElementById("sheetSub").textContent = isRoom
+    ? fdate(state.date, { weekday: "long", day: "numeric", month: "long" })
+    : `${state.selected.zone || "Open space"} · ${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })}`;
   const mine = document.getElementById("sheetMineNotice");
   const durationBox = document.getElementById("sheetDuration");
   const confirmBtn = document.getElementById("sheetConfirmBtn");
   if (state.selected.mine) {
     durationBox.classList.add("hidden"); mine.classList.remove("hidden");
-    confirmBtn.textContent = "Annuler la réservation"; confirmBtn.classList.add("danger");
+    mine.textContent = isRoom ? "Tu as déjà réservé cette salle pour ce créneau." : "Tu as déjà réservé ce poste pour ce créneau.";
+    confirmBtn.textContent = isRoom ? "Annuler la réservation de la salle" : "Annuler la réservation"; confirmBtn.classList.add("danger");
   } else {
     durationBox.classList.remove("hidden"); mine.classList.add("hidden");
     confirmBtn.textContent = "Confirmer"; confirmBtn.classList.remove("danger");
@@ -1115,6 +1227,7 @@ function closeReserveSheet() {
 async function confirmSheet() {
   if (!state.selected) return;
   if (state.selected.mine) { for (const id of state.selected.resIds) await cancelRes(id); }
+  else if (state.selected.type === "room") await bookRoom(state.selected.zone, sheetSlot);
   else await book(state.selected.deskId, sheetSlot);
   clearSelection();
 }
@@ -1124,14 +1237,16 @@ function renderMyReservations() {
   box.innerHTML = "";
   const todayIso = new Date().toISOString().slice(0, 10);
   for (const r of state.myReservations) {
+    const isTimeslot = r.slot === "timeslot";
     const isToday = r.reservation_date === todayIso;
     const el = document.createElement("div"); el.className = "res-item";
-    const checkinBtn = isToday
+    const checkinBtn = isToday && !isTimeslot
       ? (r.checked_in_at ? `<span class="res-checked">✓ Présent</span>` : `<button class="checkin" data-checkin="${r.id}">Je suis arrivé</button>`)
       : "";
-    el.innerHTML = `<div class="info"><b>${r.desk.name}</b><small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(r.slot)}</small></div>
+    const slotText = isTimeslot ? `${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)}` : slotLabel(r.slot);
+    el.innerHTML = `<div class="info"><b>${r.desk.name}</b><small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotText}</small></div>
       <div class="res-item-actions">${checkinBtn}<button class="cancel">Annuler</button></div>`;
-    el.querySelector(".cancel").addEventListener("click", () => cancelRes(r.id));
+    el.querySelector(".cancel").addEventListener("click", () => isTimeslot ? cancelPodBooking(r.id) : cancelRes(r.id));
     const cb = el.querySelector("[data-checkin]");
     if (cb) cb.addEventListener("click", async () => {
       const { ok, data } = await api(`/api/reservations/${r.id}/checkin`, { method: "POST" });
@@ -1146,6 +1261,12 @@ async function book(deskId, slot) {
   if (!ok) return toast(data?.detail || "Réservation impossible.", "error");
   const pts = slot === "DAY" ? 20 : 10;
   refreshPoints(+pts); floatPoint(); toast(`Réservé ! +${pts} points ⭐`, "success"); loadReserve();
+}
+async function bookRoom(zone, slot) {
+  const { ok, data } = await api("/api/reservations/room", { method: "POST", body: JSON.stringify({ zone, reservation_date: state.date, slot }) });
+  if (!ok) return toast(data?.detail || "Réservation de la salle impossible.", "error");
+  const pts = slot === "DAY" ? 20 : 10;
+  refreshPoints(+pts); floatPoint(); toast(`Salle réservée ! +${pts} points ⭐`, "success"); loadReserve();
 }
 async function cancelRes(id) {
   const { ok, data } = await api(`/api/reservations/${id}`, { method: "DELETE" });

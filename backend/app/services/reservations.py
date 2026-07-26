@@ -13,6 +13,7 @@ Règles appliquées :
 """
 
 from datetime import date, datetime, timedelta, timezone
+from datetime import time as time_type
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +26,16 @@ from app.services.gamification import POINTS_PER_BOOKING, award_points
 # Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
 MAX_ADVANCE_DAYS = 7        # horizon max de réservation à l'avance
 MAX_CONSECUTIVE_DAYS = 5    # max de jours ouvrés consécutifs réservés d'affilée
+
+# Réservation de salle entière (Bureau 1 / Bureau 2) : "salle occupée" dès qu'un seul
+# poste actif de la zone est déjà réservé sur le créneau visé.
+ROOM_ZONES = {"Bureau 1", "Bureau 2"}
+
+# Bulles calmes : réservables par créneau libre (pas de demi-journée), en tranches de 15 min.
+POD_ZONE = "Bulles calmes"
+TIMESLOT_STEP_MINUTES = 15
+MIN_TIMESLOT_MINUTES = 15
+MAX_TIMESLOT_MINUTES = 120
 
 
 # --------------------------------------------------------------------------
@@ -265,9 +276,202 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
         raise NotOwner("Tu ne peux annuler que tes propres réservations.")
 
     reservation.status = m.ReservationStatus.CANCELLED
-    # Anti-farming : on retire les points gagnés à la réservation.
-    award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
+    # Anti-farming : on retire les points gagnés à la réservation — sauf les créneaux
+    # "bulle calme" (timeslot), qui n'en rapportent jamais (voir book_timeslot).
+    if reservation.slot != m.ReservationSlot.TIMESLOT:
+        award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
     db.commit()
+
+
+# --------------------------------------------------------------------------
+#  Réservation de salle entière (Bureau 1 / Bureau 2)
+# --------------------------------------------------------------------------
+def _room_desks(db: Session, zone: str) -> list[m.Desk]:
+    if zone not in ROOM_ZONES:
+        raise DeskNotFound("Cette salle n'existe pas.")
+    desks = list(db.scalars(select(m.Desk).where(m.Desk.zone == zone, m.Desk.is_active.is_(True))))
+    if not desks:
+        raise DeskNotFound("Aucun poste actif dans cette salle.")
+    return desks
+
+
+def book_room(db: Session, user_id: int, zone: str, reservation_date: date, slot_str: str) -> list[m.Reservation]:
+    """Réserve TOUS les postes actifs d'une salle fermée (Bureau 1/2) en une seule action.
+
+    Bloquée dès qu'un seul poste de la salle est déjà réservé sur le créneau visé
+    (peu importe par qui) — pas de réservation "de salle" partielle.
+    """
+    if reservation_date < date.today():
+        raise PastDate("Impossible de réserver une date déjà passée.")
+    _check_booking_policy(db, user_id, reservation_date)
+
+    desks = _room_desks(db, zone)
+    desk_ids = [d.id for d in desks]
+    slots = slots_for(slot_str)
+
+    for slot_enum in slots:
+        already = db.scalar(
+            select(m.Reservation).where(
+                m.Reservation.user_id == user_id,
+                m.Reservation.reservation_date == reservation_date,
+                m.Reservation.slot == slot_enum,
+                m.Reservation.status == m.ReservationStatus.BOOKED,
+            )
+        )
+        if already:
+            raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
+        conflict = db.scalar(
+            select(m.Reservation).where(
+                m.Reservation.desk_id.in_(desk_ids),
+                m.Reservation.reservation_date == reservation_date,
+                m.Reservation.slot == slot_enum,
+                m.Reservation.status == m.ReservationStatus.BOOKED,
+            )
+        )
+        if conflict:
+            raise SlotConflict("Cette salle n'est pas disponible : un poste y est déjà réservé sur ce créneau.")
+
+    created = [
+        m.Reservation(user_id=user_id, desk_id=d.id, reservation_date=reservation_date, slot=s)
+        for d in desks for s in slots
+    ]
+    db.add_all(created)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise SlotConflict("Cette salle vient d'être réservée par quelqu'un d'autre.")
+
+    # Points comme une réservation de poste normale (par créneau, pas multiplié par le
+    # nombre de postes de la salle — sinon la salle rapporterait bien plus qu'un poste seul).
+    for _ in slots:
+        award_points(db, user_id, POINTS_PER_BOOKING, "reservation_created")
+    db.commit()
+    for r in created:
+        db.refresh(r)
+    return created
+
+
+def my_room_reservation_ids(db: Session, user_id: int, zone: str, reservation_date: date) -> list[int]:
+    """IDs des réservations de l'utilisateur pour CETTE SALLE ENTIÈRE (tous les postes actifs
+    de la zone) à cette date — [] s'il n'a réservé qu'une partie des postes individuellement
+    (ce n'est alors pas "la salle", juste des postes ordinaires dans cette zone).
+
+    Pour l'annulation groupée depuis le front, qui appelle ensuite cancel_reservation() une
+    fois par id — même schéma que l'annulation d'une réservation "Journée" existante.
+    """
+    if zone not in ROOM_ZONES:
+        return []
+    desk_ids = {d.id for d in db.scalars(select(m.Desk).where(m.Desk.zone == zone, m.Desk.is_active.is_(True)))}
+    if not desk_ids:
+        return []
+    rows = list(db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == reservation_date,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.desk_id.in_(desk_ids),
+        )
+    ))
+    if not rows:
+        return []
+    # "Salle réservée" seulement si TOUS les postes actifs sont couverts pour au moins un des
+    # créneaux détenus (AM et/ou PM) — sinon c'est une réservation individuelle ordinaire.
+    by_slot: dict[m.ReservationSlot, set[int]] = {}
+    for r in rows:
+        by_slot.setdefault(r.slot, set()).add(r.desk_id)
+    if not any(covered == desk_ids for covered in by_slot.values()):
+        return []
+    return [r.id for r in rows]
+
+
+# --------------------------------------------------------------------------
+#  Bulles calmes : réservation par créneau libre de 15 min (pas de demi-journée)
+# --------------------------------------------------------------------------
+def _to_minutes(t: time_type) -> int:
+    return t.hour * 60 + t.minute
+
+
+def get_pod_bookings(db: Session, desk_id: int, day: date) -> list[dict]:
+    """Créneaux déjà réservés pour une bulle calme, ce jour-là (pour affichage)."""
+    rows = db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.desk_id == desk_id,
+            m.Reservation.reservation_date == day,
+            m.Reservation.slot == m.ReservationSlot.TIMESLOT,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+        ).order_by(m.Reservation.start_time).options(joinedload(m.Reservation.user))
+    )
+    return [
+        {"id": r.id, "start_time": r.start_time, "end_time": r.end_time, "user_name": r.user.display_name}
+        for r in rows
+    ]
+
+
+def book_timeslot(
+    db: Session, user_id: int, desk_id: int, reservation_date: date,
+    start_time: time_type, end_time: time_type,
+) -> m.Reservation:
+    """Réserve une bulle calme sur un créneau libre en minutes (pas de demi-journée).
+
+    Pas de limite de jours consécutifs (non pertinent pour un créneau de quelques minutes),
+    ni de points de gamification (éviterait un farming par réservations à répétition).
+    """
+    if reservation_date < date.today():
+        raise PastDate("Impossible de réserver une date déjà passée.")
+    if _is_weekend(reservation_date):
+        raise WeekendNotAllowed("Pas de réservation le week-end.")
+    if reservation_date > date.today() + timedelta(days=MAX_ADVANCE_DAYS):
+        raise BookingWindowExceeded(f"Impossible de réserver plus de {MAX_ADVANCE_DAYS} jours à l'avance.")
+
+    desk = db.get(m.Desk, desk_id)
+    if desk is None or not desk.is_active or desk.zone != POD_ZONE:
+        raise DeskNotFound("Cette bulle calme n'existe pas ou n'est pas disponible.")
+
+    if end_time <= start_time:
+        raise ReservationError("L'heure de fin doit être après l'heure de début.")
+    duration = _to_minutes(end_time) - _to_minutes(start_time)
+    if start_time.minute % TIMESLOT_STEP_MINUTES or end_time.minute % TIMESLOT_STEP_MINUTES:
+        raise ReservationError(f"Les créneaux se calent sur des tranches de {TIMESLOT_STEP_MINUTES} min.")
+    if duration < MIN_TIMESLOT_MINUTES or duration > MAX_TIMESLOT_MINUTES:
+        raise ReservationError(f"Durée du créneau : entre {MIN_TIMESLOT_MINUTES} et {MAX_TIMESLOT_MINUTES} min.")
+
+    def _overlaps(existing_start: time_type, existing_end: time_type) -> bool:
+        return not (_to_minutes(existing_end) <= _to_minutes(start_time) or _to_minutes(existing_start) >= _to_minutes(end_time))
+
+    # Chevauchement sur CETTE bulle (n'importe quel utilisateur).
+    same_desk = db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.desk_id == desk_id,
+            m.Reservation.reservation_date == reservation_date,
+            m.Reservation.slot == m.ReservationSlot.TIMESLOT,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+        )
+    )
+    if any(_overlaps(r.start_time, r.end_time) for r in same_desk):
+        raise SlotConflict("Ce créneau chevauche une réservation déjà en place sur cette bulle.")
+
+    # Chevauchement avec une AUTRE bulle réservée par le même utilisateur au même moment
+    # (illogique d'être dans deux bulles à la fois).
+    same_user = db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == reservation_date,
+            m.Reservation.slot == m.ReservationSlot.TIMESLOT,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+        )
+    )
+    if any(_overlaps(r.start_time, r.end_time) for r in same_user):
+        raise AlreadyBooked("Tu as déjà une bulle réservée sur ce créneau.")
+
+    reservation = m.Reservation(
+        user_id=user_id, desk_id=desk_id, reservation_date=reservation_date,
+        slot=m.ReservationSlot.TIMESLOT, start_time=start_time, end_time=end_time,
+    )
+    db.add(reservation)
+    db.commit()
+    db.refresh(reservation)
+    return reservation
 
 
 NOSHOW_PENALTY = 10  # points retirés par demi-journée non confirmée (check-in manquant)
