@@ -8,6 +8,8 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7   # évite la 3.14 par défaut : pas de wheel précompilé pour pydantic-core dessus, échec de build
       - key: ENVIRONMENT
         value: development   # garde la création auto des tables (SQLite) + /auth/dev-login pour le test rapide
       - key: SECRET_KEY
