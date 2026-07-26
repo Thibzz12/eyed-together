@@ -558,7 +558,7 @@ async function renderAdminQuiz(targetId = "adminBody") {
         <input id="qzTitle" type="text" placeholder="Titre" required maxlength="150">
         <textarea id="qzDesc" placeholder="Description (optionnel)" rows="2"></textarea>
         <label class="admin-toggle" style="justify-content:flex-start;gap:8px">
-          <input id="qzIsSurvey" type="checkbox"> Sondage (pas de bonne réponse, juste recueillir les avis)</label>
+          <input id="qzIsSurvey" type="checkbox"> Sondage</label>
         <label class="admin-toggle" style="justify-content:flex-start;gap:8px">Publication programmée (optionnel)
           <input id="qzPublishAt" type="datetime-local"></label>
         <button type="submit" class="btn-save">Créer</button>
@@ -824,7 +824,7 @@ function svgBarChart(data, { height = 160 } = {}) {
       <rect x="${x + barW * 0.18}%" y="${height - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#0284C7"></rect>
       </g>`;
   }).join("");
-  const labels = data.map((d, i) => `<span>${i % showEvery === 0 ? d.label : ""}</span>`).join("");
+  const labels = data.filter((d, i) => i % showEvery === 0).map(d => `<span>${d.label}</span>`).join("");
   return `<svg viewBox="0 0 100 ${height}" preserveAspectRatio="none" class="chart-svg" style="height:${height}px">${bars}</svg>
     <div class="chart-labels">${labels}</div>`;
 }
