@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=40">
+  <link rel="stylesheet" href="/static/styles.css?v=41">
 </head>
 <body>
 
@@ -156,6 +156,21 @@
     </div>
   </div>
 
+  <!-- Confirmation quand on change de statut alors qu'une résa existe déjà ce jour-là -->
+  <div id="statusConflictSheetBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet" id="statusConflictSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-eyebrow">Réservation existante</div>
+      <div class="sheet-title">Tu as une place réservée ce jour</div>
+      <div class="sheet-sub" id="statusConflictSub"></div>
+      <div class="sheet-actions">
+        <button class="btn sheet-cancel" id="statusConflictKeepBtn">Garder ma réservation</button>
+        <button class="btn btn-primary sheet-confirm danger" id="statusConflictCancelResBtn">Annuler la réservation</button>
+      </div>
+      <button class="btn-back" id="statusConflictBackBtn">← Ne rien changer</button>
+    </div>
+  </div>
+
   <!-- Menu (raccourcis Idées/Quiz/Médias/Recherche/Administration) -->
   <div id="menuSheetBackdrop" class="sheet-backdrop hidden">
     <div class="sheet" id="menuSheet">
@@ -166,6 +181,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=42"></script>
+  <script src="/static/app.js?v=43"></script>
 </body>
 </html>

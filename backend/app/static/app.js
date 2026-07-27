@@ -90,6 +90,16 @@ async function init() {
   document.getElementById("podSheetBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "podSheetBackdrop") closePodSheet();
   });
+  document.getElementById("statusConflictKeepBtn").addEventListener("click", () => closeStatusConflictSheet("keep"));
+  document.getElementById("statusConflictBackBtn").addEventListener("click", () => closeStatusConflictSheet("abort"));
+  document.getElementById("statusConflictCancelResBtn").addEventListener("click", async () => {
+    const st = statusConflictState;
+    if (st) { for (const r of st.reservations) await api(`/api/reservations/${r.id}`, { method: "DELETE" }); }
+    closeStatusConflictSheet("cancelled");
+  });
+  document.getElementById("statusConflictSheetBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "statusConflictSheetBackdrop") closeStatusConflictSheet("abort");
+  });
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.getElementById("menuBtn").addEventListener("click", openMenuSheet);
   document.getElementById("menuSheetBackdrop").addEventListener("click", (e) => {
@@ -294,13 +304,14 @@ function wireDashboard(today) {
     if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
     toast("Présence confirmée ✓", "success"); viewAccueil();
   }));
-  view.querySelectorAll("[data-status]").forEach(el => el.addEventListener("click", async () => {
-    const ok = await setStatus(today, el.dataset.slot, el.dataset.status);
-    if (ok) {
-      view.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(b => b.classList.remove("on"));
-      el.classList.add("on");
-      maybeSuggestBooking(today, el.dataset.status);
-    }
+  view.querySelectorAll("[data-status]").forEach(el => el.addEventListener("click", () => {
+    handleStatusChange(today, el.dataset.slot, el.dataset.status, (cancelledCount) => {
+      if (cancelledCount) { refreshPoints(-10 * cancelledCount); viewAccueil(); }
+      else {
+        view.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(b => b.classList.remove("on"));
+        el.classList.add("on");
+      }
+    });
   }));
 }
 
@@ -314,6 +325,47 @@ async function maybeSuggestBooking(day, statusKey) {
   toastAction("Tu as indiqué Coworking pour ce jour.", "Réserver une place", () => {
     state.date = day; goTo("reserver");
   });
+}
+
+/* Statut ET réservations ne sont pas liés en base : si on change de statut vers autre chose
+   que "coworking" alors qu'une place est déjà réservée ce jour-là, ça devient contradictoire
+   (réservé mais "en télétravail"/"en congé"…) — on prévient et on laisse le choix de garder
+   ou d'annuler la réservation avant d'enregistrer le nouveau statut. */
+let statusConflictState = null; // { reservations, resolve }
+
+function openStatusConflictSheet(reservations, resolve) {
+  statusConflictState = { reservations, resolve };
+  const names = reservations.map(r => `Poste ${r.desk.name} · ${slotLabel(r.slot)}`).join(", ");
+  document.getElementById("statusConflictSub").textContent =
+    `Réservation actuelle : ${names}. Si tu changes de statut, tu peux la garder ou l'annuler.`;
+  document.getElementById("statusConflictSheetBackdrop").classList.remove("hidden");
+}
+
+function closeStatusConflictSheet(choice) {
+  document.getElementById("statusConflictSheetBackdrop").classList.add("hidden");
+  const st = statusConflictState; statusConflictState = null;
+  if (st) st.resolve(choice);
+}
+
+/* Enregistre le statut, en passant par la confirmation ci-dessus si nécessaire.
+   onSuccess(cancelledCount) est appelé une fois le statut effectivement enregistré. */
+async function handleStatusChange(day, slot, statusKey, onSuccess) {
+  if (statusKey !== "coworking") {
+    const { data } = await api("/api/reservations/me");
+    const conflicts = (data || []).filter(r => r.reservation_date === day);
+    if (conflicts.length) {
+      const choice = await new Promise(resolve => openStatusConflictSheet(conflicts, resolve));
+      if (choice === "abort") return;
+      const ok = await setStatus(day, slot, statusKey);
+      if (ok) onSuccess(choice === "cancelled" ? conflicts.length : 0);
+      return;
+    }
+  }
+  const ok = await setStatus(day, slot, statusKey);
+  if (ok) {
+    onSuccess(0);
+    if (statusKey === "coworking") maybeSuggestBooking(day, statusKey);
+  }
 }
 
 /* ============================================================
@@ -438,8 +490,9 @@ function renderAdminCards() {
     </div>`).join("");
   const statusRows = adminState.statusCatalog.map(s => `
     <div class="status-admin-row">
-      <label class="admin-toggle"><input type="checkbox" data-statuskey="${s.key}" ${s.enabled ? "checked" : ""}>
-        <span class="status-swatch" style="background:${s.color}"></span> ${s.label}</label>
+      <input type="checkbox" data-statuskey="${s.key}" ${s.enabled ? "checked" : ""} title="Activé">
+      <input type="color" class="status-color-input" data-key="${s.key}" value="${s.color}" title="Couleur">
+      <input type="text" class="status-label-input" data-key="${s.key}" value="${s.label.replace(/"/g, "&quot;")}" maxlength="60">
       ${s.builtin ? "" : `<button class="da-del" data-del-status="${s.key}" title="Supprimer">✕</button>`}
     </div>`).join("");
   const linksRows = adminState.links.map(l => `
@@ -497,6 +550,17 @@ function renderAdminCards() {
     state.statusCatalog = state.statusCatalog.filter(s => s.key !== b.dataset.delStatus);
     toast("Statut supprimé", "success");
     renderAdminAccueil();
+  }));
+  body.querySelectorAll(".status-label-input, .status-color-input").forEach(inp => inp.addEventListener("change", async () => {
+    const key = inp.dataset.key;
+    const field = inp.classList.contains("status-color-input") ? "color" : "label";
+    const value = inp.value.trim();
+    if (field === "label" && !value) { toast("Le libellé est obligatoire.", "error"); inp.value = adminState.statusCatalog.find(x => x.key === key).label; return; }
+    const { ok, data } = await api(`/api/admin/statuses/${key}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    const s = adminState.statusCatalog.find(x => x.key === key); if (s) s[field] = data[field];
+    const gs = state.statusCatalog.find(x => x.key === key); if (gs) gs[field] = data[field];
+    toast("Statut mis à jour ✓", "success");
   }));
   document.getElementById("statusAddForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1528,14 +1592,13 @@ function renderPresenceStatusGrid() {
     <div class="presence-status-tiles">${tiles("AM", s.am)}</div>
     <div class="status-half-label">Après-midi</div>
     <div class="presence-status-tiles">${tiles("PM", s.pm)}</div>`;
-  grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", async () => {
+  grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", () => {
     const slot = b.dataset.slot, statusKey = b.dataset.status;
-    const ok = await setStatus(iso, slot, statusKey);
-    if (ok) {
+    handleStatusChange(iso, slot, statusKey, (cancelledCount) => {
       presenceState.byDay[iso] = { ...(presenceState.byDay[iso] || {}), [slot === "AM" ? "am" : "pm"]: statusKey };
       renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList();
-      maybeSuggestBooking(iso, statusKey);
-    }
+      if (cancelledCount) refreshPoints(-10 * cancelledCount);
+    });
   }));
 }
 

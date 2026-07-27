@@ -403,8 +403,11 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .admin-progress label { font-size: .85rem; color: var(--muted); }
 .admin-progress input[type="text"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .92rem; margin-top: 6px; width: 100%; }
 .status-admin-list { display: flex; flex-direction: column; gap: 4px; }
-.status-admin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
-.status-swatch { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+.status-admin-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.status-admin-row input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--blue); }
+.status-admin-row .status-color-input { width: 32px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+.status-admin-row .status-label-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: .86rem; font-family: inherit; }
+.status-admin-row .da-del { flex-shrink: 0; }
 .status-add-form { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .status-add-form input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .88rem; font-family: inherit; }
 .status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
@@ -536,6 +539,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 
 /* Détail d'un événement (dans l'app) */
 .btn-back { background: none; border: none; color: var(--blue); font-family: inherit; font-weight: 600; font-size: .88rem; cursor: pointer; padding: 4px 0; margin-bottom: 14px; }
+#statusConflictSheet .btn-back { display: block; width: 100%; text-align: center; margin: 12px 0 0; color: var(--muted); }
 .detail-wrap { max-width: 780px; margin: 0 auto; }
 .event-detail { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-1); }
 .event-detail .ec-date { display: inline-flex; align-items: center; font-size: .74rem; font-weight: 600; color: var(--blue); background: var(--blue-050); padding: 4px 12px; border-radius: 999px; }
