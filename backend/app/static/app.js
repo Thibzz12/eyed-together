@@ -205,7 +205,7 @@ function renderCard(c) {
     extraClass = " reservation-card";
     if (data) {
       inner = `<div class="rc-row">
-        <span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg></span>
+        <span class="rc-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#00608D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg></span>
         <div><div class="rc-tag">${data.checked_in ? "Présence confirmée ✓" : "Réservé"}</div><div class="rc-desk">Poste ${data.desk}</div>
         <div class="rc-meta">${fdate(data.date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(data.slot)}</div></div></div>
         <div class="rc-actions">
@@ -815,7 +815,7 @@ function toggleMediaEdit(it, targetId) {
 }
 
 /* ---- Administration : cockpit (KPI + alertes) ---- */
-const CHART_COLORS = ["#0284C7", "#10B981", "#F59E0B", "#F43F5E", "#7A4E86", "#0891b2"];
+const CHART_COLORS = ["#00608D", "#10B981", "#F59E0B", "#F43F5E", "#7A4E86", "#0891b2"];
 
 function svgBarChart(data, { height = 160 } = {}) {
   // Les libellés (dates) sont rendus en HTML normal sous le graphique, PAS en <text> SVG :
@@ -829,7 +829,7 @@ function svgBarChart(data, { height = 160 } = {}) {
     const h = max ? (d.value / max) * height : 0;
     const x = i * barW;
     return `<g><title>${d.label} : ${d.value}</title>
-      <rect x="${x + barW * 0.18}%" y="${height - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#0284C7"></rect>
+      <rect x="${x + barW * 0.18}%" y="${height - h}" width="${barW * 0.64}%" height="${Math.max(h, 1)}" rx="3" fill="#00608D"></rect>
       </g>`;
   }).join("");
   const labels = data.filter((d, i) => i % showEvery === 0).map(d => `<span>${d.label}</span>`).join("");
@@ -1396,7 +1396,7 @@ function openNews(id) { openContent("/api/news/" + id, "Actualité", "accueil");
 /* ============================================================
    VUE : MA PRÉSENCE (déclaration de statut)
    ============================================================ */
-const STATUS_COLOR = { coworking: "#0284C7", teletravail: "#7A4E86", deplacement: "#B4761C", conge: "#94A3B8" };
+const STATUS_COLOR = { coworking: "#00608D", teletravail: "#7A4E86", deplacement: "#B4761C", conge: "#94A3B8" };
 let presenceState = { days: [], byDay: {}, selected: null };
 
 async function viewPresence() {

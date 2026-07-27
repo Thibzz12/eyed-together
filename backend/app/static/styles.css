@@ -1,19 +1,21 @@
 /* ============================================================
-   EyeD Together — charte EyeD Pharma
-   Mobile-first, responsive 100%. Bleu pétrole #00608D · Poppins.
-   Rendu clinique / professionnel : contrastes nets, ombres discrètes.
+   EyeD Together — charte EyeD Pharma (identité 2026)
+   Bleu pétrole #00608D · Poppins (texte) + Outfit (titres).
+   Mobile-first, responsive 100%. Rendu clinique / professionnel :
+   contrastes nets, ombres discrètes, formes arrondies (charte du
+   nouveau logo/site : coins généreux, boutons pilule).
    ============================================================ */
 :root {
-  --blue: #0284C7;
-  --blue-700: #026aa3;
-  --blue-900: #0A2540;
-  --navy: #0A2540;
-  --blue-050: #E0F2FE;
-  --blue-100: #BAE6FD;
-  --ink: #0A2540;
-  --muted: #64748B;
-  --line: #E2E8F0;
-  --bg: #F1F5F9;
+  --blue: #00608D;
+  --blue-700: #004D74;
+  --blue-900: #06364B;
+  --navy: #0F2836;
+  --blue-050: #E7EFF7;
+  --blue-100: #CFE0EE;
+  --ink: #16232C;
+  --muted: #64707A;
+  --line: #E3E7EA;
+  --bg: #F4F7F9;
   --card: #FFFFFF;
   --green: #10B981;
   --green-050: #ECFDF5;
@@ -23,18 +25,23 @@
   --red-050: #FFF1F2;
   --seat-free: #DCFCE7; --seat-free-b: #86EFAC;
   --seat-occ: #FFE4E6; --seat-occ-b: #FDA4AF;
-  --radius: 18px;
-  --radius-sm: 12px;
-  --shadow-1: 0 1px 3px rgba(10, 37, 64, .06);
-  --shadow-2: 0 8px 22px -8px rgba(10, 37, 64, .35);
-  --font: 'Plus Jakarta Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --radius: 24px;
+  --radius-sm: 15px;
+  --shadow-1: 0 1px 3px rgba(15, 35, 46, .07);
+  --shadow-2: 0 10px 26px -10px rgba(15, 35, 46, .38);
+  --font: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --tabbar-h: 62px;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); -webkit-font-smoothing: antialiased; }
 .hidden { display: none !important; }
-h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; font-family: var(--font-heading); }
+.banner-title, .hb-greet, .sheet-title, .stat-value, .card-value, .idea-title, .ev-title, .ec-title, .ed-title,
+.notif-title, .rc-desk, .day-pill .dp-n, .pd-n, .points-pill, .proj-pct, .badge-name, .colleague-name {
+  font-family: var(--font-heading);
+}
 a { color: inherit; }
 button, input { font-family: inherit; }
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -45,9 +52,9 @@ button, input { font-family: inherit; }
   position: relative; overflow: hidden;
   min-height: 100vh; min-height: 100dvh;
   background:
-    radial-gradient(circle at 22% 8%, rgba(56,189,248,.16), transparent 42%),
-    radial-gradient(circle at 82% 96%, rgba(2,132,199,.14), transparent 46%),
-    linear-gradient(160deg, #0d3a5c 0%, var(--navy) 45%, #050f1c 100%);
+    radial-gradient(circle at 22% 8%, rgba(79,179,217,.18), transparent 42%),
+    radial-gradient(circle at 82% 96%, rgba(0,96,141,.16), transparent 46%),
+    linear-gradient(160deg, #0A4A6B 0%, var(--navy) 45%, #04141D 100%);
 }
 
 .login-aperture {
@@ -170,10 +177,10 @@ button, input { font-family: inherit; }
 button.link-more { border: none; background: none; padding: 0; font-family: inherit; text-align: left; }
 
 /* ---------------- Accueil (dashboard) ---------------- */
-.hero-banner { background: linear-gradient(135deg, var(--navy), #0d3a5c); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; color: #fff; }
+.hero-banner { background: linear-gradient(135deg, var(--navy), #0A4A6B); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; color: #fff; }
 .hb-greet { font-size: 1.2rem; font-weight: 800; letter-spacing: -.02em; }
-.hb-muted { color: #94b0c6; font-weight: 500; font-size: 1rem; }
-.hb-status { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: #7dd3fc; font-size: .78rem; font-weight: 600; }
+.hb-muted { color: #9AC0D4; font-weight: 500; font-size: 1rem; }
+.hb-status { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: #7EC8E3; font-size: .78rem; font-weight: 600; }
 .hb-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
 .stat-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-1); }
@@ -203,7 +210,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .status-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: #F1F5F9; border-radius: 14px; padding: 6px; margin-top: 6px; }
 .status-seg-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px 8px; border-radius: 10px; border: none; cursor: pointer; background: transparent; color: var(--muted); font-size: .68rem; font-weight: 600; }
 .status-seg-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.status-seg-btn.on { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(2,132,199,.3); }
+.status-seg-btn.on { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.3); }
 
 /* ---------------- Carte réservation active ---------------- */
 .reservation-card .rc-row { display: flex; gap: 12px; }
@@ -222,15 +229,15 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
    la cascade, écrasant le dégradé marine par un fond pâle bleu-blanc -> texte blanc illisible.
    Règle combinée pour garantir que la bannière l'emporte toujours. */
 .dash-card.highlight.banner-card,
-.banner-card { background: linear-gradient(135deg, var(--navy) 0%, #0c3355 60%, #0284C7 130%); color: #fff; position: relative; overflow: hidden; border: none; box-shadow: var(--shadow-2); }
+.banner-card { background: linear-gradient(135deg, var(--navy) 0%, #0A4A6B 60%, var(--blue) 130%); color: #fff; position: relative; overflow: hidden; border: none; box-shadow: var(--shadow-2); }
 .banner-top2 { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.banner-eyebrow { font-size: .68rem; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: .08em; }
+.banner-eyebrow { font-size: .68rem; font-weight: 700; color: #7EC8E3; text-transform: uppercase; letter-spacing: .08em; }
 .banner-title { font-size: 1.15rem; font-weight: 800; margin-top: 4px; }
 .banner-progress { margin-top: 16px; position: relative; }
 .bp-row { display: flex; justify-content: space-between; font-size: .8rem; font-weight: 600; color: #CBD5E1; margin-bottom: 6px; }
-.bp-pct { color: #7dd3fc; font-weight: 700; }
+.bp-pct { color: #7EC8E3; font-weight: 700; }
 .banner-card .progress { background: rgba(255,255,255,.15); }
-.banner-card .progress i { background: linear-gradient(90deg, #38bdf8, #7dd3fc); }
+.banner-card .progress i { background: linear-gradient(90deg, #1E8AB8, #7EC8E3); }
 
 /* ---------------- Collègues présents ---------------- */
 .badge-count { font-size: .7rem; font-weight: 700; color: var(--green); background: var(--green-050); padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
@@ -302,7 +309,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .search-bar input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: .95rem; font-family: inherit; }
 .search-section { margin-bottom: 14px; }
 .search-section h3 { margin: 0 0 10px; }
-.profile-header-card { background: linear-gradient(135deg, var(--navy), #0d3a5c); color: #fff; }
+.profile-header-card { background: linear-gradient(135deg, var(--navy), #0A4A6B); color: #fff; }
 .profile-header { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .profile-sub { font-size: .82rem; color: rgba(255,255,255,.75); margin-top: 2px; }
 .level-card { background: rgba(255,255,255,.08); border-radius: var(--radius-sm); padding: 12px 14px; }
@@ -321,7 +328,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .explore-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #F9FAFC; cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--navy); font-family: inherit; }
 .explore-icon { font-size: 1.3rem; }
 
-.leaderboard-row.me { background: #EFF6FF; border-color: var(--blue); }
+.leaderboard-row.me { background: var(--blue-050); border-color: var(--blue); }
 .profile-setting-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
 .profile-setting-row:last-of-type { border-bottom: none; }
 
@@ -432,7 +439,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .day-pill { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 52px; padding: 9px 0; border-radius: 13px; border: none; cursor: pointer; font-family: inherit; background: #E9EEF3; color: var(--navy); }
 .day-pill .dp-d { font-size: .64rem; font-weight: 600; opacity: .7; text-transform: capitalize; }
 .day-pill .dp-n { font-size: 1rem; font-weight: 800; line-height: 1; }
-.day-pill.active { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(2,132,199,.35); }
+.day-pill.active { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.35); }
 
 /* ---------------- Contrôles (réserver) ---------------- */
 .controls { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -466,7 +473,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .tseat:hover:not(:disabled) { transform: scale(1.2); z-index: 2; position: relative; }
 .tseat.free { background: var(--seat-free); border-color: var(--seat-free-b); }
 .tseat.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); cursor: not-allowed; color: #9F1239; }
-.tseat.selected { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 3px 9px rgba(2,132,199,.45); }
+.tseat.selected { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 3px 9px rgba(0,96,141,.45); }
 .tseat.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
 
 /* ---------------- Réservation de salle entière (Bureau 1/2) ---------------- */
@@ -556,7 +563,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .presence-status-tile.on { background: color-mix(in srgb, var(--tile-color) 12%, white); border-color: var(--tile-color); color: var(--tile-color); }
 
 /* ---------------- Feuille de réservation (bottom sheet) + toast ---------------- */
-.sheet-backdrop { position: fixed; inset: 0; background: rgba(10,37,64,.45); z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(15,40,54,.45); z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
 .sheet { width: 100%; max-width: 480px; background: #fff; border-radius: 20px 20px 0 0; padding: 10px 20px 24px; box-shadow: 0 -12px 40px rgba(0,0,0,.2); animation: sheetUp .22s ease; }
 @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .sheet-handle { width: 40px; height: 4px; background: var(--line); border-radius: 999px; margin: 0 auto 14px; }
