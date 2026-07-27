@@ -66,8 +66,8 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
     upcoming_status = [
         {
             "day": s.day.isoformat(),
-            "status_am": s.status_am.value if s.status_am else None,
-            "status_pm": s.status_pm.value if s.status_pm else None,
+            "status_am": s.status_am,
+            "status_pm": s.status_pm,
         } for s in statuses
     ]
 

@@ -210,7 +210,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .status-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: #F1F5F9; border-radius: 14px; padding: 6px; margin-top: 6px; }
 .status-seg-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px 8px; border-radius: 10px; border: none; cursor: pointer; background: transparent; color: var(--muted); font-size: .68rem; font-weight: 600; }
 .status-seg-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.status-seg-btn.on { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.3); }
+.status-seg-btn.on { background: var(--tile-color, var(--blue)); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.3); }
 
 /* ---------------- Carte réservation active ---------------- */
 .reservation-card .rc-row { display: flex; gap: 12px; }
@@ -402,6 +402,13 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .admin-progress { display: flex; flex-direction: column; gap: 18px; margin-top: 12px; }
 .admin-progress label { font-size: .85rem; color: var(--muted); }
 .admin-progress input[type="text"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .92rem; margin-top: 6px; width: 100%; }
+.status-admin-list { display: flex; flex-direction: column; gap: 4px; }
+.status-admin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.status-swatch { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+.status-add-form { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.status-add-form input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .88rem; font-family: inherit; }
+.status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+.status-add-form .btn-save { margin: 0; width: auto; padding: 10px 18px; flex-shrink: 0; }
 .room-label-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 10px; }
 .room-label-grid label { font-size: .85rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
 .room-label-grid input { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .92rem; font-family: inherit; color: var(--ink); }
@@ -562,6 +569,14 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .presence-status-tile svg { width: 24px; height: 24px; color: var(--tile-color); }
 .presence-status-tile.on { background: color-mix(in srgb, var(--tile-color) 12%, white); border-color: var(--tile-color); color: var(--tile-color); }
 
+/* ---- Vue de la semaine (présence) : jour + créneaux sur des lignes séparées, pour un
+   alignement stable quel que soit la longueur du libellé de jour ou du statut. ---- */
+.pres-week-row { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: #F9FAFC; }
+.pres-week-day { font-size: .68rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.pres-week-slots { display: flex; flex-direction: column; gap: 5px; }
+.pres-week-slot { display: flex; align-items: center; gap: 6px; font-size: .86rem; flex-wrap: wrap; }
+.pws-label { color: var(--muted); font-size: .78rem; min-width: 68px; }
+
 /* ---------------- Feuille de réservation (bottom sheet) + toast ---------------- */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(15,40,54,.45); z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
 .sheet { width: 100%; max-width: 480px; background: #fff; border-radius: 20px 20px 0 0; padding: 10px 20px 24px; box-shadow: 0 -12px 40px rgba(0,0,0,.2); animation: sheetUp .22s ease; }
@@ -581,6 +596,9 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .toast { position: fixed; bottom: calc(var(--tabbar-h) + 70px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 11px 18px; border-radius: var(--radius-sm); font-weight: 500; font-size: .88rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); opacity: 0; transition: opacity .25s ease, transform .25s ease; z-index: 50; max-width: 90vw; text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.error { background: var(--red); } .toast.success { background: var(--green); }
+.toast.toast-with-action { display: flex; align-items: center; gap: 12px; text-align: left; max-width: min(92vw, 420px); }
+.toast-action-btn { flex-shrink: 0; border: none; background: rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: .82rem; padding: 7px 12px; border-radius: 999px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.toast-action-btn:hover { background: rgba(255,255,255,.32); }
 .float-point { position: fixed; color: var(--amber); font-weight: 700; font-size: 1.1rem; pointer-events: none; z-index: 60; animation: floatUp 1s ease-out forwards; }
 @keyframes floatUp { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-46px); } }
 

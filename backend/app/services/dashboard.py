@@ -1,5 +1,7 @@
 """Assemblage du tableau de bord d'accueil (cartes + données live)."""
 
+import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
@@ -12,25 +14,91 @@ from app.services import reservations as res_svc
 from app.services.wordpress import fetch_event_detail, fetch_events, fetch_news
 
 
+class DashboardError(Exception):
+    """Erreur métier générique (catalogue de statuts, réglages d'accueil…)."""
+    status_code = 400
+
+
 def get_setting(db: Session, key: str, default: str = "") -> str:
     row = db.get(m.AppSetting, key)
     return row.value if row else default
 
 
-ALL_STATUSES = [s.value for s in m.WorkStatus]  # catalogue fixe ; seule l'activation est configurable
+# ------------------------------------------------------------------
+#  Catalogue des statuts de présence (4 statuts de base + statuts
+#  personnalisés ajoutés par l'admin) — stocké en JSON dans AppSetting
+#  plutôt qu'un enum Python figé, pour permettre l'ajout depuis l'admin.
+# ------------------------------------------------------------------
+_STATUS_CATALOG_KEY = "status_catalog"
+_DEFAULT_STATUS_CATALOG = [
+    {"key": "coworking", "label": "Coworking", "color": "#00608D", "enabled": True, "builtin": True},
+    {"key": "teletravail", "label": "Télétravail", "color": "#6C3FA0", "enabled": True, "builtin": True},
+    {"key": "deplacement", "label": "Déplacement", "color": "#B4761C", "enabled": True, "builtin": True},
+    {"key": "conge", "label": "Congé", "color": "#94A3B8", "enabled": True, "builtin": True},
+]
+
+
+def get_status_catalog(db: Session) -> list[dict]:
+    """Catalogue complet (base + personnalisés), chacun avec clé/libellé/couleur/activé."""
+    raw = get_setting(db, _STATUS_CATALOG_KEY, "")
+    if raw:
+        try:
+            catalog = json.loads(raw)
+            if catalog:
+                return catalog
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return [dict(s) for s in _DEFAULT_STATUS_CATALOG]
+
+
+def _save_status_catalog(db: Session, catalog: list[dict]) -> None:
+    set_setting(db, _STATUS_CATALOG_KEY, json.dumps(catalog))
+    db.commit()
 
 
 def get_enabled_statuses(db: Session) -> list[str]:
-    """Statuts de présence proposés aux employés (configurable par l'admin)."""
-    raw = get_setting(db, "enabled_statuses", ",".join(ALL_STATUSES))
-    enabled = [s for s in raw.split(",") if s in ALL_STATUSES]
-    return enabled or ALL_STATUSES  # jamais une liste vide (sécurité)
+    """Clés des statuts actuellement proposés aux employés (jamais une liste vide)."""
+    enabled = [s["key"] for s in get_status_catalog(db) if s.get("enabled")]
+    return enabled or [s["key"] for s in _DEFAULT_STATUS_CATALOG]
 
 
-def set_enabled_statuses(db: Session, statuses: list[str]) -> None:
-    valid = [s for s in statuses if s in ALL_STATUSES]
-    set_setting(db, "enabled_statuses", ",".join(valid) or ",".join(ALL_STATUSES))
-    db.commit()
+def set_enabled_statuses(db: Session, keys: list[str]) -> None:
+    """Active/désactive des statuts existants (le reste du catalogue ne bouge pas)."""
+    catalog = get_status_catalog(db)
+    keys_set = set(keys)
+    for s in catalog:
+        s["enabled"] = s["key"] in keys_set
+    if not any(s["enabled"] for s in catalog):
+        catalog = [dict(s) for s in _DEFAULT_STATUS_CATALOG]  # jamais tout désactivé
+    _save_status_catalog(db, catalog)
+
+
+def add_custom_status(db: Session, label: str, color: str) -> dict:
+    """Ajoute un statut personnalisé (label + couleur choisis par l'admin) au catalogue."""
+    label = (label or "").strip()
+    if not label:
+        raise DashboardError("Le libellé est obligatoire.")
+    color = (color or "#64707A").strip()
+    catalog = get_status_catalog(db)
+    base = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "statut"
+    key, existing, i = base, {s["key"] for s in catalog}, 2
+    while key in existing:
+        key = f"{base}_{i}"; i += 1
+    entry = {"key": key, "label": label, "color": color, "enabled": True, "builtin": False}
+    catalog.append(entry)
+    _save_status_catalog(db, catalog)
+    return entry
+
+
+def delete_custom_status(db: Session, key: str) -> None:
+    """Supprime un statut personnalisé (les statuts de base ne se désactivent, jamais ne se suppriment)."""
+    catalog = get_status_catalog(db)
+    target = next((s for s in catalog if s["key"] == key), None)
+    if target is None:
+        return
+    if target.get("builtin"):
+        raise DashboardError("Les statuts de base ne peuvent pas être supprimés, seulement désactivés.")
+    _save_status_catalog(db, [s for s in catalog if s["key"] != key])
 
 
 def set_setting(db: Session, key: str, value: str) -> None:
@@ -95,8 +163,8 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
             select(m.DailyStatus).where(m.DailyStatus.user_id == user_id, m.DailyStatus.day == date.today())
         )
         return {
-            "status_am": row.status_am.value if row and row.status_am else None,
-            "status_pm": row.status_pm.value if row and row.status_pm else None,
+            "status_am": row.status_am if row else None,
+            "status_pm": row.status_pm if row else None,
         }
     if key == "coworking_status":
         return coworking_status(db)

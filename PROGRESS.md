@@ -141,6 +141,26 @@ _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut 
 - [x] **Noms des bureaux/bulles modifiables en admin** : nouvelle section "Noms affichés" dans Administration → Coworking (4 champs), reflété immédiatement sur la page Réserver. Stocké dans `AppSetting` (pas de nouvelle table) via `reservations.py::get_room_labels()`/`set_room_label()`.
 - [x] **Présence matin/après-midi séparée** : `DailyStatus` avait un seul statut par jour ; remplacé par `status_am`/`status_pm` (migration `daily_status_am_pm`, avec rattrapage des déclarations existantes : l'ancien statut unique devient matin ET après-midi). Affiché en cercle plein si les deux sont identiques, ou en deux couleurs (dégradé gauche/droite) sinon — sur l'accueil, la page "Ma présence" (pastille du jour + grille + vue de la semaine).
 
+## ⚡ Optimisation du chargement (2026-07-27, 9e vague)
+
+- [x] `/api/profile` et `/api/statuses` lancés en parallèle au démarrage (au lieu de séquentiel).
+- [x] Compression gzip activée sur les réponses de l'API/JS/CSS (`GZipMiddleware`), gain surtout sensible sur mobile.
+
+## 🎨 Identité visuelle EyeD Pharma 2026 (2026-07-27, 10e vague)
+
+- [x] Charte extraite de `NEW-IDENTITY.pptx` : bleu pétrole `#00608D` (remplace l'ancien bleu générique `#0284C7` utilisé partout, y compris les dégradés hardcodés de la bannière/connexion/profil), Poppins (texte) + Outfit (titres) auto-hébergées (remplacent Plus Jakarta Sans).
+- [x] Rayons de bordure agrandis (18px → 24px) pour coller au style arrondi du nouveau logo/site ; anneaux de la page de connexion recolorés dans la même famille pétrole.
+- [x] Nettoyage d'une tentative de police Poppins incomplète (sans accents) laissée par un essai précédent non terminé.
+
+## 🎯 Retouches suite retours designer (2026-07-27, 11e vague)
+
+- [x] **Suggestion de réservation** : déclarer le statut "Coworking" (accueil ou "Ma présence") propose désormais de réserver une place si aucune n'est encore prise ce jour-là (toast avec bouton d'action → page Réserver, jour pré-sélectionné). `maybeSuggestBooking()`.
+- [x] **Couleur "Télétravail"** : violet plus saturé (`#6C3FA0`, était `#7A4E86`) pour mieux contraster dans les petites pastilles de couleur.
+- [x] **Horizon de réservation configurable** : le nombre de jours à l'avance où réserver (était figé à 7 en dur, dupliqué côté front ET back) est maintenant un réglage admin (Administration → Coworking → "Horizon de réservation"), stocké en `AppSetting`. `reservations.py::get_booking_advance_days()`/`set_booking_advance_days()`, endpoints `GET /api/reservation-policy` + `PATCH /api/admin/reservation-policy`.
+- [x] **Bug d'alignement corrigé** : la "Vue de la semaine" (Ma présence) affichait le jour et les statuts Matin/Après-midi sur une seule ligne qui pouvait se recasser au milieu selon la longueur du libellé — jour et créneaux désormais sur des lignes séparées, alignement stable.
+- [x] **Message anniversaires** : "Aucun anniversaire aujourd'hui." (au lieu de "déclaré pour l'instant", qui donnait l'impression d'un problème de données).
+- [x] **Statuts de présence personnalisables** : en plus des 4 statuts de base (activables/désactivables comme avant), l'admin peut désormais **ajouter** un statut personnalisé (libellé + couleur) depuis Administration → Accueil → "Statuts de présence proposés". Catalogue stocké en JSON dans `AppSetting` (`dashboard.py::get_status_catalog()`/`add_custom_status()`/`delete_custom_status()`) plutôt qu'un enum Python figé — `DailyStatus.status_am/status_pm` passent de l'enum `WorkStatus` à une chaîne libre (migration `status_length`, colonne déjà en VARCHAR sans contrainte CHECK réelle donc migration à faible risque). Icône générique pour tout statut sans icône dédiée.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)

@@ -21,15 +21,20 @@ const state = {
   availability: [],
   myReservations: [],
   selected: null,
-  enabledStatuses: null, // rempli au démarrage depuis /api/statuses (configurable par l'admin)
+  statusCatalog: [], // rempli au démarrage depuis /api/statuses : [{key,label,color,enabled}] (admin-géré)
+  advanceDays: 7,     // rempli au démarrage depuis /api/reservation-policy (admin-géré)
 };
 
-const STATUS = { coworking: "Coworking", teletravail: "Télétravail", deplacement: "Déplacement", conge: "Congé" };
-/* Entrées STATUS filtrées selon ce que l'admin a activé (fallback: tout, tant que non chargé). */
+/* Catalogue de statuts de présence (4 de base + statuts perso ajoutés par l'admin) —
+   plus de liste figée côté client : tout vient de state.statusCatalog. */
 function enabledStatusEntries() {
-  const keys = state.enabledStatuses || Object.keys(STATUS);
-  return Object.entries(STATUS).filter(([k]) => keys.includes(k));
+  return state.statusCatalog.filter(s => s.enabled).map(s => [s.key, s.label]);
 }
+function statusLabel(key) { const s = state.statusCatalog.find(x => x.key === key); return (s && s.label) || key; }
+function statusColor(key) { const s = state.statusCatalog.find(x => x.key === key); return (s && s.color) || "#94A3B8"; }
+/* Icône générique pour un statut sans icône dédiée (tout statut perso ajouté en admin). */
+const DEFAULT_STATUS_ICON = '<circle cx="12" cy="12" r="8"/>';
+function statusIcon(key) { return STATUS_ICON[key] || DEFAULT_STATUS_ICON; }
 const PALETTE = ["#00608D", "#2E9E5B", "#E6A100", "#7A4E86", "#B4761C", "#0891b2", "#D64545"];
 
 async function api(path, options = {}) {
@@ -48,13 +53,16 @@ function levelOf(pts) {
 
 /* ---------------- Démarrage ---------------- */
 async function init() {
-  // /api/profile et /api/statuses sont indépendants : lancés en parallèle plutôt que
-  // l'un après l'autre pour économiser un aller-retour réseau au démarrage (sensible
-  // surtout en mobile/latence élevée).
-  const [{ ok, data }, st] = await Promise.all([api("/api/profile"), api("/api/statuses")]);
+  // /api/profile, /api/statuses et /api/reservation-policy sont indépendants : lancés en
+  // parallèle plutôt que l'un après l'autre pour économiser des allers-retours réseau au
+  // démarrage (sensible surtout en mobile/latence élevée).
+  const [{ ok, data }, st, pol] = await Promise.all([
+    api("/api/profile"), api("/api/statuses"), api("/api/reservation-policy"),
+  ]);
   if (!ok) { document.getElementById("login").classList.remove("hidden"); setupLoginForm(); return; }
   state.profile = data;
-  state.enabledStatuses = (st.data && st.data.enabled) || Object.keys(STATUS);
+  state.statusCatalog = (st.data && st.data.catalog) || [];
+  state.advanceDays = (pol.data && pol.data.advance_days) || 7;
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("tabbar").classList.remove("hidden");
   document.getElementById("userName").textContent = state.profile.name;
@@ -195,8 +203,8 @@ function renderCard(c) {
     const amCur = data && data.status_am;
     const pmCur = data && data.status_pm;
     const seg = (slot, cur) => `<div class="status-seg">${enabledStatusEntries().map(([k, l]) =>
-      `<button class="status-seg-btn${cur === k ? " on" : ""}" data-slot="${slot}" data-status="${k}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[k]}</svg>
+      `<button class="status-seg-btn${cur === k ? " on" : ""}" data-slot="${slot}" data-status="${k}" style="--tile-color:${statusColor(k)}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${statusIcon(k)}</svg>
         <span>${l}</span></button>`).join("")}</div>`;
     inner = `<div class="card-label">${c.title}</div>
       <div class="status-half-label">Matin</div>${seg("AM", amCur)}
@@ -253,7 +261,7 @@ function renderCard(c) {
     inner = `<div class="card-head"><h3>${c.title}</h3></div><div class="list">${items}</div>`;
   } else if (c.key === "birthdays") {
     const hasAny = (data.today || []).length || (data.upcoming || []).length;
-    if (!hasAny) { extraClass = " birthdays-empty-card"; inner = `<div class="card-head"><h3>🎂 ${c.title}</h3></div><div class="empty">Aucun anniversaire déclaré pour l'instant.</div>`; }
+    if (!hasAny) { extraClass = " birthdays-empty-card"; inner = `<div class="card-head"><h3>🎂 ${c.title}</h3></div><div class="empty">Aucun anniversaire aujourd'hui.</div>`; }
     else {
       const todayHtml = (data.today || []).map(p => `<div class="birthday-today">🎂 N'oublie pas de souhaiter un bon anniversaire à <b>${firstName(p.name)}</b> !</div>`).join("");
       const upcomingHtml = (data.upcoming || []).map(p => `<div class="event-item"><span class="event-date">${fdate(p.date, { day: "numeric", month: "short" })}</span><span class="event-title">${p.name}</span></div>`).join("");
@@ -291,8 +299,21 @@ function wireDashboard(today) {
     if (ok) {
       view.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(b => b.classList.remove("on"));
       el.classList.add("on");
+      maybeSuggestBooking(today, el.dataset.status);
     }
   }));
+}
+
+/* Si le statut choisi est "coworking" et qu'aucune place n'est encore réservée ce jour-là,
+   propose de réserver directement (le statut seul ne réserve rien). */
+async function maybeSuggestBooking(day, statusKey) {
+  if (statusKey !== "coworking") return;
+  const { data } = await api("/api/reservations/me");
+  const already = (data || []).some(r => r.reservation_date === day);
+  if (already) return;
+  toastAction("Tu as indiqué Coworking pour ce jour.", "Réserver une place", () => {
+    state.date = day; goTo("reserver");
+  });
 }
 
 /* ============================================================
@@ -397,7 +418,7 @@ async function renderAdminAccueil() {
   if (!dash.ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
   adminState = {
     cards: dash.data.cards.slice(), progress: dash.data.project_progress,
-    statusesAll: (st.data && st.data.all) || [], statusesEnabled: new Set((st.data && st.data.enabled) || []),
+    statusCatalog: ((st.data && st.data.catalog) || []).map(s => ({ ...s })),
     links: links.data || [],
   };
   renderAdminCards();
@@ -415,8 +436,12 @@ function renderAdminCards() {
       <label class="admin-toggle"><input type="checkbox" data-enabled="${i}" ${c.enabled ? "checked" : ""}> Activée</label>
       <label class="admin-toggle"><input type="checkbox" data-highlight="${i}" ${c.highlighted ? "checked" : ""}> Mise en avant</label>
     </div>`).join("");
-  const statusRows = adminState.statusesAll.map(key => `
-    <label class="admin-toggle"><input type="checkbox" data-statuskey="${key}" ${adminState.statusesEnabled.has(key) ? "checked" : ""}> ${STATUS[key] || key}</label>`).join("");
+  const statusRows = adminState.statusCatalog.map(s => `
+    <div class="status-admin-row">
+      <label class="admin-toggle"><input type="checkbox" data-statuskey="${s.key}" ${s.enabled ? "checked" : ""}>
+        <span class="status-swatch" style="background:${s.color}"></span> ${s.label}</label>
+      ${s.builtin ? "" : `<button class="da-del" data-del-status="${s.key}" title="Supprimer">✕</button>`}
+    </div>`).join("");
   const linksRows = adminState.links.map(l => `
     <div class="desk-admin-row" data-id="${l.id}">
       <input class="da-name" style="max-width:50px" value="${l.icon || ""}" data-field="icon" placeholder="🔗">
@@ -438,8 +463,13 @@ function renderAdminCards() {
       </div>
     </div>
     <div class="card"><h3>Statuts de présence proposés</h3>
-      <p class="sub" style="color:var(--muted);margin:0 0 10px">Décoche un statut pour le retirer des choix proposés aux employés.</p>
-      <div class="admin-progress">${statusRows}</div>
+      <p class="sub" style="color:var(--muted);margin:0 0 10px">Décoche un statut pour le retirer des choix proposés aux employés, ou ajoutes-en un nouveau.</p>
+      <div class="status-admin-list">${statusRows}</div>
+      <form id="statusAddForm" class="status-add-form">
+        <input id="statusAddLabel" type="text" placeholder="Nouveau statut (ex : Formation)" required maxlength="60">
+        <input id="statusAddColor" type="color" value="#00608D" title="Couleur">
+        <button type="submit" class="btn-save">Ajouter</button>
+      </form>
     </div>
     <button class="btn-save" id="adminSave">Enregistrer</button>
     <div class="card" style="margin-top:16px">
@@ -458,8 +488,27 @@ function renderAdminCards() {
   body.querySelectorAll("[data-enabled]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.enabled].enabled = cb.checked; }));
   body.querySelectorAll("[data-highlight]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.highlight].highlighted = cb.checked; }));
   body.querySelectorAll("[data-statuskey]").forEach(cb => cb.addEventListener("change", () => {
-    if (cb.checked) adminState.statusesEnabled.add(cb.dataset.statuskey); else adminState.statusesEnabled.delete(cb.dataset.statuskey);
+    const s = adminState.statusCatalog.find(x => x.key === cb.dataset.statuskey);
+    if (s) s.enabled = cb.checked;
   }));
+  body.querySelectorAll("[data-del-status]").forEach(b => b.addEventListener("click", async () => {
+    const { ok, data } = await api(`/api/admin/statuses/${b.dataset.delStatus}`, { method: "DELETE" });
+    if (!ok) return toast(data?.detail || "Suppression impossible.", "error");
+    state.statusCatalog = state.statusCatalog.filter(s => s.key !== b.dataset.delStatus);
+    toast("Statut supprimé", "success");
+    renderAdminAccueil();
+  }));
+  document.getElementById("statusAddForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const label = document.getElementById("statusAddLabel").value.trim();
+    const color = document.getElementById("statusAddColor").value;
+    if (!label) return;
+    const { ok, data } = await api("/api/admin/statuses", { method: "POST", body: JSON.stringify({ label, color }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    state.statusCatalog.push(data);
+    toast("Statut ajouté ✓", "success");
+    renderAdminAccueil();
+  });
   const range = document.getElementById("ppRange");
   range.addEventListener("input", () => document.getElementById("ppVal").textContent = range.value);
   document.getElementById("adminSave").addEventListener("click", saveAdmin);
@@ -495,9 +544,15 @@ async function saveAdmin() {
     value: +document.getElementById("ppRange").value, label: document.getElementById("ppLabel").value,
     milestone_title: document.getElementById("ppMilestone").value, target_date: document.getElementById("ppTarget").value || null,
   }) });
-  const r3 = await api("/api/admin/statuses", { method: "PUT", body: JSON.stringify({ enabled: [...adminState.statusesEnabled] }) });
-  if (r1.ok && r2.ok && r3.ok) toast("Accueil mis à jour ✓", "success");
-  else toast("Erreur d'enregistrement.", "error");
+  const r3 = await api("/api/admin/statuses", {
+    method: "PUT",
+    body: JSON.stringify({ enabled: adminState.statusCatalog.filter(s => s.enabled).map(s => s.key) }),
+  });
+  if (r1.ok && r2.ok && r3.ok) {
+    const enabledKeys = new Set(adminState.statusCatalog.filter(s => s.enabled).map(s => s.key));
+    state.statusCatalog.forEach(s => { s.enabled = enabledKeys.has(s.key); });
+    toast("Accueil mis à jour ✓", "success");
+  } else toast("Erreur d'enregistrement.", "error");
 }
 
 /* ---- Administration : Contenu (sous-onglets Idées / Quiz / Médias) ---- */
@@ -904,9 +959,12 @@ async function renderAdminStats() {
 async function renderAdminEspaces() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const [{ ok, data }, labelsRes] = await Promise.all([api("/api/admin/desks"), api("/api/room-labels")]);
+  const [{ ok, data }, labelsRes, policyRes] = await Promise.all([
+    api("/api/admin/desks"), api("/api/room-labels"), api("/api/reservation-policy"),
+  ]);
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   const labels = labelsRes.data || {};
+  const advanceDays = (policyRes.data && policyRes.data.advance_days) || 7;
   const groups = {};
   for (const d of data) (groups[d.zone || "Sans bureau"] ||= []).push(d);
   let html = `<p class="sub" style="color:var(--muted);margin:0 0 16px">Gère les postes et la capacité de chaque bureau. Chaque changement est enregistré immédiatement.</p>
@@ -918,6 +976,13 @@ async function renderAdminEspaces() {
         <label>Bulle calme 1 <input class="room-label-input" data-ref="BC-1" value="${(labels["BC-1"] || "Bulle calme 1").replace(/"/g, "&quot;")}"></label>
         <label>Bulle calme 2 <input class="room-label-input" data-ref="BC-2" value="${(labels["BC-2"] || "Bulle calme 2").replace(/"/g, "&quot;")}"></label>
       </div>
+    </div>
+    <div class="card">
+      <h3>Horizon de réservation</h3>
+      <p class="sub" style="color:var(--muted);margin:0 0 10px">Nombre de jours à l'avance où une place peut être réservée (ex : 5 jours ouvre la semaine suivante dès le mercredi).</p>
+      <label class="admin-toggle">Ouvre les réservations
+        <input type="number" id="advanceDaysInput" min="1" max="30" value="${advanceDays}" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit">
+        jour(s) à l'avance</label>
     </div>`;
   for (const [zone, desks] of Object.entries(groups)) {
     const active = desks.filter(d => d.is_active).length;
@@ -953,6 +1018,13 @@ async function renderAdminEspaces() {
     const { ok } = await api("/api/admin/room-labels", { method: "PATCH", body: JSON.stringify({ ref: inp.dataset.ref, label: inp.value }) });
     toast(ok ? "Nom enregistré ✓" : "Erreur", ok ? "success" : "error");
   }));
+  document.getElementById("advanceDaysInput").addEventListener("change", async (e) => {
+    const days = +e.target.value;
+    const { ok, data } = await api("/api/admin/reservation-policy", { method: "PATCH", body: JSON.stringify({ advance_days: days }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    state.advanceDays = days;
+    toast("Horizon de réservation enregistré ✓", "success");
+  });
 }
 
 async function patchDesk(id, patch) {
@@ -976,12 +1048,11 @@ async function delDesk(id) {
 /* ============================================================
    VUE : RÉSERVER — tables avec sièges groupés + capacité au centre
    ============================================================ */
-const MAX_ADVANCE_DAYS = 7; // doit rester synchro avec reservations.py
-
-/* Jours OUVRÉS (lundi-vendredi) dans les MAX_ADVANCE_DAYS prochains jours calendaires. */
+/* Jours OUVRÉS (lundi-vendredi) dans les state.advanceDays prochains jours calendaires
+   (horizon configurable par l'admin — cf. /api/reservation-policy, plus de constante figée). */
 function upcomingWeekdays() {
   const days = []; const d = new Date();
-  for (let i = 0; i <= MAX_ADVANCE_DAYS; i++) {
+  for (let i = 0; i <= state.advanceDays; i++) {
     const day = new Date(d); day.setDate(d.getDate() + i);
     if (day.getDay() !== 0 && day.getDay() !== 6) days.push(day);
   }
@@ -1396,7 +1467,6 @@ function openNews(id) { openContent("/api/news/" + id, "Actualité", "accueil");
 /* ============================================================
    VUE : MA PRÉSENCE (déclaration de statut)
    ============================================================ */
-const STATUS_COLOR = { coworking: "#00608D", teletravail: "#7A4E86", deplacement: "#B4761C", conge: "#94A3B8" };
 let presenceState = { days: [], byDay: {}, selected: null };
 
 async function viewPresence() {
@@ -1429,8 +1499,8 @@ function renderPresenceDaystrip() {
   box.innerHTML = presenceState.days.map(day => {
     const iso = toLocalISODate(day);
     const s = presenceState.byDay[iso] || {};
-    const amColor = s.am ? STATUS_COLOR[s.am] : "transparent";
-    const pmColor = s.pm ? STATUS_COLOR[s.pm] : "transparent";
+    const amColor = s.am ? statusColor(s.am) : "transparent";
+    const pmColor = s.pm ? statusColor(s.pm) : "transparent";
     return `<button class="pd-pill${iso === presenceState.selected ? " active" : ""}" data-day="${iso}">
       <span class="pd-d">${day.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
       <span class="pd-n">${day.getDate()}</span>
@@ -1449,8 +1519,8 @@ function renderPresenceStatusGrid() {
   const grid = document.getElementById("presenceStatusGrid");
   const s = presenceState.byDay[iso] || {};
   const tiles = (slot, current) => enabledStatusEntries().map(([key, lbl]) => `
-    <button class="presence-status-tile${current === key ? " on" : ""}" data-slot="${slot}" data-status="${key}" style="--tile-color:${STATUS_COLOR[key]}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STATUS_ICON[key]}</svg>
+    <button class="presence-status-tile${current === key ? " on" : ""}" data-slot="${slot}" data-status="${key}" style="--tile-color:${statusColor(key)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${statusIcon(key)}</svg>
       <span>${lbl}</span>
     </button>`).join("");
   grid.innerHTML = `
@@ -1459,11 +1529,12 @@ function renderPresenceStatusGrid() {
     <div class="status-half-label">Après-midi</div>
     <div class="presence-status-tiles">${tiles("PM", s.pm)}</div>`;
   grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", async () => {
-    const slot = b.dataset.slot;
-    const ok = await setStatus(iso, slot, b.dataset.status);
+    const slot = b.dataset.slot, statusKey = b.dataset.status;
+    const ok = await setStatus(iso, slot, statusKey);
     if (ok) {
-      presenceState.byDay[iso] = { ...(presenceState.byDay[iso] || {}), [slot === "AM" ? "am" : "pm"]: b.dataset.status };
+      presenceState.byDay[iso] = { ...(presenceState.byDay[iso] || {}), [slot === "AM" ? "am" : "pm"]: statusKey };
       renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList();
+      maybeSuggestBooking(iso, statusKey);
     }
   }));
 }
@@ -1471,13 +1542,18 @@ function renderPresenceStatusGrid() {
 function renderPresenceWeekList() {
   const box = document.getElementById("presenceWeekList");
   const badge = (status) => status
-    ? `<span class="ev-status-badge" style="background:${STATUS_COLOR[status]}22;color:${STATUS_COLOR[status]}">${STATUS[status] || status}</span>`
+    ? `<span class="ev-status-badge" style="background:${statusColor(status)}22;color:${statusColor(status)}">${statusLabel(status)}</span>`
     : `<span class="muted">—</span>`;
   box.innerHTML = presenceState.days.map(day => {
     const iso = toLocalISODate(day);
     const s = presenceState.byDay[iso] || {};
-    return `<div class="event-item"><span class="event-date">${day.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</span>
-      <span class="event-title">Matin : ${badge(s.am)} · Après-midi : ${badge(s.pm)}</span></div>`;
+    return `<div class="pres-week-row">
+      <div class="pres-week-day">${day.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</div>
+      <div class="pres-week-slots">
+        <span class="pres-week-slot"><span class="pws-label">Matin</span> ${badge(s.am)}</span>
+        <span class="pres-week-slot"><span class="pws-label">Après-midi</span> ${badge(s.pm)}</span>
+      </div>
+    </div>`;
   }).join("");
 }
 
@@ -1893,7 +1969,7 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
 
   const statusRows = data.upcoming_status.map(s => `
     <div class="event-item"><span class="event-date">${fdate(s.day, { weekday: "short", day: "numeric" })}</span>
-      <span class="event-title">${STATUS[s.status] || s.status}</span></div>`).join("") || `<div class="empty">Aucun statut déclaré.</div>`;
+      <span class="event-title">Matin : ${s.status_am ? statusLabel(s.status_am) : "—"} · Après-midi : ${s.status_pm ? statusLabel(s.status_pm) : "—"}</span></div>`).join("") || `<div class="empty">Aucun statut déclaré.</div>`;
   const resRows = data.upcoming_reservations.map(r => `
     <div class="event-item"><span class="event-date">${fdate(r.date, { day: "numeric", month: "short" })}</span>
       <span class="event-title">Poste ${r.desk} · ${slotLabel(r.slot)}</span></div>`).join("") || `<div class="empty">Aucune réservation à venir.</div>`;
@@ -1980,6 +2056,19 @@ let toastTimer;
 function toast(msg, type = "") {
   const t = document.getElementById("toast"); t.textContent = msg; t.className = "toast show " + type;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = "toast " + type; }, 2600);
+}
+
+/* Toast avec un bouton d'action (ex: "Réserver une place →"). Reste affiché plus
+   longtemps qu'un toast normal pour laisser le temps de cliquer. */
+function toastAction(msg, actionLabel, onAction) {
+  const t = document.getElementById("toast");
+  t.innerHTML = `<span>${msg}</span><button class="toast-action-btn" id="toastActionBtn">${actionLabel} →</button>`;
+  t.className = "toast show toast-with-action";
+  clearTimeout(toastTimer);
+  document.getElementById("toastActionBtn").onclick = () => {
+    t.className = "toast toast-with-action"; onAction();
+  };
+  toastTimer = setTimeout(() => { t.className = "toast toast-with-action"; }, 5000);
 }
 
 init();

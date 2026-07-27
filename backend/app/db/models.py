@@ -227,8 +227,10 @@ class DailyStatus(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     day: Mapped[date] = mapped_column(Date, index=True)
     # Statut séparé matin/après-midi (remplace l'ancien statut unique pour la journée).
-    status_am: Mapped[WorkStatus | None] = mapped_column(_enum(WorkStatus), nullable=True)
-    status_pm: Mapped[WorkStatus | None] = mapped_column(_enum(WorkStatus), nullable=True)
+    # Chaîne libre (pas d'enum strict) : le catalogue de statuts proposés est administrable
+    # (ajout de statuts personnalisés en plus des 4 statuts de base), cf. services/dashboard.py.
+    status_am: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    status_pm: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
