@@ -7,9 +7,9 @@ Rôle : valider automatiquement ce qui entre, et formater proprement ce qui sort
 from datetime import date, datetime, time
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import EventRegistrationStatus, ReservationSlot, ReservationStatus, WorkStatus
+from app.db.models import EventRegistrationStatus, ReservationSlot, ReservationStatus
 
 
 # ---------------------------------------------------------------- Profil utilisateur
@@ -146,15 +146,24 @@ class StatusesUpdate(BaseModel):
 # ---------------------------------------------------------------- Statut de présence (déclaration)
 class DailyStatusRead(BaseModel):
     day: date
-    status_am: WorkStatus | None = None
-    status_pm: WorkStatus | None = None
+    status_am: str | None = None
+    status_pm: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class DailyStatusDeclare(BaseModel):
     day: date
     slot: Literal["AM", "PM"]
-    status: WorkStatus
+    status: str  # clé du catalogue de statuts (admin.dashboard.get_status_catalog), pas un enum figé
+
+
+class CustomStatusCreate(BaseModel):
+    label: str
+    color: str = "#64707A"
+
+
+class ReservationPolicyUpdate(BaseModel):
+    advance_days: int = Field(ge=1, le=30)
 
 
 # ---------------------------------------------------------------- Événements (lus depuis WordPress)

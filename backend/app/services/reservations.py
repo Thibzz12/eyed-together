@@ -24,8 +24,31 @@ from app.schemas import ReservationCreate
 from app.services.gamification import POINTS_PER_BOOKING, award_points
 
 # Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
-MAX_ADVANCE_DAYS = 7        # horizon max de réservation à l'avance
+DEFAULT_MAX_ADVANCE_DAYS = 7  # horizon par défaut, si jamais configuré par l'admin (cf. get_booking_advance_days)
 MAX_CONSECUTIVE_DAYS = 5    # max de jours ouvrés consécutifs réservés d'affilée
+_ADVANCE_DAYS_KEY = "booking_advance_days"
+
+
+def get_booking_advance_days(db: Session) -> int:
+    """Horizon de réservation (jours calendaires à l'avance), configurable par l'admin —
+    ex: 5 jours ouvre la semaine suivante dès le mercredi de la semaine en cours."""
+    row = db.get(m.AppSetting, _ADVANCE_DAYS_KEY)
+    if row is None:
+        return DEFAULT_MAX_ADVANCE_DAYS
+    try:
+        return max(1, int(row.value))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_ADVANCE_DAYS
+
+
+def set_booking_advance_days(db: Session, days: int) -> None:
+    days = max(1, min(30, int(days)))
+    row = db.get(m.AppSetting, _ADVANCE_DAYS_KEY)
+    if row is None:
+        db.add(m.AppSetting(key=_ADVANCE_DAYS_KEY, value=str(days)))
+    else:
+        row.value = str(days)
+    db.commit()
 
 # Réservation de salle entière (Bureau 1 / Bureau 2) : "salle occupée" dès qu'un seul
 # poste actif de la zone est déjà réservé sur le créneau visé.
@@ -132,8 +155,9 @@ def _check_booking_policy(db: Session, user_id: int, target: date) -> None:
     """Vérifie week-end, horizon max, et la limite de jours ouvrés consécutifs."""
     if _is_weekend(target):
         raise WeekendNotAllowed("Pas de réservation le week-end.")
-    if target > date.today() + timedelta(days=MAX_ADVANCE_DAYS):
-        raise BookingWindowExceeded(f"Impossible de réserver plus de {MAX_ADVANCE_DAYS} jours à l'avance.")
+    advance_days = get_booking_advance_days(db)
+    if target > date.today() + timedelta(days=advance_days):
+        raise BookingWindowExceeded(f"Impossible de réserver plus de {advance_days} jours à l'avance.")
 
     # Jours (ouvrés) où l'employé a déjà une réservation active, autour de la date visée.
     window_start = target - timedelta(days=MAX_CONSECUTIVE_DAYS + 2)
@@ -455,8 +479,9 @@ def book_timeslot(
         raise PastDate("Impossible de réserver une date déjà passée.")
     if _is_weekend(reservation_date):
         raise WeekendNotAllowed("Pas de réservation le week-end.")
-    if reservation_date > date.today() + timedelta(days=MAX_ADVANCE_DAYS):
-        raise BookingWindowExceeded(f"Impossible de réserver plus de {MAX_ADVANCE_DAYS} jours à l'avance.")
+    advance_days = get_booking_advance_days(db)
+    if reservation_date > date.today() + timedelta(days=advance_days):
+        raise BookingWindowExceeded(f"Impossible de réserver plus de {advance_days} jours à l'avance.")
 
     desk = db.get(m.Desk, desk_id)
     if desk is None or not desk.is_active or desk.zone != POD_ZONE:

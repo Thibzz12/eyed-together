@@ -26,10 +26,12 @@ from app.services.profile import get_leaderboard, get_public_profile
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
-    ALL_STATUSES,
+    add_custom_status,
     build_dashboard,
+    delete_custom_status,
     get_enabled_statuses,
     get_setting,
+    get_status_catalog,
     set_enabled_statuses,
     set_setting,
 )
@@ -184,6 +186,21 @@ def room_labels(db: Session = Depends(get_db), _=Depends(get_current_user)):
 def update_room_label(data: schemas.RoomLabelUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Renomme un bureau ou une bulle calme — reflété immédiatement sur la page Réserver."""
     svc.set_room_label(db, data.ref, data.label)
+    return {"ok": True}
+
+
+@router.get("/reservation-policy")
+def reservation_policy(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Horizon de réservation actuel (jours à l'avance) — pilote le sélecteur de jour."""
+    return {"advance_days": svc.get_booking_advance_days(db)}
+
+
+@router.patch("/admin/reservation-policy")
+def update_reservation_policy(
+    data: schemas.ReservationPolicyUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Change l'horizon de réservation (ex: 5 jours ouvre la semaine suivante dès mercredi)."""
+    svc.set_booking_advance_days(db, data.advance_days)
     return {"ok": True}
 
 
@@ -400,14 +417,15 @@ def admin_project_progress(
 
 @router.get("/statuses")
 def statuses(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Statuts de présence proposés aux employés (configurés par l'admin)."""
-    return {"enabled": get_enabled_statuses(db)}
+    """Statuts de présence proposés aux employés (catalogue configuré par l'admin)."""
+    catalog = [s for s in get_status_catalog(db) if s.get("enabled")]
+    return {"enabled": [s["key"] for s in catalog], "catalog": catalog}
 
 
 @router.get("/admin/statuses")
 def admin_statuses(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Tous les statuts possibles + ceux actuellement activés."""
-    return {"all": ALL_STATUSES, "enabled": get_enabled_statuses(db)}
+    """Catalogue complet (statuts de base + personnalisés), activés ou non."""
+    return {"catalog": get_status_catalog(db)}
 
 
 @router.put("/admin/statuses")
@@ -415,6 +433,18 @@ def admin_statuses_save(data: schemas.StatusesUpdate, db: Session = Depends(get_
     """Active/désactive les statuts proposés aux employés."""
     set_enabled_statuses(db, data.enabled)
     return {"ok": True}
+
+
+@router.post("/admin/statuses")
+def admin_statuses_add(data: schemas.CustomStatusCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Ajoute un statut de présence personnalisé (en plus des 4 statuts de base)."""
+    return add_custom_status(db, data.label, data.color)
+
+
+@router.delete("/admin/statuses/{key}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_statuses_delete(key: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Supprime un statut personnalisé (les statuts de base ne se désactivent, jamais ne se suppriment)."""
+    delete_custom_status(db, key)
 
 
 @router.get("/status/me", response_model=list[schemas.DailyStatusRead])
@@ -442,6 +472,9 @@ def set_status(
     user: dict = Depends(get_current_user),
 ):
     """Déclare (ou met à jour) mon statut de présence pour le matin ou l'après-midi d'une journée."""
+    known_keys = {s["key"] for s in get_status_catalog(db)}
+    if data.status not in known_keys:
+        raise HTTPException(status_code=422, detail="Statut inconnu.")
     row = db.scalar(
         select(m.DailyStatus).where(
             m.DailyStatus.user_id == user["id"],
