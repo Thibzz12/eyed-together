@@ -34,6 +34,7 @@ from app.services.dashboard import (
     get_status_catalog,
     set_enabled_statuses,
     set_setting,
+    update_status,
 )
 from app.services.wordpress import fetch_content_detail, fetch_event_detail, fetch_events, fetch_news
 
@@ -439,6 +440,14 @@ def admin_statuses_save(data: schemas.StatusesUpdate, db: Session = Depends(get_
 def admin_statuses_add(data: schemas.CustomStatusCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Ajoute un statut de présence personnalisé (en plus des 4 statuts de base)."""
     return add_custom_status(db, data.label, data.color)
+
+
+@router.patch("/admin/statuses/{key}")
+def admin_statuses_update(
+    key: str, data: schemas.CustomStatusUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Modifie le libellé et/ou la couleur d'un statut existant (base ou personnalisé)."""
+    return update_status(db, key, data.label, data.color)
 
 
 @router.delete("/admin/statuses/{key}", status_code=status.HTTP_204_NO_CONTENT)

@@ -162,6 +162,11 @@ class CustomStatusCreate(BaseModel):
     color: str = "#64707A"
 
 
+class CustomStatusUpdate(BaseModel):
+    label: str | None = None
+    color: str | None = None
+
+
 class ReservationPolicyUpdate(BaseModel):
     advance_days: int = Field(ge=1, le=30)
 

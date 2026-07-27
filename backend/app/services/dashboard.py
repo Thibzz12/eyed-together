@@ -32,7 +32,7 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
 _STATUS_CATALOG_KEY = "status_catalog"
 _DEFAULT_STATUS_CATALOG = [
     {"key": "coworking", "label": "Coworking", "color": "#00608D", "enabled": True, "builtin": True},
-    {"key": "teletravail", "label": "Télétravail", "color": "#6C3FA0", "enabled": True, "builtin": True},
+    {"key": "teletravail", "label": "Télétravail", "color": "#7C3AED", "enabled": True, "builtin": True},
     {"key": "deplacement", "label": "Déplacement", "color": "#B4761C", "enabled": True, "builtin": True},
     {"key": "conge", "label": "Congé", "color": "#94A3B8", "enabled": True, "builtin": True},
 ]
@@ -88,6 +88,23 @@ def add_custom_status(db: Session, label: str, color: str) -> dict:
     catalog.append(entry)
     _save_status_catalog(db, catalog)
     return entry
+
+
+def update_status(db: Session, key: str, label: str | None, color: str | None) -> dict:
+    """Modifie le libellé et/ou la couleur d'un statut existant (base ou personnalisé)."""
+    catalog = get_status_catalog(db)
+    target = next((s for s in catalog if s["key"] == key), None)
+    if target is None:
+        raise DashboardError("Statut inconnu.")
+    if label is not None:
+        label = label.strip()
+        if not label:
+            raise DashboardError("Le libellé est obligatoire.")
+        target["label"] = label
+    if color is not None and color.strip():
+        target["color"] = color.strip()
+    _save_status_catalog(db, catalog)
+    return target
 
 
 def delete_custom_status(db: Session, key: str) -> None:
