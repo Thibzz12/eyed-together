@@ -65,7 +65,7 @@ async function init() {
   state.advanceDays = (pol.data && pol.data.advance_days) || 7;
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("tabbar").classList.remove("hidden");
-  document.getElementById("userName").textContent = state.profile.name;
+  document.getElementById("userName").textContent = firstName(state.profile.name);
   document.getElementById("userLevel").textContent = "Niveau " + levelOf(state.profile.total_points);
   const av = document.getElementById("avatar");
   av.textContent = initials(state.profile.name);
