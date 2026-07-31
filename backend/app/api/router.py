@@ -801,15 +801,21 @@ def admin_list_badges(db: Session = Depends(get_db), _=Depends(require_admin)):
 @router.post("/admin/badges", status_code=status.HTTP_201_CREATED)
 def admin_create_badge(data: schemas.BadgeCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Crée un badge personnalisé (pas d'attribution automatique : à distribuer manuellement)."""
-    b = badges_svc.create_custom_badge(db, data.name, data.description, data.icon)
-    return {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "is_custom": b.is_custom, "earned_count": 0}
+    b = badges_svc.create_custom_badge(db, data.name, data.description, data.icon, data.points)
+    return {
+        "id": b.id, "code": b.code, "name": b.name, "description": b.description,
+        "icon": b.icon, "points": b.points, "is_custom": b.is_custom, "earned_count": 0,
+    }
 
 
 @router.patch("/admin/badges/{badge_id}")
 def admin_update_badge(badge_id: int, data: schemas.BadgeUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Modifie le nom/la description/l'icône d'un badge existant (de base ou personnalisé)."""
-    b = badges_svc.update_badge(db, badge_id, data.name, data.description, data.icon)
-    return {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "is_custom": b.is_custom}
+    """Modifie le nom/la description/l'icône/les points d'un badge existant (de base ou personnalisé)."""
+    b = badges_svc.update_badge(db, badge_id, data.name, data.description, data.icon, data.points)
+    return {
+        "id": b.id, "code": b.code, "name": b.name, "description": b.description,
+        "icon": b.icon, "points": b.points, "is_custom": b.is_custom,
+    }
 
 
 @router.delete("/admin/badges/{badge_id}", status_code=status.HTTP_204_NO_CONTENT)
