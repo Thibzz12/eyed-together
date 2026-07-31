@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: eyed-together
+    name: eyedtogether
     env: python
     plan: free
     region: frankfurt
@@ -18,7 +18,7 @@ services:
       - key: DATABASE_URL
         value: sqlite:///./coworking.db
       - key: FRONTEND_ORIGIN
-        value: https://eyed-together.onrender.com
+        value: https://eyedtogether.onrender.com
       - key: WORDPRESS_URL
         value: https://weared.team
       - key: WP_APP_SECRET
