@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=41">
+  <link rel="stylesheet" href="/static/styles.css?v=42">
 </head>
 <body>
 
@@ -124,6 +124,7 @@
       <div class="sheet-eyebrow" id="sheetEyebrow">Réservation</div>
       <div class="sheet-title" id="sheetTitle">Poste</div>
       <div class="sheet-sub" id="sheetSub"></div>
+      <div id="sheetFeatures"></div>
       <div id="sheetDuration">
         <div class="sheet-label">Durée</div>
         <div class="segmented" id="sheetSlotToggle">
@@ -171,6 +172,18 @@
     </div>
   </div>
 
+  <!-- Détail d'un badge (clic depuis le profil) -->
+  <div id="badgeDetailSheetBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet" id="badgeDetailSheet">
+      <div class="sheet-handle"></div>
+      <div class="badge-detail-icon" id="badgeDetailIcon"></div>
+      <div class="sheet-title" id="badgeDetailName" style="text-align:center"></div>
+      <div class="badge-detail-status" id="badgeDetailStatus"></div>
+      <div class="sheet-sub" id="badgeDetailDesc" style="text-align:center"></div>
+      <button class="btn sheet-cancel" id="badgeDetailCloseBtn">Fermer</button>
+    </div>
+  </div>
+
   <!-- Menu (raccourcis Idées/Quiz/Médias/Recherche/Administration) -->
   <div id="menuSheetBackdrop" class="sheet-backdrop hidden">
     <div class="sheet" id="menuSheet">
@@ -181,6 +194,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=44"></script>
+  <script src="/static/app.js?v=45"></script>
 </body>
 </html>

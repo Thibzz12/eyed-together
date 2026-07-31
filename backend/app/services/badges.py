@@ -10,6 +10,7 @@ un horizon de progression sur plusieurs mois/années au lieu d'un jeu "terminé"
 une semaine — cohérent avec la progression de niveau à paliers infinis (profile.py).
 """
 
+import re
 from datetime import date, timedelta
 
 from sqlalchemy import func, select
@@ -19,6 +20,10 @@ from app.db import models as m
 from app.services.gamification import award_points
 
 BADGE_BONUS_POINTS = 15  # bonus ponctuel à l'obtention d'un badge (en plus des points normaux)
+
+
+class BadgeError(Exception):
+    status_code = 400
 
 TIER_NUMERALS = ["I", "II", "III", "IV", "V"]
 
@@ -79,6 +84,9 @@ def _full_catalog() -> list[tuple[str, str, str, str]]:
 def seed_catalog_if_empty(db: Session) -> int:
     """Crée les badges manquants ET retire ceux qui ne sont plus dans le catalogue
     (ex: anciens badges à palier unique remplacés par des familles à paliers I/II/III...).
+
+    Ne touche jamais aux badges personnalisés (is_custom=True, ajoutés depuis l'admin) :
+    ils n'existent pas dans _full_catalog() mais ne doivent surtout pas être supprimés.
     """
     current_codes = {code for code, *_ in _full_catalog()}
     existing = {b.code: b for b in db.scalars(select(m.Badge))}
@@ -90,6 +98,8 @@ def seed_catalog_if_empty(db: Session) -> int:
             created += 1
             changed = True
     for code, badge in existing.items():
+        if badge.is_custom:
+            continue
         if code not in current_codes:
             for ub in db.scalars(select(m.UserBadge).where(m.UserBadge.badge_id == badge.id)):
                 db.delete(ub)
@@ -98,6 +108,95 @@ def seed_catalog_if_empty(db: Session) -> int:
     if changed:
         db.commit()
     return created
+
+
+def _slugify_code(label: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "badge"
+    return base
+
+
+def list_all_badges(db: Session) -> list[dict]:
+    """Catalogue complet pour l'admin, avec le nombre de collaborateurs l'ayant obtenu."""
+    counts = dict(
+        db.execute(select(m.UserBadge.badge_id, func.count()).group_by(m.UserBadge.badge_id)).all()
+    )
+    badges = db.scalars(select(m.Badge).order_by(m.Badge.id))
+    return [
+        {
+            "id": b.id, "code": b.code, "name": b.name, "description": b.description,
+            "icon": b.icon, "is_custom": b.is_custom, "earned_count": counts.get(b.id, 0),
+        }
+        for b in badges
+    ]
+
+
+def create_custom_badge(db: Session, name: str, description: str, icon: str) -> m.Badge:
+    name = (name or "").strip()
+    if not name:
+        raise BadgeError("Le nom est obligatoire.")
+    existing_codes = {b.code for b in db.scalars(select(m.Badge))}
+    base = _slugify_code(name)
+    code, i = base, 2
+    while code in existing_codes:
+        code = f"{base}_{i}"; i += 1
+    badge = m.Badge(
+        code=code, name=name, description=(description or "").strip() or None,
+        icon=(icon or "").strip() or "🏅", is_custom=True,
+    )
+    db.add(badge)
+    db.commit()
+    db.refresh(badge)
+    return badge
+
+
+def update_badge(db: Session, badge_id: int, name: str | None, description: str | None, icon: str | None) -> m.Badge:
+    badge = db.get(m.Badge, badge_id)
+    if badge is None:
+        raise BadgeError("Badge introuvable.")
+    if name is not None:
+        name = name.strip()
+        if not name:
+            raise BadgeError("Le nom est obligatoire.")
+        badge.name = name
+    if description is not None:
+        badge.description = description.strip() or None
+    if icon is not None:
+        badge.icon = icon.strip() or badge.icon
+    db.commit()
+    db.refresh(badge)
+    return badge
+
+
+def delete_badge(db: Session, badge_id: int) -> None:
+    badge = db.get(m.Badge, badge_id)
+    if badge is None:
+        return
+    db.delete(badge)  # cascade="all, delete-orphan" supprime aussi les UserBadge associés
+    db.commit()
+
+
+def award_badge_manually(db: Session, badge_id: int, user_id: int) -> None:
+    badge = db.get(m.Badge, badge_id)
+    if badge is None:
+        raise BadgeError("Badge introuvable.")
+    if db.get(m.User, user_id) is None:
+        raise BadgeError("Utilisateur introuvable.")
+    already = db.scalar(
+        select(m.UserBadge).where(m.UserBadge.badge_id == badge_id, m.UserBadge.user_id == user_id)
+    )
+    if already:
+        return
+    db.add(m.UserBadge(user_id=user_id, badge_id=badge_id))
+    award_points(db, user_id, BADGE_BONUS_POINTS, f"badge_{badge.code}")
+    db.commit()
+
+
+def revoke_badge_manually(db: Session, badge_id: int, user_id: int) -> None:
+    ub = db.scalar(select(m.UserBadge).where(m.UserBadge.badge_id == badge_id, m.UserBadge.user_id == user_id))
+    if ub is None:
+        return
+    db.delete(ub)
+    db.commit()
 
 
 def _catalog_map(db: Session) -> dict[str, m.Badge]:
@@ -194,6 +293,6 @@ def get_user_badges(db: Session, user_id: int) -> list[dict]:
     earned_ids = {ub.badge_id for ub in db.scalars(select(m.UserBadge).where(m.UserBadge.user_id == user_id))}
     badges = db.scalars(select(m.Badge).order_by(m.Badge.id))
     return [
-        {"code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "earned": b.id in earned_ids}
+        {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "earned": b.id in earned_ids}
         for b in badges
     ]

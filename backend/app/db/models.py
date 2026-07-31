@@ -462,8 +462,14 @@ class Badge(Base):
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     icon: Mapped[str | None] = mapped_column(String(100), nullable=True)   # ex: nom d'icône / emoji
+    # Badge ajouté depuis l'admin (pas dans le catalogue codé en dur) : jamais supprimé/reseedé
+    # automatiquement par seed_catalog_if_empty(), et sans règle d'attribution automatique
+    # (l'admin doit l'attribuer manuellement aux collaborateurs concernés).
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
-    user_badges: Mapped[list["UserBadge"]] = relationship(back_populates="badge")
+    # cascade="all, delete-orphan" : supprimer un badge supprime aussi ses UserBadge (sans ça,
+    # SQLAlchemy tente de mettre badge_id à NULL sur les lignes existantes -> NOT NULL constraint).
+    user_badges: Mapped[list["UserBadge"]] = relationship(back_populates="badge", cascade="all, delete-orphan")
 
 
 class UserBadge(Base):
