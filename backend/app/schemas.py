@@ -171,6 +171,28 @@ class ReservationPolicyUpdate(BaseModel):
     advance_days: int = Field(ge=1, le=30)
 
 
+# ---------------------------------------------------------------- Badges (administration)
+class BadgeCreate(BaseModel):
+    name: str
+    description: str = ""
+    icon: str = "🏅"
+
+
+class BadgeUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    icon: str | None = None
+
+
+class BadgeAwardCreate(BaseModel):
+    user_id: int
+
+
+# ---------------------------------------------------------------- Anniversaires (administration)
+class AdminBirthdayUpdate(BaseModel):
+    birthday: date | None = None
+
+
 # ---------------------------------------------------------------- Événements (lus depuis WordPress)
 class EventRead(BaseModel):
     id: int

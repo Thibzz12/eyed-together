@@ -789,3 +789,66 @@ def presence(
         )
         for r in svc.presence(db, day)
     ]
+
+
+# ---------------------------------------------------------------- Badges (administration)
+@router.get("/admin/badges")
+def admin_list_badges(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Catalogue complet des badges (de base + personnalisés), avec le nombre d'obtentions."""
+    return badges_svc.list_all_badges(db)
+
+
+@router.post("/admin/badges", status_code=status.HTTP_201_CREATED)
+def admin_create_badge(data: schemas.BadgeCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Crée un badge personnalisé (pas d'attribution automatique : à distribuer manuellement)."""
+    b = badges_svc.create_custom_badge(db, data.name, data.description, data.icon)
+    return {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "is_custom": b.is_custom, "earned_count": 0}
+
+
+@router.patch("/admin/badges/{badge_id}")
+def admin_update_badge(badge_id: int, data: schemas.BadgeUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Modifie le nom/la description/l'icône d'un badge existant (de base ou personnalisé)."""
+    b = badges_svc.update_badge(db, badge_id, data.name, data.description, data.icon)
+    return {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "is_custom": b.is_custom}
+
+
+@router.delete("/admin/badges/{badge_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_badge(badge_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Supprime un badge. Un badge de base supprimé sera recréé (vide) au prochain redémarrage."""
+    badges_svc.delete_badge(db, badge_id)
+
+
+@router.post("/admin/badges/{badge_id}/award", status_code=status.HTTP_204_NO_CONTENT)
+def admin_award_badge(badge_id: int, data: schemas.BadgeAwardCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Attribue manuellement un badge à un collaborateur (nécessaire pour les badges personnalisés,
+    qui n'ont pas de règle d'attribution automatique)."""
+    badges_svc.award_badge_manually(db, badge_id, data.user_id)
+
+
+@router.delete("/admin/badges/{badge_id}/award/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_revoke_badge(badge_id: int, user_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Retire un badge attribué manuellement à un collaborateur."""
+    badges_svc.revoke_badge_manually(db, badge_id, user_id)
+
+
+# ---------------------------------------------------------------- Utilisateurs (administration)
+@router.get("/admin/users")
+def admin_list_users(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Liste de tous les collaborateurs (pour la gestion des anniversaires et l'attribution de badges)."""
+    users = db.scalars(select(m.User).order_by(m.User.display_name))
+    return [
+        {"id": u.id, "name": u.display_name, "email": u.email, "department": u.department, "birthday": u.birthday}
+        for u in users
+    ]
+
+
+@router.patch("/admin/users/{user_id}/birthday")
+def admin_set_birthday(user_id: int, data: schemas.AdminBirthdayUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Modifie manuellement la date d'anniversaire de n'importe quel collaborateur (pas de source
+    WordPress fiable identifiée pour la récupérer automatiquement — cf. set_birthday plus haut)."""
+    u = db.get(m.User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    u.birthday = data.birthday
+    db.commit()
+    return {"id": u.id, "birthday": u.birthday}

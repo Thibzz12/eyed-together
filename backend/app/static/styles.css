@@ -412,6 +412,21 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .status-add-form input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .88rem; font-family: inherit; }
 .status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .status-add-form .btn-save { margin: 0; width: auto; padding: 10px 18px; flex-shrink: 0; }
+.collab-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.collab-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.collab-info b { font-size: .88rem; }
+.collab-info small { font-size: .76rem; }
+.collab-birthday { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; font-family: inherit; flex-shrink: 0; }
+.badge-admin-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.badge-admin-row { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
+.badge-admin-top { display: flex; align-items: center; gap: 8px; }
+.badge-admin-icon { width: 44px; flex-shrink: 0; text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 4px; font-size: 1.05rem; }
+.badge-admin-name { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .9rem; font-weight: 600; font-family: inherit; }
+.badge-admin-desc { width: 100%; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; font-family: inherit; resize: vertical; }
+.badge-admin-meta { margin-top: 6px; font-size: .78rem; }
+.badge-admin-award { display: flex; gap: 8px; margin-top: 10px; }
+.badge-award-select { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; font-family: inherit; }
+.badge-admin-award .link-more { flex-shrink: 0; border: 1px solid var(--blue); border-radius: 8px; padding: 8px 14px; background: none; font-family: inherit; font-size: .84rem; cursor: pointer; }
 .room-label-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 10px; }
 .room-label-grid label { font-size: .85rem; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
 .room-label-grid input { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .92rem; font-family: inherit; color: var(--ink); }
@@ -426,12 +441,13 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .content-subtabs button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 @media (max-width: 400px) { .admin-tabs button { font-size: .76rem; padding: 9px 4px; } }
 .desk-admin-head { display: none; }
-.desk-admin-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name del" "pos pos" "active active"; gap: 8px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
+.desk-admin-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name del" "pos pos" "feat feat" "active active"; gap: 8px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
 .desk-admin-row input.da-name { grid-area: name; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: .9rem; font-weight: 600; min-width: 0; }
 .desk-admin-row .da-del { grid-area: del; justify-self: end; }
 .desk-admin-row .da-pos-group { grid-area: pos; display: flex; gap: 8px; }
 .desk-admin-row input.da-pos { border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: .85rem; width: 100%; min-width: 0; }
 .desk-admin-row .admin-toggle { grid-area: active; }
+.desk-admin-row input.da-features { grid-area: feat; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; min-width: 0; }
 .desk-admin-row { grid-template-columns: 1fr auto; }
 .desk-admin-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 
@@ -589,6 +605,11 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .sheet-eyebrow { font-size: .7rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .05em; }
 .sheet-title { font-size: 1.15rem; font-weight: 800; color: var(--navy); margin-top: 2px; }
 .sheet-sub { font-size: .84rem; color: var(--muted); margin-top: 2px; margin-bottom: 16px; }
+.feature-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 16px; }
+.feature-tag { display: inline-flex; align-items: center; gap: 4px; background: var(--blue-050); color: var(--blue); font-size: .76rem; font-weight: 600; padding: 4px 9px; border-radius: 999px; }
+.badge-detail-icon { font-size: 3rem; text-align: center; margin-bottom: 6px; }
+.badge-detail-status { text-align: center; font-weight: 700; font-size: .84rem; color: var(--muted); margin-top: 4px; }
+.badge-detail-status.earned { color: var(--green); }
 .sheet-label { font-size: .78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
 #sheetSlotToggle { display: flex; width: 100%; }
 #sheetSlotToggle button { flex: 1; text-align: center; }
@@ -612,10 +633,11 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 @media (min-width: 600px) {
   .stat-row, .dash-grid { grid-template-columns: repeat(2, 1fr); }
   .events-grid { grid-template-columns: repeat(2, 1fr); }
-  .desk-admin-row { display: flex; align-items: center; gap: 10px; }
+  .desk-admin-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .desk-admin-row .da-name { flex: 1; min-width: 0; }
   .desk-admin-row .da-pos-group { width: 160px; flex-shrink: 0; }
   .desk-admin-row .admin-toggle { width: 90px; flex-shrink: 0; }
+  .desk-admin-row input.da-features { flex: 1 0 100%; order: 5; }
   .admin-progress { flex-direction: row; gap: 30px; }
   .admin-progress input[type="text"], .admin-progress input[type="range"] { width: 280px; }
   .btn-save { width: auto; }

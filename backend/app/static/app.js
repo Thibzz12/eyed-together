@@ -46,6 +46,31 @@ function colorFor(n) { let s = 0; for (const c of n || "?") s += c.charCodeAt(0)
 function initials(n) { return (n || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase(); }
 function firstName(n) { return (n || "").split(/\s+/)[0]; }
 function slotLabel(s) { return s === "AM" ? "Matin" : s === "PM" ? "Après-midi" : s === "timeslot" ? "Créneau" : "Journée"; }
+
+/* Caractéristiques d'un poste (texte libre, admin) affichées en petites étiquettes avec icône
+   pendant la réservation. Icône choisie par mot-clé (100% libre côté admin, pas de catalogue
+   à maintenir), avec une icône générique en repli pour tout ce qui n'est pas reconnu. */
+const FEATURE_ICON_RULES = [
+  [/écran|ecran|screen|moniteur/i, "🖥️"],
+  [/surface|tablette|tablet/i, "📱"],
+  [/debout|standing/i, "🧍"],
+  [/clavier|souris|keyboard|mouse/i, "⌨️"],
+  [/casque|audio|micro/i, "🎧"],
+  [/calme|silence|quiet/i, "🤫"],
+  [/fenêtre|fenetre|lumière|lumiere|window/i, "☀️"],
+];
+function featureIcon(text) {
+  for (const [re, icon] of FEATURE_ICON_RULES) if (re.test(text)) return icon;
+  return "✨";
+}
+function featureTags(featuresStr) {
+  return (featuresStr || "").split(",").map(s => s.trim()).filter(Boolean);
+}
+function featureTagsHtml(featuresStr) {
+  const tags = featureTags(featuresStr);
+  if (!tags.length) return "";
+  return `<div class="feature-tags">${tags.map(t => `<span class="feature-tag">${featureIcon(t)} ${t}</span>`).join("")}</div>`;
+}
 function fdate(iso, opt) { return new Date(iso).toLocaleDateString("fr-FR", opt || { weekday: "long", day: "numeric", month: "long" }); }
 function levelOf(pts) {
   if (pts >= 300) return "Platine"; if (pts >= 150) return "Or"; if (pts >= 50) return "Argent"; return "Bronze";
@@ -99,6 +124,10 @@ async function init() {
   });
   document.getElementById("statusConflictSheetBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "statusConflictSheetBackdrop") closeStatusConflictSheet("abort");
+  });
+  document.getElementById("badgeDetailCloseBtn").addEventListener("click", closeBadgeDetailSheet);
+  document.getElementById("badgeDetailSheetBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "badgeDetailSheetBackdrop") closeBadgeDetailSheet();
   });
   document.getElementById("searchBtn").addEventListener("click", () => goTo("recherche"));
   document.getElementById("menuBtn").addEventListener("click", openMenuSheet);
@@ -380,12 +409,13 @@ async function viewAdmin() {
       <button data-tab="espaces">Coworking</button>
       <button data-tab="evenements">Événements</button>
       <button data-tab="contenu">Contenu</button>
+      <button data-tab="collaborateurs">Collaborateurs</button>
       <button data-tab="stats">Statistiques</button>
     </div>
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, evenements: renderAdminEvenements,
-    contenu: renderAdminContenu, stats: renderAdminStats,
+    contenu: renderAdminContenu, collaborateurs: renderAdminCollaborateurs, stats: renderAdminStats,
   };
   view.querySelectorAll(".admin-tabs button").forEach(b => b.addEventListener("click", () => {
     view.querySelectorAll(".admin-tabs button").forEach(x => x.classList.remove("active"));
@@ -393,6 +423,46 @@ async function viewAdmin() {
     RENDERERS[b.dataset.tab]();
   }));
   renderAdminAccueil();
+}
+
+/* ---- Administration : collaborateurs (anniversaires) ---- */
+async function renderAdminCollaborateurs() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const { ok, data } = await api("/api/admin/users");
+  if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  const users = data || [];
+
+  function rowsHtml(list) {
+    return list.map(u => `
+      <div class="collab-row" data-id="${u.id}">
+        <div class="collab-info"><b>${u.name}</b><small class="muted">${u.department || u.email}</small></div>
+        <input type="date" class="collab-birthday" data-field="birthday" value="${u.birthday || ""}">
+      </div>`).join("") || `<div class="empty">Aucun collaborateur.</div>`;
+  }
+
+  body.innerHTML = `
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Anniversaire de chaque collaborateur (pas de source WordPress fiable identifiée pour le récupérer automatiquement — à renseigner manuellement). Seuls jour et mois sont affichés dans l'appli.</p>
+    <div class="search-bar"><input type="text" id="collabSearch" placeholder="Rechercher un collaborateur…"></div>
+    <div class="desk-admin-list" id="collabList">${rowsHtml(users)}</div>`;
+
+  function wireRows() {
+    document.querySelectorAll(".collab-row [data-field]").forEach(inp => inp.addEventListener("change", async () => {
+      const id = +inp.closest(".collab-row").dataset.id;
+      const { ok, data } = await api(`/api/admin/users/${id}/birthday`, {
+        method: "PATCH", body: JSON.stringify({ birthday: inp.value || null }),
+      });
+      toast(ok ? "Anniversaire enregistré ✓" : (data?.detail || "Erreur"), ok ? "success" : "error");
+    }));
+  }
+  wireRows();
+
+  document.getElementById("collabSearch").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const filtered = users.filter(u => u.name.toLowerCase().includes(q) || (u.department || "").toLowerCase().includes(q));
+    document.getElementById("collabList").innerHTML = rowsHtml(filtered);
+    wireRows();
+  });
 }
 
 /* ---- Administration : capacité des événements ---- */
@@ -626,15 +696,97 @@ function renderAdminContenu() {
       <button data-sub="idees" class="active">Idées</button>
       <button data-sub="quiz">Quiz</button>
       <button data-sub="medias">Médias</button>
+      <button data-sub="badges">Badges</button>
     </div>
     <div id="contenuBody"></div>`;
-  const SUB = { idees: renderAdminIdees, quiz: renderAdminQuiz, medias: renderAdminMedias };
+  const SUB = { idees: renderAdminIdees, quiz: renderAdminQuiz, medias: renderAdminMedias, badges: renderAdminBadges };
   body.querySelectorAll(".content-subtabs button").forEach(b => b.addEventListener("click", () => {
     body.querySelectorAll(".content-subtabs button").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
     SUB[b.dataset.sub]("contenuBody");
   }));
   renderAdminIdees("contenuBody");
+}
+
+/* ---- Administration : badges (création/édition/suppression/attribution manuelle) ---- */
+async function renderAdminBadges(targetId = "adminBody") {
+  const body = document.getElementById(targetId);
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+  const [badgesRes, usersRes] = await Promise.all([api("/api/admin/badges"), api("/api/admin/users")]);
+  if (!badgesRes.ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  const badges = badgesRes.data || [];
+  const users = usersRes.data || [];
+  const userOptions = users.map(u => `<option value="${u.id}">${u.name}</option>`).join("");
+
+  const rows = badges.map(b => `
+    <div class="badge-admin-row" data-id="${b.id}">
+      <div class="badge-admin-top">
+        <input class="badge-admin-icon" value="${b.icon || ""}" data-field="icon" maxlength="4">
+        <input class="badge-admin-name" value="${(b.name || "").replace(/"/g, "&quot;")}" data-field="name">
+        <button class="da-del" data-del-badge="${b.id}" title="Supprimer">✕</button>
+      </div>
+      <textarea class="badge-admin-desc" data-field="description" rows="2" placeholder="Description">${b.description || ""}</textarea>
+      <div class="badge-admin-meta">
+        <span class="muted">${b.earned_count} collaborateur(s) l'ont obtenu${b.is_custom ? "" : " · badge de base (règle automatique)"}</span>
+      </div>
+      <div class="badge-admin-award">
+        <select class="badge-award-select">
+          <option value="">Attribuer manuellement à…</option>
+          ${userOptions}
+        </select>
+        <button class="link-more" data-award="${b.id}">Attribuer</button>
+      </div>
+    </div>`).join("");
+
+  body.innerHTML = `
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Crée, modifie ou supprime des badges. Un badge personnalisé n'a pas de règle d'obtention automatique : attribue-le manuellement aux collaborateurs concernés.</p>
+    <div class="card">
+      <h3>Nouveau badge personnalisé</h3>
+      <form id="badgeAddForm" class="status-add-form">
+        <input id="badgeAddIcon" type="text" placeholder="🏅" maxlength="4" style="width:52px;flex-shrink:0;text-align:center">
+        <input id="badgeAddName" type="text" placeholder="Nom du badge" required maxlength="100" style="flex:1">
+        <button type="submit" class="btn-save">Ajouter</button>
+      </form>
+      <textarea id="badgeAddDesc" placeholder="Description (optionnel)" rows="2" style="width:100%;margin-top:10px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 11px;font-family:inherit;font-size:.88rem"></textarea>
+    </div>
+    <div class="badge-admin-list">${rows || `<div class="empty">Aucun badge.</div>`}</div>`;
+
+  document.getElementById("badgeAddForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const icon = document.getElementById("badgeAddIcon").value.trim() || "🏅";
+    const name = document.getElementById("badgeAddName").value.trim();
+    const description = document.getElementById("badgeAddDesc").value.trim();
+    if (!name) return;
+    const { ok, data } = await api("/api/admin/badges", { method: "POST", body: JSON.stringify({ name, description, icon }) });
+    if (!ok) return toast(data?.detail || "Erreur", "error");
+    toast("Badge créé ✓", "success");
+    renderAdminBadges(targetId);
+  });
+
+  body.querySelectorAll(".badge-admin-row").forEach(row => {
+    const id = +row.dataset.id;
+    row.querySelectorAll("[data-field]").forEach(inp => inp.addEventListener("change", async () => {
+      const { ok, data } = await api(`/api/admin/badges/${id}`, { method: "PATCH", body: JSON.stringify({ [inp.dataset.field]: inp.value }) });
+      if (!ok) return toast(data?.detail || "Erreur", "error");
+      toast("Badge mis à jour ✓", "success");
+    }));
+    row.querySelector("[data-del-badge]").addEventListener("click", async () => {
+      if (!confirm("Supprimer ce badge ? Les collaborateurs qui l'ont obtenu le perdront.")) return;
+      const { ok } = await api(`/api/admin/badges/${id}`, { method: "DELETE" });
+      if (!ok) return toast("Erreur", "error");
+      toast("Badge supprimé", "success");
+      renderAdminBadges(targetId);
+    });
+    row.querySelector("[data-award]").addEventListener("click", async () => {
+      const select = row.querySelector(".badge-award-select");
+      const userId = +select.value;
+      if (!userId) return toast("Choisis un collaborateur.", "error");
+      const { ok, data } = await api(`/api/admin/badges/${id}/award`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+      if (!ok) return toast(data?.detail || "Erreur", "error");
+      toast("Badge attribué ✓", "success");
+      renderAdminBadges(targetId);
+    });
+  });
 }
 
 /* ---- Administration : workflow de la boîte à idées ---- */
@@ -1062,6 +1214,7 @@ async function renderAdminEspaces() {
           <input class="da-pos" type="number" placeholder="X %" value="${d.pos_x ?? ""}" data-field="pos_x">
           <input class="da-pos" type="number" placeholder="Y %" value="${d.pos_y ?? ""}" data-field="pos_y">
         </div>
+        <input class="da-features" placeholder="Caractéristiques (ex : double écran, compatible Surface)" value="${(d.features || "").replace(/"/g, "&quot;")}" data-field="features">
         <label class="admin-toggle"><input type="checkbox" data-field="is_active" ${d.is_active ? "checked" : ""}> Active</label>
         <button class="da-del" title="Supprimer">✕</button>
       </div>`;
@@ -1246,7 +1399,8 @@ function renderTables() {
     const cls = isSel ? "selected" : item.is_available ? "free" : mineHere ? "mine" : "occupied";
     // Nom visible directement sur le siège (sans avoir à cliquer) : initiales pour les occupés, "moi" pour ma place.
     const label = mineHere ? "moi" : !item.is_available ? initials(item.booked_by) : "";
-    return `<button class="tseat ${cls}" data-desk="${item.desk.id}" title="${item.desk.name}${item.is_available ? " — disponible" : mineHere ? " — votre place" : " — occupé par " + item.booked_by}">${label}</button>`;
+    const featTitle = item.desk.features ? ` (${item.desk.features})` : "";
+    return `<button class="tseat ${cls}" data-desk="${item.desk.id}" title="${item.desk.name}${featTitle}${item.is_available ? " — disponible" : mineHere ? " — votre place" : " — occupé par " + item.booked_by}">${label}</button>`;
   }
   box.innerHTML = section("Bureaux fermés", bureaux, true) + section("Open space · postes individuels", openspace, false) + renderPodsSection();
   box.querySelectorAll(".tseat").forEach(btn => {
@@ -1351,7 +1505,7 @@ function selectSeat(item, mineHere) {
       .filter(r => r.desk.id === item.desk.id && r.reservation_date === state.date)
       .map(r => r.id);
   }
-  state.selected = { deskId: item.desk.id, name: item.desk.name, zone: item.desk.zone, mine: mineHere, resIds };
+  state.selected = { deskId: item.desk.id, name: item.desk.name, zone: item.desk.zone, features: item.desk.features, mine: mineHere, resIds };
   renderTables(); openReserveSheet();
 }
 function clearSelection() {
@@ -1367,6 +1521,7 @@ function openReserveSheet() {
   document.getElementById("sheetSub").textContent = isRoom
     ? fdate(state.date, { weekday: "long", day: "numeric", month: "long" })
     : `${state.selected.zone || "Open space"} · ${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })}`;
+  document.getElementById("sheetFeatures").innerHTML = isRoom ? "" : featureTagsHtml(state.selected.features);
   const mine = document.getElementById("sheetMineNotice");
   const durationBox = document.getElementById("sheetDuration");
   const confirmBtn = document.getElementById("sheetConfirmBtn");
@@ -2041,8 +2196,8 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
   const quizRows = data.quiz_results.map(q => `
     <div class="event-item"><span class="event-title">${q.quiz_title}</span><span class="ev-status-badge">${q.score}/${q.total}</span></div>`).join("") || `<div class="empty">Aucun quiz passé.</div>`;
 
-  const badgesHtml = data.badges.map(b => `
-    <div class="badge-tile${b.earned ? " earned" : ""}" title="${(b.description || "").replace(/"/g, "&quot;")}">
+  const badgesHtml = data.badges.map((b, i) => `
+    <div class="badge-tile${b.earned ? " earned" : ""}" data-badge-index="${i}">
       <div class="badge-icon">${b.icon || "🏅"}</div><div class="badge-name">${b.name}</div>
     </div>`).join("");
 
@@ -2097,6 +2252,21 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
       toast(ok ? "Anniversaire enregistré ✓" : "Erreur, réessaie", ok ? "success" : "error");
     });
   }
+  view.querySelectorAll("[data-badge-index]").forEach(el => el.addEventListener("click", () => {
+    openBadgeDetailSheet(data.badges[+el.dataset.badgeIndex]);
+  }));
+}
+
+function openBadgeDetailSheet(badge) {
+  document.getElementById("badgeDetailIcon").textContent = badge.icon || "🏅";
+  document.getElementById("badgeDetailName").textContent = badge.name;
+  document.getElementById("badgeDetailDesc").textContent = badge.description || "";
+  document.getElementById("badgeDetailStatus").textContent = badge.earned ? "✓ Obtenu" : "Pas encore obtenu";
+  document.getElementById("badgeDetailStatus").className = "badge-detail-status" + (badge.earned ? " earned" : "");
+  document.getElementById("badgeDetailSheetBackdrop").classList.remove("hidden");
+}
+function closeBadgeDetailSheet() {
+  document.getElementById("badgeDetailSheetBackdrop").classList.add("hidden");
 }
 
 async function loadLeaderboard(myId, period) {

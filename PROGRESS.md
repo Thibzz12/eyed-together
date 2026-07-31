@@ -167,6 +167,13 @@ _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut 
 - [x] **Cohérence statut ↔ réservation** : changer son statut pour autre chose que "Coworking" un jour où une place est déjà réservée affiche désormais une alerte (feuille de confirmation) listant la réservation en cours, avec le choix de la garder ou de l'annuler avant d'enregistrer le nouveau statut (annuler sans rien changer reste possible). `handleStatusChange()` / `openStatusConflictSheet()`.
 - [x] **Couleur "Télétravail"** : encore plus contrastée (`#7C3AED`, violet vif) après un premier essai jugé insuffisant.
 
+## 🛠️ Spécificités des postes, badges administrables, anniversaires (2026-07-31, 13e vague)
+
+- [x] **Caractéristiques des postes** : champ déjà présent en base (`Desk.features`) mais jamais exposé — ajouté en admin (Administration → Coworking, champ libre "Caractéristiques" par poste) et affiché à la réservation : info-bulle sur le siège + étiquettes avec icône (choisie par mot-clé : écran, Surface/tablette, debout, clavier, casque, calme, fenêtre — icône générique en repli) dans la feuille de confirmation.
+- [x] **Badges administrables** : création/modification/suppression de badges depuis Administration → Contenu → Badges (nom, description, icône). Un badge personnalisé (`Badge.is_custom`, migration `badge_is_custom`) n'a pas de règle d'obtention automatique — attribution/retrait manuel à un collaborateur depuis le même écran. `seed_catalog_if_empty()` ne touche plus jamais aux badges personnalisés (ne les supprime pas au redémarrage). Bug trouvé et corrigé pendant les tests : la relation `Badge.user_badges` n'avait pas de `cascade="all, delete-orphan"`, donc supprimer un badge tentait de mettre `badge_id` à NULL sur les lignes existantes au lieu de les supprimer (contrainte NOT NULL) — cascade ajoutée au modèle.
+- [x] **Détail d'un badge en popup** : cliquer sur un badge dans le profil ouvre une feuille avec icône/nom/description/statut obtenu, au lieu d'une simple info-bulle au survol.
+- [x] **Anniversaires** : pas de champ fiable identifié côté WordPress (API REST publique ne renvoie aucun `meta`/`acf`, et la synchro `display_name` à chaque connexion écraserait de toute façon une valeur mise à jour en base) — nouvel écran Administration → Collaborateurs permettant à l'admin de renseigner/modifier manuellement l'anniversaire de n'importe quel collaborateur (recherche par nom), en plus de l'auto-déclaration déjà existante sur son propre profil.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)
