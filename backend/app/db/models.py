@@ -462,6 +462,9 @@ class Badge(Base):
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     icon: Mapped[str | None] = mapped_column(String(100), nullable=True)   # ex: nom d'icône / emoji
+    # Points bonus attribués à l'obtention de CE badge (modifiable par l'admin, y compris pour
+    # les badges de base — remplace l'ancienne constante unique BADGE_BONUS_POINTS).
+    points: Mapped[int] = mapped_column(Integer, default=15, server_default="15")
     # Badge ajouté depuis l'admin (pas dans le catalogue codé en dur) : jamais supprimé/reseedé
     # automatiquement par seed_catalog_if_empty(), et sans règle d'attribution automatique
     # (l'admin doit l'attribuer manuellement aux collaborateurs concernés).

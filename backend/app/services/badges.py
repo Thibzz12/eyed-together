@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.db import models as m
 from app.services.gamification import award_points
 
-BADGE_BONUS_POINTS = 15  # bonus ponctuel à l'obtention d'un badge (en plus des points normaux)
+DEFAULT_BADGE_POINTS = 15  # valeur par défaut pour un nouveau badge (modifiable ensuite par badge)
 
 
 class BadgeError(Exception):
@@ -124,13 +124,13 @@ def list_all_badges(db: Session) -> list[dict]:
     return [
         {
             "id": b.id, "code": b.code, "name": b.name, "description": b.description,
-            "icon": b.icon, "is_custom": b.is_custom, "earned_count": counts.get(b.id, 0),
+            "icon": b.icon, "points": b.points, "is_custom": b.is_custom, "earned_count": counts.get(b.id, 0),
         }
         for b in badges
     ]
 
 
-def create_custom_badge(db: Session, name: str, description: str, icon: str) -> m.Badge:
+def create_custom_badge(db: Session, name: str, description: str, icon: str, points: int | None = None) -> m.Badge:
     name = (name or "").strip()
     if not name:
         raise BadgeError("Le nom est obligatoire.")
@@ -141,7 +141,8 @@ def create_custom_badge(db: Session, name: str, description: str, icon: str) -> 
         code = f"{base}_{i}"; i += 1
     badge = m.Badge(
         code=code, name=name, description=(description or "").strip() or None,
-        icon=(icon or "").strip() or "🏅", is_custom=True,
+        icon=(icon or "").strip() or "🏅", points=max(0, points) if points is not None else DEFAULT_BADGE_POINTS,
+        is_custom=True,
     )
     db.add(badge)
     db.commit()
@@ -149,7 +150,10 @@ def create_custom_badge(db: Session, name: str, description: str, icon: str) -> 
     return badge
 
 
-def update_badge(db: Session, badge_id: int, name: str | None, description: str | None, icon: str | None) -> m.Badge:
+def update_badge(
+    db: Session, badge_id: int, name: str | None, description: str | None, icon: str | None,
+    points: int | None = None,
+) -> m.Badge:
     badge = db.get(m.Badge, badge_id)
     if badge is None:
         raise BadgeError("Badge introuvable.")
@@ -162,6 +166,8 @@ def update_badge(db: Session, badge_id: int, name: str | None, description: str 
         badge.description = description.strip() or None
     if icon is not None:
         badge.icon = icon.strip() or badge.icon
+    if points is not None:
+        badge.points = max(0, points)
     db.commit()
     db.refresh(badge)
     return badge
@@ -187,15 +193,20 @@ def award_badge_manually(db: Session, badge_id: int, user_id: int) -> None:
     if already:
         return
     db.add(m.UserBadge(user_id=user_id, badge_id=badge_id))
-    award_points(db, user_id, BADGE_BONUS_POINTS, f"badge_{badge.code}")
+    award_points(db, user_id, badge.points, f"badge_{badge.code}")
     db.commit()
 
 
 def revoke_badge_manually(db: Session, badge_id: int, user_id: int) -> None:
+    """Retire un badge attribué manuellement (ex: erreur de clic) — reprend aussi les points
+    bonus accordés à l'obtention, pour ne pas laisser un gain de points issu d'une erreur."""
     ub = db.scalar(select(m.UserBadge).where(m.UserBadge.badge_id == badge_id, m.UserBadge.user_id == user_id))
     if ub is None:
         return
+    badge = db.get(m.Badge, badge_id)
     db.delete(ub)
+    if badge is not None:
+        award_points(db, user_id, -badge.points, f"revoke_badge_{badge.code}")
     db.commit()
 
 
@@ -207,7 +218,7 @@ def _award(db: Session, user_id: int, badge: m.Badge, already: set[int], newly: 
     if badge.id in already:
         return
     db.add(m.UserBadge(user_id=user_id, badge_id=badge.id))
-    award_points(db, user_id, BADGE_BONUS_POINTS, f"badge_{badge.code}")
+    award_points(db, user_id, badge.points, f"badge_{badge.code}")
     already.add(badge.id)
     newly.append(badge.name)
 
@@ -293,6 +304,9 @@ def get_user_badges(db: Session, user_id: int) -> list[dict]:
     earned_ids = {ub.badge_id for ub in db.scalars(select(m.UserBadge).where(m.UserBadge.user_id == user_id))}
     badges = db.scalars(select(m.Badge).order_by(m.Badge.id))
     return [
-        {"id": b.id, "code": b.code, "name": b.name, "description": b.description, "icon": b.icon, "earned": b.id in earned_ids}
+        {
+            "id": b.id, "code": b.code, "name": b.name, "description": b.description,
+            "icon": b.icon, "points": b.points, "earned": b.id in earned_ids,
+        }
         for b in badges
     ]

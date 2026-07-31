@@ -174,6 +174,13 @@ _Note technique : le fichier `_full_catalog()` de `app/services/badges.py` peut 
 - [x] **Détail d'un badge en popup** : cliquer sur un badge dans le profil ouvre une feuille avec icône/nom/description/statut obtenu, au lieu d'une simple info-bulle au survol.
 - [x] **Anniversaires** : pas de champ fiable identifié côté WordPress (API REST publique ne renvoie aucun `meta`/`acf`, et la synchro `display_name` à chaque connexion écraserait de toute façon une valeur mise à jour en base) — nouvel écran Administration → Collaborateurs permettant à l'admin de renseigner/modifier manuellement l'anniversaire de n'importe quel collaborateur (recherche par nom), en plus de l'auto-déclaration déjà existante sur son propre profil.
 
+## 🔒 Corrections post revue de sécurité + points par badge (2026-07-31, 14e vague)
+
+- [x] **Faille XSS corrigée** : le nom et l'icône d'un badge (saisis librement par un admin) étaient insérés sans échappement dans le HTML du profil (`innerHTML`) — un badge malveillant aurait pu exécuter du JS dans la session de n'importe quel collaborateur consultant un profil. Ajout d'un helper `escapeHtml()` appliqué à `b.name`/`b.icon` dans `renderProfileView()`.
+- [x] **Points par badge** : chaque badge a désormais son propre nombre de points (`Badge.points`, migration `badge_points`, défaut 15) au lieu d'une constante unique globale — modifiable en admin (nouveau champ, badges de base inclus) et repris automatiquement lors de l'attribution manuelle ou automatique.
+- [x] **Retrait de badge** : bouton "Retirer" à côté d'"Attribuer" dans Administration → Contenu → Badges — reprend aussi les points accordés à l'obtention (pour corriger un misclick sans laisser de gain de points indu). L'endpoint `DELETE /api/admin/badges/{id}/award/{user_id}` existait déjà côté backend, seule l'interface manquait.
+- [x] **Popup de détail badge** : affiche désormais aussi le nombre de points accordés.
+
 ## 🌐 Site web interne (WordPress) — chantier séparé
 
 - [ ] Pas commencé (périmètre à définir avec EyeD)

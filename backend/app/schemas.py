@@ -176,12 +176,14 @@ class BadgeCreate(BaseModel):
     name: str
     description: str = ""
     icon: str = "🏅"
+    points: int = Field(default=15, ge=0, le=1000)
 
 
 class BadgeUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     icon: str | None = None
+    points: int | None = Field(default=None, ge=0, le=1000)
 
 
 class BadgeAwardCreate(BaseModel):
