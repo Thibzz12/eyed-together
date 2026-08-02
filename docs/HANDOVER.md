@@ -29,11 +29,22 @@ logique est la plus dense et la plus risquée à modifier à l'aveugle.
 
 `slowapi` (rate limiting / anti brute-force) est dans `requirements.txt`
 mais **n'apparaît nulle part dans le code** (`grep -rn slowapi app/` ne
-renvoie rien). Elle avait probablement été ajoutée en anticipation d'un
-chantier sécurité qui n'a jamais été fait. À l'heure actuelle, il n'y a
-**aucune protection contre le brute-force** sur les endpoints d'authentification
-(`/auth/wordpress-login` notamment, qui accepte email + mot de passe). À
-évaluer avant un vrai lancement public.
+renvoie rien) — probablement ajoutée en anticipation d'un chantier sécurité
+qui n'a jamais été fait. Pas de rate limiting nulle part dans l'app
+actuellement. À évaluer si un jour un endpoint accepte à nouveau un mot de
+passe (voir point suivant).
+
+**✅ Corrigé (2026-08-03)** : un ancien endpoint `POST /auth/wordpress-login`
+acceptait un email + mot de passe et les transmettait à une route WordPress
+(`wp-json/eyed/v1/login`) qui n'a jamais existé côté intranet — l'endpoint
+échouait donc systématiquement, mais restait accessible et sans aucune
+limite de tentatives (code mort côté écran de connexion, qui n'a jamais eu
+de formulaire correspondant, mais bien vivant côté API). Supprimé avec son
+code associé (`authenticate_wp`/`WordPressAuthError` dans `wordpress.py`,
+`setupLoginForm()` dans `app.js`). **Le chemin de connexion réellement
+utilisé** (bouton "Se connecter avec mon compte EyeD" → pont WordPress) n'a
+jamais été concerné : le mot de passe est saisi sur la page de connexion de
+WordPress lui-même, jamais transmis à notre backend.
 
 ## Limites connues (assumées, mais à ne pas oublier)
 

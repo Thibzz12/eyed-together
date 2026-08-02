@@ -44,10 +44,6 @@ def _sanitize(content: str) -> str:
     return s
 
 
-class WordPressAuthError(Exception):
-    """Erreur renvoyée par l'intranet WordPress lors de l'authentification."""
-
-
 def verify_bridge_token(token: str) -> dict | None:
     """Vérifie le jeton signé renvoyé par le 'pont' WordPress (Magic Login).
 
@@ -71,40 +67,6 @@ def verify_bridge_token(token: str) -> dict | None:
         "preferred_username": payload.get("email") or "",
         "name": payload.get("name") or payload.get("email") or "Utilisateur",
         "roles": payload.get("roles") or [],
-    }
-
-
-def authenticate_wp(email: str, password: str) -> dict | None:
-    """Valide un email + mot de passe auprès de l'intranet WordPress.
-
-    Renvoie des « claims » (mêmes champs que Microsoft) si valide, sinon None.
-    Le mot de passe n'est ni stocké ni journalisé : juste transmis une fois en HTTPS.
-    """
-    if not settings.WP_APP_SECRET:
-        return None  # connexion WordPress non configurée → mode démo uniquement
-    url = f"{settings.WORDPRESS_URL}/wp-json/eyed/v1/login"
-    try:
-        resp = httpx.post(
-            url,
-            json={"email": email, "password": password},
-            headers={"X-App-Secret": settings.WP_APP_SECRET},
-            timeout=10.0,
-        )
-    except Exception as exc:
-        raise WordPressAuthError(f"Intranet injoignable : {exc}") from exc
-    if resp.status_code != 200:
-        # DEBUG : on remonte la raison exacte de WordPress.
-        try:
-            reason = resp.json().get("message", resp.text[:200])
-        except Exception:
-            reason = resp.text[:200]
-        raise WordPressAuthError(f"[{resp.status_code}] {reason}")
-    data = resp.json()
-    return {
-        "oid": f"wp-{data.get('id')}",                       # identifiant unique stable
-        "preferred_username": data.get("email") or email,
-        "name": data.get("display_name") or email,
-        "roles": data.get("roles") or [],
     }
 
 

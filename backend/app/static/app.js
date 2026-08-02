@@ -102,7 +102,7 @@ async function init() {
   const [{ ok, data }, st, pol] = await Promise.all([
     api("/api/profile"), api("/api/statuses"), api("/api/reservation-policy"),
   ]);
-  if (!ok) { document.getElementById("login").classList.remove("hidden"); setupLoginForm(); return; }
+  if (!ok) { document.getElementById("login").classList.remove("hidden"); return; }
   state.profile = data;
   state.statusCatalog = (st.data && st.data.catalog) || [];
   state.advanceDays = (pol.data && pol.data.advance_days) || 7;
@@ -165,23 +165,6 @@ async function init() {
 
 function toggleMobileMenu() { document.querySelector(".sidebar").classList.toggle("open"); }
 function closeMobileMenu() { document.querySelector(".sidebar").classList.remove("open"); }
-
-function setupLoginForm() {
-  const form = document.getElementById("loginForm");
-  if (!form) return;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = document.getElementById("loginEmail").value;
-    const password = document.getElementById("loginPassword").value;
-    const err = document.getElementById("loginError");
-    const btn = form.querySelector("button");
-    err.textContent = ""; btn.disabled = true; btn.textContent = "Connexion…";
-    const { ok, data } = await api("/auth/wordpress-login", { method: "POST", body: JSON.stringify({ email, password }) });
-    if (ok) { location.reload(); return; }
-    err.textContent = data?.detail || "Connexion impossible.";
-    btn.disabled = false; btn.textContent = "Se connecter";
-  });
-}
 
 const ROUTES = {
   accueil: { title: "Accueil", render: viewAccueil },
