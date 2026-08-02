@@ -5,6 +5,8 @@ Authorization Code Flow + PKCE (MSAL gère automatiquement le `state` anti-CSRF,
 le `nonce` et le code_verifier PKCE via `initiate_auth_code_flow`).
 """
 
+from functools import lru_cache
+
 import msal
 
 from app.core.config import settings
@@ -19,8 +21,15 @@ def _authority() -> str:
     return f"https://login.microsoftonline.com/{settings.ENTRA_TENANT_ID}"
 
 
+@lru_cache(maxsize=1)
 def build_msal_app() -> msal.ConfidentialClientApplication:
-    """Construit l'application MSAL confidentielle (secret côté serveur uniquement)."""
+    """Construit l'application MSAL confidentielle (secret côté serveur uniquement).
+
+    Mise en cache : la construction fait une découverte d'autorité (2 appels HTTP
+    bloquants vers login.microsoftonline.com) — inutile de la refaire à chaque
+    /auth/login ou /auth/callback, les identifiants Azure ne changent pas en cours
+    d'exécution.
+    """
     return msal.ConfidentialClientApplication(
         client_id=settings.ENTRA_CLIENT_ID,
         client_credential=settings.ENTRA_CLIENT_SECRET,

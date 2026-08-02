@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models import EventRegistrationStatus, ReservationSlot, ReservationStatus
+from app.services.badges import DEFAULT_BADGE_POINTS
 
 
 # ---------------------------------------------------------------- Profil utilisateur
@@ -176,7 +177,7 @@ class BadgeCreate(BaseModel):
     name: str
     description: str = ""
     icon: str = "🏅"
-    points: int = Field(default=15, ge=0, le=1000)
+    points: int = Field(default=DEFAULT_BADGE_POINTS, ge=0, le=1000)
 
 
 class BadgeUpdate(BaseModel):
@@ -210,6 +211,7 @@ class EventRead(BaseModel):
 class EventRegistrationRead(BaseModel):
     wp_event_id: int
     status: EventRegistrationStatus
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventCapacityUpdate(BaseModel):

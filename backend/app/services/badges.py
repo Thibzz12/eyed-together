@@ -115,22 +115,23 @@ def _slugify_code(label: str) -> str:
     return base
 
 
+def badge_to_dict(b: m.Badge, earned_count: int = 0) -> dict:
+    return {
+        "id": b.id, "code": b.code, "name": b.name, "description": b.description,
+        "icon": b.icon, "points": b.points, "is_custom": b.is_custom, "earned_count": earned_count,
+    }
+
+
 def list_all_badges(db: Session) -> list[dict]:
     """Catalogue complet pour l'admin, avec le nombre de collaborateurs l'ayant obtenu."""
     counts = dict(
         db.execute(select(m.UserBadge.badge_id, func.count()).group_by(m.UserBadge.badge_id)).all()
     )
     badges = db.scalars(select(m.Badge).order_by(m.Badge.id))
-    return [
-        {
-            "id": b.id, "code": b.code, "name": b.name, "description": b.description,
-            "icon": b.icon, "points": b.points, "is_custom": b.is_custom, "earned_count": counts.get(b.id, 0),
-        }
-        for b in badges
-    ]
+    return [badge_to_dict(b, counts.get(b.id, 0)) for b in badges]
 
 
-def create_custom_badge(db: Session, name: str, description: str, icon: str, points: int | None = None) -> m.Badge:
+def create_custom_badge(db: Session, name: str, description: str, icon: str, points: int = DEFAULT_BADGE_POINTS) -> m.Badge:
     name = (name or "").strip()
     if not name:
         raise BadgeError("Le nom est obligatoire.")
@@ -141,7 +142,7 @@ def create_custom_badge(db: Session, name: str, description: str, icon: str, poi
         code = f"{base}_{i}"; i += 1
     badge = m.Badge(
         code=code, name=name, description=(description or "").strip() or None,
-        icon=(icon or "").strip() or "🏅", points=max(0, points) if points is not None else DEFAULT_BADGE_POINTS,
+        icon=(icon or "").strip() or "🏅", points=points,
         is_custom=True,
     )
     db.add(badge)
@@ -167,7 +168,7 @@ def update_badge(
     if icon is not None:
         badge.icon = icon.strip() or badge.icon
     if points is not None:
-        badge.points = max(0, points)
+        badge.points = points
     db.commit()
     db.refresh(badge)
     return badge
@@ -203,10 +204,9 @@ def revoke_badge_manually(db: Session, badge_id: int, user_id: int) -> None:
     ub = db.scalar(select(m.UserBadge).where(m.UserBadge.badge_id == badge_id, m.UserBadge.user_id == user_id))
     if ub is None:
         return
-    badge = db.get(m.Badge, badge_id)
+    badge = ub.badge  # FK NOT NULL + cascade delete-orphan sur Badge.user_badges : toujours présent ici
     db.delete(ub)
-    if badge is not None:
-        award_points(db, user_id, -badge.points, f"revoke_badge_{badge.code}")
+    award_points(db, user_id, -badge.points, f"revoke_badge_{badge.code}")
     db.commit()
 
 

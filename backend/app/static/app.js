@@ -715,6 +715,8 @@ function renderAdminContenu() {
 }
 
 /* ---- Administration : badges (création/édition/suppression/attribution manuelle) ---- */
+const pointsValue = (raw) => +raw || 0;   // même coercion pour le champ points, qu'il vienne du form d'ajout ou d'une ligne existante
+
 async function renderAdminBadges(targetId = "adminBody") {
   const body = document.getElementById(targetId);
   body.innerHTML = `<div class="empty">Chargement…</div>`;
@@ -722,17 +724,17 @@ async function renderAdminBadges(targetId = "adminBody") {
   if (!badgesRes.ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   const badges = badgesRes.data || [];
   const users = usersRes.data || [];
-  const userOptions = users.map(u => `<option value="${u.id}">${u.name}</option>`).join("");
+  const userOptions = users.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
 
   const rows = badges.map(b => `
     <div class="badge-admin-row" data-id="${b.id}">
       <div class="badge-admin-top">
-        <input class="badge-admin-icon" value="${b.icon || ""}" data-field="icon" maxlength="4">
-        <input class="badge-admin-name" value="${(b.name || "").replace(/"/g, "&quot;")}" data-field="name">
+        <input class="badge-admin-icon" value="${escapeHtml(b.icon)}" data-field="icon" maxlength="4">
+        <input class="badge-admin-name" value="${escapeHtml(b.name)}" data-field="name">
         <input class="badge-admin-points" type="number" min="0" max="1000" value="${b.points}" data-field="points" title="Points accordés" style="width:64px;flex-shrink:0">
         <button class="da-del" data-del-badge="${b.id}" title="Supprimer">✕</button>
       </div>
-      <textarea class="badge-admin-desc" data-field="description" rows="2" placeholder="Description">${b.description || ""}</textarea>
+      <textarea class="badge-admin-desc" data-field="description" rows="2" placeholder="Description">${escapeHtml(b.description)}</textarea>
       <div class="badge-admin-meta">
         <span class="muted">${b.earned_count} collaborateur(s) l'ont obtenu${b.is_custom ? "" : " · badge de base (règle automatique)"} · ${b.points} pts</span>
       </div>
@@ -765,7 +767,7 @@ async function renderAdminBadges(targetId = "adminBody") {
     const icon = document.getElementById("badgeAddIcon").value.trim() || "🏅";
     const name = document.getElementById("badgeAddName").value.trim();
     const description = document.getElementById("badgeAddDesc").value.trim();
-    const points = +document.getElementById("badgeAddPoints").value || 0;
+    const points = pointsValue(document.getElementById("badgeAddPoints").value);
     if (!name) return;
     const { ok, data } = await api("/api/admin/badges", { method: "POST", body: JSON.stringify({ name, description, icon, points }) });
     if (!ok) return toast(data?.detail || "Erreur", "error");
@@ -773,10 +775,15 @@ async function renderAdminBadges(targetId = "adminBody") {
     renderAdminBadges(targetId);
   });
 
+  const selectedUserId = (row) => {
+    const userId = +row.querySelector(".badge-award-select").value;
+    if (!userId) toast("Choisis un collaborateur.", "error");
+    return userId || null;
+  };
   body.querySelectorAll(".badge-admin-row").forEach(row => {
     const id = +row.dataset.id;
     row.querySelectorAll("[data-field]").forEach(inp => inp.addEventListener("change", async () => {
-      const value = inp.type === "number" ? +inp.value : inp.value;
+      const value = inp.type === "number" ? pointsValue(inp.value) : inp.value;
       const { ok, data } = await api(`/api/admin/badges/${id}`, { method: "PATCH", body: JSON.stringify({ [inp.dataset.field]: value }) });
       if (!ok) return toast(data?.detail || "Erreur", "error");
       toast("Badge mis à jour ✓", "success");
@@ -789,18 +796,16 @@ async function renderAdminBadges(targetId = "adminBody") {
       renderAdminBadges(targetId);
     });
     row.querySelector("[data-award]").addEventListener("click", async () => {
-      const select = row.querySelector(".badge-award-select");
-      const userId = +select.value;
-      if (!userId) return toast("Choisis un collaborateur.", "error");
+      const userId = selectedUserId(row);
+      if (!userId) return;
       const { ok, data } = await api(`/api/admin/badges/${id}/award`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
       if (!ok) return toast(data?.detail || "Erreur", "error");
       toast("Badge attribué ✓", "success");
       renderAdminBadges(targetId);
     });
     row.querySelector("[data-revoke]").addEventListener("click", async () => {
-      const select = row.querySelector(".badge-award-select");
-      const userId = +select.value;
-      if (!userId) return toast("Choisis un collaborateur.", "error");
+      const userId = selectedUserId(row);
+      if (!userId) return;
       if (!confirm("Retirer ce badge à ce collaborateur ? Les points associés seront repris.")) return;
       const { ok, data } = await api(`/api/admin/badges/${id}/award/${userId}`, { method: "DELETE" });
       if (!ok) return toast(data?.detail || "Erreur", "error");
