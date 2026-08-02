@@ -30,7 +30,7 @@ from app.services.dashboard import (
     build_dashboard,
     delete_custom_status,
     get_enabled_statuses,
-    get_setting,
+    get_settings,
     get_status_catalog,
     set_enabled_statuses,
     set_setting,
@@ -41,28 +41,43 @@ from app.services.wordpress import fetch_content_detail, fetch_event_detail, fet
 router = APIRouter(prefix="/api", tags=["reservations"])
 
 
-def _desk_read(desk: m.Desk) -> schemas.DeskRead:
-    """Construit le DeskRead (position lue depuis la base)."""
-    return schemas.DeskRead(
-        id=desk.id, name=desk.name, zone=desk.zone, floor=desk.floor,
-        features=desk.features, pos_x=desk.pos_x, pos_y=desk.pos_y,
+def _or_404(obj, detail: str):
+    """Lève un 404 uniforme si l'objet recherché (db.get / lookup service) est introuvable."""
+    if obj is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail)
+    return obj
+
+
+def _apply_patch(obj, data) -> None:
+    """Applique les champs fournis (exclut ceux absents du payload) sur un objet ORM."""
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(obj, field, value)
+
+
+def _project_progress_settings(db: Session) -> dict:
+    settings = get_settings(db, [
+        "project_progress_value", "project_progress_label", "project_milestone_title", "project_target_date",
+    ])
+    return {
+        "value": int(settings["project_progress_value"] or 0),
+        "label": settings["project_progress_label"],
+        "milestone_title": settings["project_milestone_title"] or "Nouveaux locaux",
+        "target_date": settings["project_target_date"] or None,
+    }
+
+
+def _user_profile(u: m.User) -> schemas.UserProfile:
+    # Construction explicite (le modèle utilise `display_name`, le schéma `name`).
+    return schemas.UserProfile(
+        id=u.id, name=u.display_name, email=u.email, department=u.department,
+        role=u.role.value, total_points=u.total_points, birthday=u.birthday,
     )
 
 
 @router.get("/profile", response_model=schemas.UserProfile)
 def profile(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Profil de l'utilisateur connecté, avec ses points à jour (pour l'en-tête)."""
-    u = db.get(m.User, user["id"])
-    # Construction explicite (le modèle utilise `display_name`, le schéma `name`).
-    return schemas.UserProfile(
-        id=u.id,
-        name=u.display_name,
-        email=u.email,
-        department=u.department,
-        role=u.role.value,
-        total_points=u.total_points,
-        birthday=u.birthday,
-    )
+    return _user_profile(db.get(m.User, user["id"]))
 
 
 @router.put("/profile/birthday", response_model=schemas.UserProfile)
@@ -73,16 +88,13 @@ def set_birthday(data: schemas.BirthdayUpdate, db: Session = Depends(get_db), us
     u.birthday = data.birthday
     db.commit()
     db.refresh(u)
-    return schemas.UserProfile(
-        id=u.id, name=u.display_name, email=u.email, department=u.department,
-        role=u.role.value, total_points=u.total_points, birthday=u.birthday,
-    )
+    return _user_profile(u)
 
 
 @router.get("/desks", response_model=list[schemas.DeskRead])
 def list_desks(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Liste des postes de coworking."""
-    return [_desk_read(d) for d in svc.list_desks(db)]
+    return svc.list_desks(db)
 
 
 @router.get("/availability", response_model=list[schemas.DeskAvailability])
@@ -94,7 +106,7 @@ def availability(
 ):
     """Disponibilité de chaque poste pour une date + un créneau."""
     return [
-        schemas.DeskAvailability(desk=_desk_read(desk), is_available=name is None, booked_by=name)
+        schemas.DeskAvailability(desk=desk, is_available=name is None, booked_by=name)
         for desk, name in svc.get_availability(db, day, slot)
     ]
 
@@ -226,29 +238,27 @@ def events(
     return [_enrich_event(db, ev, user["id"]) for ev in fetch_events(limit=limit)]
 
 
+@router.get("/events/mine", response_model=list[schemas.EventRegistrationRead])
+def my_event_registrations(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Mes inscriptions actives (inscrit ou en liste d'attente), tous événements confondus.
+
+    Doit être déclarée AVANT /events/{event_id} : sinon FastAPI matche "mine" comme
+    valeur du path param event_id (qui attend un int) et renvoie un 422.
+    """
+    return events_svc.my_active_registrations(db, user["id"])
+
+
 @router.get("/events/{event_id}", response_model=schemas.EventDetail)
 def event_detail(event_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Contenu complet d'un événement, pour l'afficher dans l'app."""
-    d = fetch_event_detail(event_id)
-    if d is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Événement introuvable.")
+    d = _or_404(fetch_event_detail(event_id), "Événement introuvable.")
     return _enrich_event(db, d, user["id"])
-
-
-@router.get("/events/mine", response_model=list[schemas.EventRegistrationRead])
-def my_event_registrations(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    """Mes inscriptions actives (inscrit ou en liste d'attente), tous événements confondus."""
-    return [
-        schemas.EventRegistrationRead(wp_event_id=r.wp_event_id, status=r.status)
-        for r in events_svc.my_active_registrations(db, user["id"])
-    ]
 
 
 @router.post("/events/{event_id}/register", response_model=schemas.EventRegistrationRead)
 def register_event(event_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """S'inscrit à un événement (ou rejoint la liste d'attente si la capacité est atteinte)."""
-    row = events_svc.register(db, user["id"], event_id)
-    return schemas.EventRegistrationRead(wp_event_id=row.wp_event_id, status=row.status)
+    return events_svc.register(db, user["id"], event_id)
 
 
 @router.delete("/events/{event_id}/register", status_code=status.HTTP_204_NO_CONTENT)
@@ -260,9 +270,7 @@ def unregister_event(event_id: int, db: Session = Depends(get_db), user: dict = 
 @router.get("/events/{event_id}/ics")
 def event_ics(event_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Fichier .ics à télécharger ('ajouter au calendrier')."""
-    d = fetch_event_detail(event_id)
-    if d is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Événement introuvable.")
+    d = _or_404(fetch_event_detail(event_id), "Événement introuvable.")
     ics = events_svc.build_ics(d["title"], d["date"], d["link"])
     return Response(
         content=ics, media_type="text/calendar",
@@ -303,10 +311,7 @@ def news(limit: int = Query(6, ge=1, le=20), _=Depends(get_current_user)):
 @router.get("/news/{post_id}", response_model=schemas.EventDetail)
 def news_detail(post_id: int, _=Depends(get_current_user)):
     """Contenu complet d'une actualité, pour l'afficher dans l'app."""
-    d = fetch_content_detail("posts", post_id)
-    if d is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Actualité introuvable.")
-    return d
+    return _or_404(fetch_content_detail("posts", post_id), "Actualité introuvable.")
 
 
 # ------------------------------------------------------------------ Tableau de bord
@@ -332,12 +337,7 @@ def admin_dashboard(db: Session = Depends(get_db), _=Depends(require_admin)):
             {"id": c.id, "key": c.key, "title": c.title, "enabled": c.enabled, "highlighted": c.highlighted}
             for c in cards
         ],
-        "project_progress": {
-            "value": int(get_setting(db, "project_progress_value", "0") or 0),
-            "label": get_setting(db, "project_progress_label", ""),
-            "milestone_title": get_setting(db, "project_milestone_title", "Nouveaux locaux"),
-            "target_date": get_setting(db, "project_target_date", "") or None,
-        },
+        "project_progress": _project_progress_settings(db),
     }
 
 
@@ -382,11 +382,8 @@ def admin_desk_create(data: schemas.DeskCreate, db: Session = Depends(get_db), _
 @router.patch("/admin/desks/{desk_id}", response_model=schemas.DeskAdminRead)
 def admin_desk_update(desk_id: int, data: schemas.DeskUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Modifie un poste (nom, bureau, position, activation)."""
-    desk = db.get(m.Desk, desk_id)
-    if desk is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Poste introuvable.")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(desk, field, value)
+    desk = _or_404(db.get(m.Desk, desk_id), "Poste introuvable.")
+    _apply_patch(desk, data)
     db.commit()
     db.refresh(desk)
     return desk
@@ -530,11 +527,8 @@ def admin_create_link(data: schemas.UsefulLinkCreate, db: Session = Depends(get_
 
 @router.patch("/admin/links/{link_id}", response_model=schemas.UsefulLinkRead)
 def admin_update_link(link_id: int, data: schemas.UsefulLinkUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    link = db.get(m.UsefulLink, link_id)
-    if link is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien introuvable.")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(link, field, value)
+    link = _or_404(db.get(m.UsefulLink, link_id), "Lien introuvable.")
+    _apply_patch(link, data)
     db.commit()
     db.refresh(link)
     return link
@@ -551,10 +545,7 @@ def admin_delete_link(link_id: int, db: Session = Depends(get_db), _=Depends(req
 @router.get("/users/{user_id}/profile")
 def user_profile(user_id: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Profil public d'un collaborateur (statut, réservations, idées signées, quiz)."""
-    profile = get_public_profile(db, user_id)
-    if profile is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collaborateur introuvable.")
-    return profile
+    return _or_404(get_public_profile(db, user_id), "Collaborateur introuvable.")
 
 
 @router.get("/leaderboard")
@@ -802,20 +793,14 @@ def admin_list_badges(db: Session = Depends(get_db), _=Depends(require_admin)):
 def admin_create_badge(data: schemas.BadgeCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Crée un badge personnalisé (pas d'attribution automatique : à distribuer manuellement)."""
     b = badges_svc.create_custom_badge(db, data.name, data.description, data.icon, data.points)
-    return {
-        "id": b.id, "code": b.code, "name": b.name, "description": b.description,
-        "icon": b.icon, "points": b.points, "is_custom": b.is_custom, "earned_count": 0,
-    }
+    return badges_svc.badge_to_dict(b)
 
 
 @router.patch("/admin/badges/{badge_id}")
 def admin_update_badge(badge_id: int, data: schemas.BadgeUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Modifie le nom/la description/l'icône/les points d'un badge existant (de base ou personnalisé)."""
     b = badges_svc.update_badge(db, badge_id, data.name, data.description, data.icon, data.points)
-    return {
-        "id": b.id, "code": b.code, "name": b.name, "description": b.description,
-        "icon": b.icon, "points": b.points, "is_custom": b.is_custom,
-    }
+    return badges_svc.badge_to_dict(b)
 
 
 @router.delete("/admin/badges/{badge_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -852,9 +837,7 @@ def admin_list_users(db: Session = Depends(get_db), _=Depends(require_admin)):
 def admin_set_birthday(user_id: int, data: schemas.AdminBirthdayUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Modifie manuellement la date d'anniversaire de n'importe quel collaborateur (pas de source
     WordPress fiable identifiée pour la récupérer automatiquement — cf. set_birthday plus haut)."""
-    u = db.get(m.User, user_id)
-    if u is None:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    u = _or_404(db.get(m.User, user_id), "Utilisateur introuvable.")
     u.birthday = data.birthday
     db.commit()
     return {"id": u.id, "birthday": u.birthday}

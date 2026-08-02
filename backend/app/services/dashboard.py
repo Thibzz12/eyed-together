@@ -24,6 +24,14 @@ def get_setting(db: Session, key: str, default: str = "") -> str:
     return row.value if row else default
 
 
+def get_settings(db: Session, keys: list[str]) -> dict[str, str]:
+    """Version groupée de get_setting (1 requête au lieu d'une par clé) — pour les blocs
+    qui lisent plusieurs réglages d'un coup (ex: project_progress, chargé à chaque dashboard)."""
+    rows = db.scalars(select(m.AppSetting).where(m.AppSetting.key.in_(keys)))
+    values = {row.key: row.value for row in rows}
+    return {key: values.get(key, "") for key in keys}
+
+
 # ------------------------------------------------------------------
 #  Catalogue des statuts de présence (4 statuts de base + statuts
 #  personnalisés ajoutés par l'admin) — stocké en JSON dans AppSetting
@@ -196,7 +204,10 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
             "checked_in": r.checked_in_at is not None,
         }
     if key == "project_progress":
-        target_raw = get_setting(db, "project_target_date", "")
+        settings = get_settings(db, [
+            "project_target_date", "project_progress_value", "project_progress_label", "project_milestone_title",
+        ])
+        target_raw = settings["project_target_date"]
         days_left = None
         if target_raw:
             try:
@@ -204,9 +215,9 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
             except ValueError:
                 days_left = None
         return {
-            "value": int(get_setting(db, "project_progress_value", "0") or 0),
-            "label": get_setting(db, "project_progress_label", ""),
-            "milestone_title": get_setting(db, "project_milestone_title", "Nouveaux locaux"),
+            "value": int(settings["project_progress_value"] or 0),
+            "label": settings["project_progress_label"],
+            "milestone_title": settings["project_milestone_title"] or "Nouveaux locaux",
             "days_left": days_left,
         }
     if key == "team_presence":

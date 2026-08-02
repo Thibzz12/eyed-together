@@ -129,15 +129,7 @@ def callback(request: Request, db: Session = Depends(get_db)):
     claims = result.get("id_token_claims", {})
     user = upsert_user_from_claims(db, claims)
     sync_admin_role(db, user)
-
-    # Session minimale : on ne stocke PAS le jeton Microsoft côté client.
-    request.session["user"] = {
-        "id": user.id,
-        "email": user.email,
-        "name": user.display_name,
-        "role": user.role.value,
-    }
-    # Retour vers le frontend, connecté.
+    _open_session(request, user)  # session minimale : on ne stocke PAS le jeton Microsoft côté client
     return RedirectResponse(settings.FRONTEND_ORIGIN)
 
 

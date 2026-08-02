@@ -4,6 +4,7 @@ Toutes les valeurs sensibles sont lues depuis les variables d'environnement
 (fichier `.env` en dev, Azure Key Vault en prod). Rien de secret n'est codé en dur.
 """
 
+from functools import cached_property
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     # admin de l'app EyeD Together — accès volontairement restreint).
     ADMIN_EMAILS: str = "t.pirard@eyedpharma.com,o.vanbrabant@eyedpharma.com"
 
-    @property
+    @cached_property
     def admin_emails(self) -> set[str]:
         return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
 
