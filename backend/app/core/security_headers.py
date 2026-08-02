@@ -36,7 +36,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # HSTS : uniquement en prod (HTTPS), jamais en dev (HTTP local).
         if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        # En dev, empêche le cache des fichiers statiques + de la page (rechargement immédiat).
-        elif request.url.path.startswith("/static") or request.url.path == "/":
+        # La page HTML référence app.js/styles.css avec un paramètre de version (?v=N) :
+        # elle doit donc TOUJOURS être revalidée, en dev comme en prod. Sans ça, un
+        # navigateur qui met en cache l'index.html de façon heuristique peut continuer à
+        # charger une ancienne version des fichiers statiques sans jamais s'en rendre
+        # compte — jusqu'à un rechargement manuel qui force la revalidation.
+        if request.url.path == "/":
+            response.headers["Cache-Control"] = "no-cache"
+        # En dev en plus, empêche aussi le cache des fichiers statiques (itération rapide).
+        elif not settings.is_production and request.url.path.startswith("/static"):
             response.headers["Cache-Control"] = "no-store"
         return response
