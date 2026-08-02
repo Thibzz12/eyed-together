@@ -81,6 +81,18 @@ function fdate(iso, opt) { return new Date(iso).toLocaleDateString("fr-FR", opt 
 function levelOf(pts) {
   if (pts >= 300) return "Platine"; if (pts >= 150) return "Or"; if (pts >= 50) return "Argent"; return "Bronze";
 }
+/* Progression (0-100) vers le prochain palier de niveau, pour l'anneau du cadran d'accueil. */
+function levelProgress(pts) {
+  const steps = [0, 50, 150, 300];
+  const i = steps.findIndex(s => pts < s);
+  if (i === -1) return 100; // déjà Platine, palier max
+  const [lo, hi] = [steps[i - 1] || 0, steps[i]];
+  return Math.round(((pts - lo) / (hi - lo)) * 100);
+}
+/* Longueur de l'arc SVG (stroke-dashoffset) pour un anneau de cadran, à partir d'un %. */
+function ringOffset(circumference, pct) {
+  return (circumference * (1 - Math.min(100, Math.max(0, pct)) / 100)).toFixed(1);
+}
 
 /* ---------------- Démarrage ---------------- */
 async function init() {
@@ -225,17 +237,60 @@ const STATUS_ICON = {
 async function viewAccueil() {
   const view = document.getElementById("view");
   const today = toLocalISODate(new Date());
-  view.innerHTML = `
-      <div class="hero-banner">
-        <div class="hb-greet"><span class="hb-muted">Bonjour,</span> <span class="hb-name">${firstName(state.profile.name)}</span></div>
-        <div class="hb-status"><span class="hb-dot"></span>Connecté · SSO EyeD</div>
-      </div>
-      <div class="dash-grid" id="dashGrid"><div class="empty">Chargement…</div></div>`;
+  view.innerHTML = `<div class="empty">Chargement…</div>`;
   const d = (await api("/api/dashboard")).data;
   const cards = (d && d.cards) || [];
-  document.getElementById("dashGrid").innerHTML =
-    cards.map(c => renderCard(c)).join("") || `<div class="empty">Aucune carte activée.</div>`;
+  const resa = cards.find(c => c.key === "next_reservation");
+  const occ = cards.find(c => c.key === "coworking_status");
+
+  // Cadran : anneau extérieur = occupation des espaces, anneau intérieur = progression de
+  // niveau (points) ; le disque central reprend le statut de réservation du jour.
+  const rOuter = 92, rInner = 72;
+  const cOuter = 2 * Math.PI * rOuter, cInner = 2 * Math.PI * rInner;
+  const occPct = occ && occ.data && occ.data.total ? Math.round((occ.data.total - occ.data.free) / occ.data.total * 100) : 0;
+  const ptsPct = levelProgress(state.profile.total_points);
+  const focal = resa && resa.data
+    ? { tag: resa.data.checked_in ? "Présence confirmée ✓" : "Réservé", desk: "Poste " + resa.data.desk, meta: slotLabel(resa.data.slot) }
+    : { tag: "Aujourd'hui", desk: "Pas encore réservé", meta: "" };
+
+  view.innerHTML = `
+      <div class="hero-banner">
+        <svg class="hb-aperture" viewBox="0 0 400 400" aria-hidden="true" focusable="false">
+          <g class="hb-aperture-rings">
+            <circle cx="200" cy="200" r="196" fill="none" stroke="#ffffff" stroke-opacity=".05" stroke-width="1.5"/>
+            <circle cx="200" cy="200" r="156" fill="none" stroke="#4FB3D9" stroke-opacity=".12" stroke-width="1.5" stroke-dasharray="20 16"/>
+            <circle cx="200" cy="200" r="116" fill="none" stroke="#1E8AB8" stroke-opacity=".18" stroke-width="2" stroke-dasharray="34 12"/>
+            <circle cx="200" cy="200" r="76" fill="none" stroke="#A9D4E8" stroke-opacity=".22" stroke-width="2"/>
+          </g>
+        </svg>
+        <div class="hb-top">
+          <div>
+            <div class="hb-greet"><span class="hb-muted">Bonjour</span><br><span class="hb-name">${firstName(state.profile.name)}</span></div>
+            <div class="hb-status"><span class="hb-dot"></span>Connecté · SSO EyeD</div>
+          </div>
+          <div class="hb-dial" id="hbDial" ${resa ? 'data-go="reserver" tabindex="0" role="button" aria-label="Modifier ma réservation"' : ""}>
+            <svg viewBox="0 0 200 200">
+              <circle class="hb-dial-track" cx="100" cy="100" r="${rOuter}"/>
+              <circle class="hb-dial-arc" cx="100" cy="100" r="${rOuter}" stroke="#4FB3D9"
+                      stroke-dasharray="${cOuter.toFixed(1)}" stroke-dashoffset="${ringOffset(cOuter, occPct)}"/>
+              <circle class="hb-dial-track" cx="100" cy="100" r="${rInner}"/>
+              <circle class="hb-dial-arc" cx="100" cy="100" r="${rInner}" stroke="#F59E0B"
+                      stroke-dasharray="${cInner.toFixed(1)}" stroke-dashoffset="${ringOffset(cInner, ptsPct)}"/>
+            </svg>
+            <span class="hb-dial-legend l1">Occupation ${occPct}%</span>
+            <span class="hb-dial-legend l2">Niveau ${ptsPct}%</span>
+            <div class="hb-dial-focal">
+              <span class="eb">${focal.tag}</span>
+              <span class="val">${focal.desk}</span>
+              ${focal.meta ? `<span class="sub">${focal.meta}</span>` : ""}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dash-grid" id="dashGrid">${cards.map(c => renderCard(c)).join("") || `<div class="empty">Aucune carte activée.</div>`}</div>`;
   wireDashboard(today);
+  const dial = document.getElementById("hbDial");
+  if (dial) { dial.addEventListener("click", () => goTo("reserver")); dial.addEventListener("keydown", e => { if (e.key === "Enter") goTo("reserver"); }); }
 }
 
 function renderCard(c) {

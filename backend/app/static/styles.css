@@ -10,6 +10,7 @@
   --blue-700: #004D74;
   --blue-900: #06364B;
   --navy: #0F2836;
+  --navy-2: #04141D;
   --blue-050: #E7EFF7;
   --blue-100: #CFE0EE;
   --ink: #16232C;
@@ -158,53 +159,106 @@ button, input { font-family: inherit; }
 .status-dot { position: absolute; bottom: -1px; right: -1px; width: 11px; height: 11px; border-radius: 999px; background: var(--green); border: 2px solid var(--card); }
 .view { padding: 14px 16px 40px; }
 
-/* Barre d'onglets mobile */
+/* Barre d'onglets mobile : même rail sombre que la sidebar desktop (identité EyeD cohérente
+   entre les deux formats), anneau autour de l'icône active au lieu d'un simple texte bleu. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; height: var(--tabbar-h);
-  background: #fff; border-top: 1px solid var(--line); display: flex;
+  background: var(--navy-2); border-top: 1px solid rgba(255,255,255,.08); display: flex;
   padding-bottom: env(safe-area-inset-bottom, 0);
-  box-shadow: 0 -2px 12px rgba(15,35,51,.05);
+  box-shadow: 0 -8px 24px -8px rgba(0,0,0,.35);
 }
-.tab-link { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .66rem; font-weight: 600; padding: 6px 2px; border: none; background: none; font-family: inherit; cursor: pointer; }
-.tab-link .ic { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.tab-link.active { color: var(--blue); }
+.tab-link { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: rgba(255,255,255,.45); font-size: .66rem; font-weight: 600; padding: 6px 2px; border: none; background: none; font-family: inherit; cursor: pointer; transition: color .15s ease; }
+.tab-ic { position: relative; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; }
+.tab-link .ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tab-link.active { color: #fff; }
+.tab-link.active .tab-ic::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid #4FB3D9;
+}
 
 /* ---------------- Cartes génériques ---------------- */
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow-1); }
+/* Panneau (pas d'ombre, filet fin) — cohérent sur toutes les pages, pas seulement l'accueil. */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: none; transition: border-color .18s ease; }
 .grid { display: grid; gap: 16px; }
 .empty { color: var(--muted); font-size: .88rem; }
 .link-more { color: var(--blue); font-weight: 600; font-size: .85rem; text-decoration: none; cursor: pointer; }
 button.link-more { border: none; background: none; padding: 0; font-family: inherit; text-align: left; }
 
 /* ---------------- Accueil (dashboard) ---------------- */
-.hero-banner { background: linear-gradient(135deg, var(--navy), #0A4A6B); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; color: #fff; }
-.hb-greet { font-size: 1.2rem; font-weight: 800; letter-spacing: -.02em; }
-.hb-muted { color: #9AC0D4; font-weight: 500; font-size: 1rem; }
-.hb-status { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: #7EC8E3; font-size: .78rem; font-weight: 600; }
+/* Bannière d'accueil : reprend le motif "aperture" (anneaux concentriques) de l'écran de
+   connexion — jusqu'ici invisible une fois connecté — pour ancrer visuellement l'identité
+   EyeD (œil + ID) au cœur du tableau de bord, pas seulement sur la page de login. */
+.hero-banner {
+  position: relative; overflow: hidden;
+  background: radial-gradient(circle at 82% 12%, rgba(79,179,217,.16), transparent 46%), linear-gradient(155deg, var(--navy) 0%, var(--navy-2) 120%);
+  border-radius: var(--radius); padding: 30px 26px 34px; margin-bottom: 16px; color: #fff;
+}
+.hb-aperture { position: absolute; top: 50%; right: -60px; transform: translateY(-50%); width: min(70vw, 320px); height: min(70vw, 320px); pointer-events: none; }
+.hb-aperture-rings { transform-origin: 200px 200px; animation: hb-aperture-spin 160s linear infinite; }
+@keyframes hb-aperture-spin { to { transform: rotate(360deg); } }
+.hb-greet { position: relative; font-family: var(--font-heading); font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 700; letter-spacing: -.02em; line-height: 1.08; }
+.hb-muted { color: #9AC0D4; font-weight: 500; font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; }
+.hb-status { position: relative; display: flex; align-items: center; gap: 6px; margin-top: 14px; color: #7EC8E3; font-size: .78rem; font-weight: 600; }
 .hb-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+
+/* Cadran : occupation (anneau ext.) + progression de niveau (anneau int.), disque central =
+   statut de réservation du jour. Repris de la maquette, alimenté par les données réelles du
+   dashboard (cartes next_reservation / coworking_status), sans dépendre de leur activation admin. */
+.hb-top { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.hb-dial { position: relative; width: 148px; height: 148px; flex-shrink: 0; cursor: pointer; }
+.hb-dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.hb-dial-track { fill: none; stroke: rgba(255,255,255,.1); stroke-width: 2; }
+.hb-dial-arc { fill: none; stroke-width: 2; stroke-linecap: round; transition: stroke-dashoffset .8s cubic-bezier(.16,1,.3,1); }
+.hb-dial-focal {
+  position: absolute; inset: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #4FB3D9, var(--blue) 55%, var(--blue-700) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 14px 30px -10px rgba(0,0,0,.55);
+  transition: transform .18s ease;
+}
+.hb-dial:hover .hb-dial-focal { transform: scale(1.03); }
+.hb-dial-focal .eb { font-size: .56rem; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.8); }
+.hb-dial-focal .val { font-family: var(--font-heading); font-weight: 700; font-size: .92rem; color: #fff; margin-top: 2px; line-height: 1.15; padding: 0 6px; }
+.hb-dial-focal .sub { font-size: .62rem; color: rgba(255,255,255,.8); }
+.hb-dial-legend { position: absolute; font-size: .56rem; text-transform: uppercase; letter-spacing: .05em; color: rgba(255,255,255,.5); white-space: nowrap; }
+.hb-dial-legend.l1 { top: 4px; left: 50%; transform: translateX(-50%); }
+.hb-dial-legend.l2 { bottom: 2px; right: 2px; }
 .stat-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-1); }
-.stat .label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
-.stat .value { font-size: 1.2rem; font-weight: 600; margin-top: 4px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: none; }
+.stat .label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.stat .value { font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .stat .value.blue { color: var(--blue); }
 .status-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .dash-cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 6px; }
 
 /* ---------------- Accueil : grille de cartes ---------------- */
-.dash-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; align-items: start; grid-auto-flow: dense; }
-.dash-card { display: flex; flex-direction: column; gap: 4px; }
+/* align-items: stretch (pas start) : les cartes d'une même rangée s'étirent à la hauteur de
+   la plus grande du lot, pour que leurs bords bas s'alignent au lieu de laisser un flottement. */
+.dash-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 14px; align-items: stretch; grid-auto-flow: dense; }
+/* Panneau plutôt que carte à ombre : filet fin, pas d'ombre — les cartes se distinguent
+   par leur bordure et leur respiration interne, pas par un empilement de niveaux de gris. */
+.dash-card {
+  display: flex; flex-direction: column; gap: 4px; justify-content: space-between;
+  box-shadow: none; border-radius: 20px; padding: 22px 20px;
+  transition: border-color .18s ease, transform .18s ease;
+}
+.dash-card:hover { border-color: #CBD5DC; transform: translateY(-1px); }
 .dash-card.highlight { border-color: var(--blue); background: linear-gradient(180deg, var(--blue-050), #fff); }
-.card-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
-.card-value { font-size: 1.18rem; font-weight: 600; margin-top: 4px; }
-.card-value.blue { color: var(--blue); } .card-value .muted { color: var(--muted); font-size: .88rem; font-weight: 400; }
+.card-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.card-value { font-family: var(--font-heading); font-size: 1.7rem; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.card-value.blue { color: var(--blue); } .card-value .muted { color: var(--muted); font-size: .85rem; font-weight: 500; font-family: var(--font); }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .card-head h3 { font-size: .96rem; }
-.mini-bar { height: 7px; background: #E9EEF3; border-radius: 999px; overflow: hidden; margin: 10px 0 12px; }
-.mini-bar i { display: block; height: 100%; background: var(--blue); border-radius: 999px; }
+.mini-bar { height: 6px; background: var(--blue-050); border-radius: 999px; overflow: hidden; margin: 12px 0 12px; }
+.mini-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #4FB3D9); border-radius: 999px; }
 .proj-label { font-size: .98rem; font-weight: 600; margin: 6px 0 12px; }
-.progress { height: 12px; background: #E9EEF3; border-radius: 999px; overflow: hidden; }
-.progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); border-radius: 999px; transition: width .4s ease; }
-.proj-pct { text-align: right; font-weight: 700; color: var(--blue); margin-top: 6px; font-size: .9rem; }
+/* Jalon projet : un filet + curseur plutôt qu'une barre pleine encadrée. */
+.progress { position: relative; height: 1px; background: var(--blue-050); overflow: visible; margin: 22px 4px 8px; }
+.progress i { position: relative; display: block; height: 100%; background: var(--blue); transition: width .4s ease; }
+.progress i::after {
+  content: ""; position: absolute; top: 50%; right: -6px; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--blue); transform: translateY(-50%); box-shadow: 0 0 0 5px var(--blue-050);
+}
+.proj-pct { text-align: right; font-family: var(--font-heading); font-weight: 700; color: var(--blue); margin-top: 0; font-size: 1.3rem; }
 
 /* ---------------- Statut segmenté (accueil) ---------------- */
 .status-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: #F1F5F9; border-radius: 14px; padding: 6px; margin-top: 6px; }
@@ -234,10 +288,12 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .banner-eyebrow { font-size: .68rem; font-weight: 700; color: #7EC8E3; text-transform: uppercase; letter-spacing: .08em; }
 .banner-title { font-size: 1.15rem; font-weight: 800; margin-top: 4px; }
 .banner-progress { margin-top: 16px; position: relative; }
-.bp-row { display: flex; justify-content: space-between; font-size: .8rem; font-weight: 600; color: #CBD5E1; margin-bottom: 6px; }
-.bp-pct { color: #7EC8E3; font-weight: 700; }
+.bp-row { display: flex; justify-content: space-between; align-items: baseline; font-size: .8rem; font-weight: 600; color: #CBD5E1; margin-bottom: 6px; }
+.bp-pct { color: #7EC8E3; font-weight: 700; font-family: var(--font-heading); font-size: 1.3rem; font-variant-numeric: tabular-nums; }
 .banner-card .progress { background: rgba(255,255,255,.15); }
-.banner-card .progress i { background: linear-gradient(90deg, #1E8AB8, #7EC8E3); }
+.banner-card .progress i { background: #7EC8E3; }
+.banner-card .progress i::after { background: #7EC8E3; box-shadow: 0 0 0 5px rgba(126,200,227,.22); }
+.banner-card .proj-pct { color: #7EC8E3; }
 
 /* ---------------- Collègues présents ---------------- */
 .badge-count { font-size: .7rem; font-weight: 700; color: var(--green); background: var(--green-050); padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
@@ -254,6 +310,20 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .ev-datebox span { font-size: .62rem; font-weight: 700; color: var(--red); text-transform: uppercase; }
 .ev-datebox b { font-size: 1.1rem; font-weight: 800; color: var(--navy); line-height: 1; }
 .ev-title { font-size: .88rem; font-weight: 700; color: var(--navy); }
+
+/* Événements dans le tableau de bord : numéraux géants + filets, pas de boîte —
+   traitement propre au dashboard ; la page Événements garde son style habituel. */
+.dash-card .event-list { gap: 0; }
+.dash-card .event-row {
+  background: none; border: none; border-radius: 0; padding: 18px 0; gap: 20px;
+  border-top: 1px solid var(--line);
+}
+.dash-card .event-row:first-child { border-top: none; padding-top: 0; }
+.dash-card .ev-datebox {
+  width: auto; height: auto; background: none; border: none; align-items: flex-end; flex-direction: column;
+}
+.dash-card .ev-datebox span { font-size: .6rem; color: var(--muted); letter-spacing: .06em; }
+.dash-card .ev-datebox b { font-family: var(--font-heading); font-size: 2.1rem; font-weight: 700; color: var(--blue-100); font-variant-numeric: tabular-nums; }
 .ev-status-badge { display: inline-block; margin-top: 4px; font-size: .68rem; font-weight: 700; color: var(--green); background: var(--green-050); padding: 2px 8px; border-radius: 999px; }
 .ev-status-badge.waitlisted { color: #92600A; background: var(--amber-050); }
 
@@ -533,6 +603,10 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .side-cards h3 { font-size: .94rem; margin-bottom: 10px; }
 .res-item, .pres-item, .event-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 11px; }
 .list { display: flex; flex-direction: column; gap: 8px; }
+/* Dans le dashboard : filets au lieu de boîtes, cohérent avec .dash-card .event-row. */
+.dash-card .list { gap: 0; }
+.dash-card .event-item { border: none; border-radius: 0; padding: 13px 0; border-top: 1px solid var(--line); background: none; }
+.dash-card .event-item:first-child { border-top: none; padding-top: 0; }
 .res-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; }
 .res-item .info { min-width: 0; } .res-item .info b { font-size: .88rem; } .res-item .info small { color: var(--muted); }
 .res-item .cancel { border: none; background: var(--red-050); color: var(--red); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; flex-shrink: 0; }
@@ -548,7 +622,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 
 /* ---------------- Événements (page) ---------------- */
 .events-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.event-card { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-1); cursor: pointer; transition: transform .12s ease, border-color .12s ease; }
+.event-card { display: flex; flex-direction: column; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: none; cursor: pointer; transition: transform .12s ease, border-color .12s ease; }
 .event-card:hover { transform: translateY(-2px); border-color: var(--blue); }
 .event-card .ec-date { display: inline-flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 600; color: var(--blue); background: var(--blue-050); padding: 4px 10px; border-radius: 999px; align-self: flex-start; }
 .event-card .ec-title { font-size: .96rem; font-weight: 600; line-height: 1.35; }
@@ -558,7 +632,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .btn-back { background: none; border: none; color: var(--blue); font-family: inherit; font-weight: 600; font-size: .88rem; cursor: pointer; padding: 4px 0; margin-bottom: 14px; }
 #statusConflictSheet .btn-back { display: block; width: 100%; text-align: center; margin: 12px 0 0; color: var(--muted); }
 .detail-wrap { max-width: 780px; margin: 0 auto; }
-.event-detail { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-1); }
+.event-detail { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: none; }
 .event-detail .ec-date { display: inline-flex; align-items: center; font-size: .74rem; font-weight: 600; color: var(--blue); background: var(--blue-050); padding: 4px 12px; border-radius: 999px; }
 .event-detail .ed-title { font-size: 1.28rem; margin: 12px 0 14px; line-height: 1.28; }
 .event-detail .ed-hero { width: 100%; border-radius: var(--radius-sm); margin-bottom: 16px; display: block; }
@@ -645,9 +719,36 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 }
 
 @media (min-width: 900px) {
-  .app { display: grid; grid-template-columns: 248px 1fr; }
-  .sidebar { position: sticky; top: 0; height: 100vh; width: auto; max-width: none; transform: none; box-shadow: none; transition: none; }
+  .app { display: grid; grid-template-columns: 76px 1fr; }
+  .sidebar {
+    position: sticky; top: 0; height: 100vh; width: auto; max-width: none; transform: none; box-shadow: none; transition: none;
+    background: var(--navy-2); align-items: center; padding: 22px 0;
+  }
   .sidebar::after { display: none; }
+  /* Rail à icônes : le logo pleine largeur ne rentre pas à 76px — un repère minimal le remplace ici,
+     le vrai logo reste visible partout où il y a la place (connexion, tiroir mobile). */
+  .sidebar .brand { display: none; }
+  .rail-mark {
+    width: 34px; height: 34px; border-radius: 50%; margin-bottom: 28px; flex-shrink: 0;
+    border: 1.5px solid rgba(79,179,217,.55); display: flex; align-items: center; justify-content: center;
+  }
+  .rail-mark::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #4FB3D9; box-shadow: 0 0 10px 1px rgba(79,179,217,.7); }
+  .nav { align-items: center; gap: 4px; overflow: visible; }
+  .nav-link { justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: 50%; position: relative; }
+  .nav-link .nav-label {
+    position: absolute; left: 56px; top: 50%; transform: translateY(-50%);
+    background: var(--navy-2); color: #fff; font-size: .78rem; font-weight: 600; padding: 6px 12px;
+    border-radius: 8px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    box-shadow: 0 8px 20px -6px rgba(0,0,0,.5);
+  }
+  .nav-link:hover .nav-label, .nav-link:focus-visible .nav-label { opacity: 1; }
+  .nav-link:hover { background: rgba(255,255,255,.08); }
+  .nav-link.active { background: transparent; color: #fff; }
+  .nav-link.active::before {
+    content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid #4FB3D9;
+  }
+  .side-user { flex-direction: column; border-top: none; margin-top: auto; padding: 14px 0 0; gap: 10px; }
+  .side-user .su-info { display: none; }
   .mobile-menu-btn, .tabbar, .menu-only-mobile { display: none; }
   .main { padding-bottom: 0; }
   .topbar { padding: 18px 32px; background: transparent; backdrop-filter: none; border-bottom: 1px solid var(--line); position: static; }

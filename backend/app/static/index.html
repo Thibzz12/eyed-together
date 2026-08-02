@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=43">
+  <link rel="stylesheet" href="/static/styles.css?v=46">
 </head>
 <body>
 
@@ -46,25 +46,26 @@
   <div id="app" class="app hidden">
     <aside class="sidebar">
       <div class="brand"><img src="/static/img/logo.jpg" alt="EyeD Pharma"></div>
+      <div class="rail-mark" aria-hidden="true"></div>
       <nav class="nav" id="nav">
-        <a data-route="accueil" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg> Accueil</a>
-        <a data-route="reserver" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg> Réserver une place</a>
-        <a data-route="evenements" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg> Événements</a>
-        <a data-route="presence" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg> Ma présence</a>
-        <a data-route="idees" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.4 1 1.1 1 1.8v.5h6v-.5c0-.7.4-1.4 1-1.8A7 7 0 0 0 12 2z"/></svg> Boîte à idées</a>
-        <a data-route="quiz" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg> Quiz</a>
-        <a data-route="medias" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3z"/><path d="M8 21h8"/></svg> Médias</a>
-        <a data-route="profil" class="nav-link">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Mon profil</a>
-        <a data-route="admin" class="nav-link nav-admin hidden">
-          <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.3-2.5h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg> Administration</a>
+        <a data-route="accueil" class="nav-link" title="Accueil">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span class="nav-label">Accueil</span></a>
+        <a data-route="reserver" class="nav-link" title="Réserver une place">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg><span class="nav-label">Réserver une place</span></a>
+        <a data-route="evenements" class="nav-link" title="Événements">
+          <svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span class="nav-label">Événements</span></a>
+        <a data-route="presence" class="nav-link" title="Ma présence">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg><span class="nav-label">Ma présence</span></a>
+        <a data-route="idees" class="nav-link" title="Boîte à idées">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.4 1 1.1 1 1.8v.5h6v-.5c0-.7.4-1.4 1-1.8A7 7 0 0 0 12 2z"/></svg><span class="nav-label">Boîte à idées</span></a>
+        <a data-route="quiz" class="nav-link" title="Quiz">
+          <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg><span class="nav-label">Quiz</span></a>
+        <a data-route="medias" class="nav-link" title="Médias">
+          <svg viewBox="0 0 24 24" class="ic"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3z"/><path d="M8 21h8"/></svg><span class="nav-label">Médias</span></a>
+        <a data-route="profil" class="nav-link" title="Mon profil">
+          <svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="nav-label">Mon profil</span></a>
+        <a data-route="admin" class="nav-link nav-admin hidden" title="Administration">
+          <svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.3-2.5h-4l-.3 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.3 2.5h4l.3-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg><span class="nav-label">Administration</span></a>
       </nav>
       <div class="side-user">
         <div class="avatar" id="avatar">–</div>
@@ -106,15 +107,15 @@
   <!-- Barre d'onglets mobile -->
   <nav class="tabbar hidden" id="tabbar">
     <a data-route="accueil" class="tab-link">
-      <svg viewBox="0 0 24 24" class="ic"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span>Accueil</span></a>
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></span><span>Accueil</span></a>
     <a data-route="reserver" class="tab-link">
-      <svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg><span>Réserver</span></a>
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg></span><span>Réserver</span></a>
     <a data-route="evenements" class="tab-link">
-      <svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>Événements</span></a>
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span>Événements</span></a>
     <a data-route="presence" class="tab-link">
-      <svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg><span>Présence</span></a>
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg></span><span>Présence</span></a>
     <a data-route="profil" class="tab-link">
-      <svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profil</span></a>
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span>Profil</span></a>
   </nav>
 
   <!-- Feuille de réservation (vue Réserver) -->
@@ -195,6 +196,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=47"></script>
+  <script src="/static/app.js?v=49"></script>
 </body>
 </html>
