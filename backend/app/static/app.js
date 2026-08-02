@@ -115,7 +115,13 @@ function initLoginScene() {
     canvas.width = w * dpr; canvas.height = h * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  window.addEventListener("resize", resize);
+  // ResizeObserver plutôt qu'un simple appel + listener "resize" : au premier affichage,
+  // la section #login peut ne pas encore avoir sa taille finale au moment où ce script
+  // tourne (fonts pas encore prêtes, mise en page pas encore stabilisée) — clientWidth/
+  // Height lu trop tôt vaut alors 0 et la scène ne dessine jamais rien (jusqu'à un
+  // rechargement qui, par hasard de timing, évite la course). Le ResizeObserver se
+  // redéclenche dès que la taille réelle est connue, quelle que soit la cause du retard.
+  new ResizeObserver(() => { resize(); if (reduceMotion) draw(0); }).observe(canvas);
   resize();
 
   // Fibres d'iris : longueur/épaisseur/opacité irrégulières pour un rendu organique,
@@ -144,6 +150,7 @@ function initLoginScene() {
   const t0 = performance.now();
 
   function draw(dt) {
+    if (!w || !h) return; // taille pas encore connue (voir ResizeObserver ci-dessus)
     // Centre décalé en haut à droite : l'œil déborde du cadre, visible en marge du
     // contenu plutôt que caché dessous — c'est l'illustration qui donne le ton, pas
     // un fond décoratif qu'on ne remarque pas.
