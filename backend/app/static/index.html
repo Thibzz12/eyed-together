@@ -6,27 +6,13 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=49">
+  <link rel="stylesheet" href="/static/styles.css?v=50">
 </head>
 <body>
 
   <!-- ============== CONNEXION ============== -->
   <section id="login" class="login hidden">
-    <svg class="login-aperture" viewBox="0 0 400 400" aria-hidden="true" focusable="false">
-      <g class="login-aperture-rings">
-        <circle cx="200" cy="200" r="196" fill="none" stroke="#ffffff" stroke-opacity=".05" stroke-width="1.5"/>
-        <circle cx="200" cy="200" r="156" fill="none" stroke="#4FB3D9" stroke-opacity=".10" stroke-width="1.5" stroke-dasharray="20 16"/>
-        <circle cx="200" cy="200" r="116" fill="none" stroke="#1E8AB8" stroke-opacity=".16" stroke-width="2" stroke-dasharray="34 12"/>
-        <circle cx="200" cy="200" r="76" fill="none" stroke="#A9D4E8" stroke-opacity=".2" stroke-width="2"/>
-      </g>
-      <circle cx="200" cy="200" r="30" fill="url(#login-aperture-glow)"/>
-      <defs>
-        <radialGradient id="login-aperture-glow" cx="35%" cy="30%" r="70%">
-          <stop offset="0%" stop-color="#4FB3D9" stop-opacity=".35"/>
-          <stop offset="100%" stop-color="#00608D" stop-opacity="0"/>
-        </radialGradient>
-      </defs>
-    </svg>
+    <canvas id="loginScene" class="login-scene" aria-hidden="true"></canvas>
     <div class="login-content">
       <div class="login-badge"><img src="/static/img/logo.jpg" alt="EyeD Pharma"></div>
       <div class="login-middle">
@@ -36,7 +22,6 @@
         </div>
         <div class="login-actions">
           <a class="btn btn-primary" href="/auth/wordpress-start">Se connecter avec mon compte EyeD</a>
-          <a class="btn btn-ghost" href="/auth/dev-login">Essayer en démo</a>
         </div>
       </div>
     </div>
@@ -199,6 +184,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=52"></script>
+  <script src="/static/app.js?v=53"></script>
 </body>
 </html>

@@ -94,6 +94,99 @@ function ringOffset(circumference, pct) {
   return (circumference * (1 - Math.min(100, Math.max(0, pct)) / 100)).toFixed(1);
 }
 
+/* ---------------- Connexion : scène de fond animée (canvas) ----------------
+   Anneaux d'aperture + lamelles d'iris + constellation de particules — reprend le motif
+   optique de la marque (EyeD = œil), en beaucoup plus élaboré qu'un simple SVG statique.
+   Ne démarre qu'à l'affichage de l'écran de connexion (jamais pour un utilisateur déjà
+   connecté), et respecte prefers-reduced-motion (une seule image fixe, pas de boucle). */
+function initLoginScene() {
+  const canvas = document.getElementById("loginScene");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let w = 0, h = 0;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = canvas.clientWidth; h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // Constellation : profondeur simulée par la taille/vitesse (plus petit = plus loin = plus lent).
+  const particles = Array.from({ length: 70 }, () => ({
+    x: Math.random(), y: Math.random(),
+    r: Math.random() * 1.6 + .4,
+    phase: Math.random() * Math.PI * 2,
+    base: Math.random() * .5 + .25,
+  }));
+  const RINGS = [
+    { r: .50, lw: 1,   dash: [],       speed:  .00002, op: .06, color: "255,255,255" },
+    { r: .40, lw: 1.2, dash: [3, 14],  speed:  .00005, op: .14, color: "79,179,217" },
+    { r: .30, lw: 1.6, dash: [16, 10], speed: -.00004, op: .20, color: "30,138,184" },
+    { r: .21, lw: 1.4, dash: [2, 6],   speed:  .00008, op: .28, color: "169,212,232" },
+    { r: .13, lw: 1,   dash: [],       speed: -.00006, op: .35, color: "79,179,217" },
+  ];
+  const IRIS_BLADES = 10;
+  const t0 = performance.now();
+
+  function draw(dt) {
+    const cx = w * .5, cy = h * .4;
+    const scale = Math.min(w, h) * .95;
+    ctx.clearRect(0, 0, w, h);
+
+    // Halo central, respire doucement.
+    const pulse = reduceMotion ? 1 : .88 + Math.sin(dt * .0006) * .12;
+    const glowR = scale * .22 * pulse;
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+    glow.addColorStop(0, "rgba(79,179,217,.35)");
+    glow.addColorStop(1, "rgba(0,96,141,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
+
+    // Anneaux concentriques, chacun tourne à sa propre vitesse/sens.
+    RINGS.forEach(ring => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(reduceMotion ? 0 : dt * ring.speed);
+      ctx.setLineDash(ring.dash);
+      ctx.strokeStyle = `rgba(${ring.color},${ring.op})`;
+      ctx.lineWidth = ring.lw;
+      ctx.beginPath(); ctx.arc(0, 0, scale * ring.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    });
+
+    // Lamelles d'iris (clin d'œil optique EyeD).
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(reduceMotion ? 0 : dt * .00003);
+    ctx.strokeStyle = "rgba(169,212,232,.3)"; ctx.lineWidth = 1.5;
+    for (let i = 0; i < IRIS_BLADES; i++) {
+      const a = (i / IRIS_BLADES) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * scale * .1, Math.sin(a) * scale * .1);
+      ctx.lineTo(Math.cos(a) * scale * .16, Math.sin(a) * scale * .16);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Constellation de particules (dérive + scintillement discrets).
+    particles.forEach(p => {
+      const drift = reduceMotion ? 0 : Math.sin(dt * .00018 + p.phase) * .012;
+      const x = (p.x + drift) * w, y = (p.y + drift * .6) * h;
+      const twinkle = reduceMotion ? p.base : p.base * (.6 + Math.sin(dt * .0015 + p.phase) * .4);
+      ctx.beginPath(); ctx.arc(x, y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${twinkle})`;
+      ctx.fill();
+    });
+  }
+
+  if (reduceMotion) { draw(0); return; }
+  (function frame(t) { draw(t - t0); requestAnimationFrame(frame); })(t0);
+}
+
 /* ---------------- Démarrage ---------------- */
 async function init() {
   // /api/profile, /api/statuses et /api/reservation-policy sont indépendants : lancés en
@@ -102,7 +195,7 @@ async function init() {
   const [{ ok, data }, st, pol] = await Promise.all([
     api("/api/profile"), api("/api/statuses"), api("/api/reservation-policy"),
   ]);
-  if (!ok) { document.getElementById("login").classList.remove("hidden"); return; }
+  if (!ok) { document.getElementById("login").classList.remove("hidden"); initLoginScene(); return; }
   state.profile = data;
   state.statusCatalog = (st.data && st.data.catalog) || [];
   state.advanceDays = (pol.data && pol.data.advance_days) || 7;
