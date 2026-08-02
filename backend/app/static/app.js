@@ -95,10 +95,13 @@ function ringOffset(circumference, pct) {
 }
 
 /* ---------------- Connexion : scène de fond animée (canvas) ----------------
-   Anneaux d'aperture + lamelles d'iris + constellation de particules — reprend le motif
-   optique de la marque (EyeD = œil), en beaucoup plus élaboré qu'un simple SVG statique.
-   Ne démarre qu'à l'affichage de l'écran de connexion (jamais pour un utilisateur déjà
-   connecté), et respecte prefers-reduced-motion (une seule image fixe, pas de boucle). */
+   Un œil dessiné comme un schéma d'instrument de précision (iris à fibres radiales,
+   pupille avec reflet, anneaux de mesure gradués, balayage façon scanner rétinien) —
+   clin d'œil direct au métier d'EyeD Pharma (implants et dispositifs ophtalmiques),
+   très au-dessus d'un simple motif décoratif. Positionné en débord pour rester visible
+   même derrière/autour du contenu, et beaucoup plus contrasté qu'une version précédente
+   trop discrète. Ne démarre qu'à l'affichage de l'écran de connexion, et respecte
+   prefers-reduced-motion (une seule image fixe, pas de boucle). */
 function initLoginScene() {
   const canvas = document.getElementById("loginScene");
   if (!canvas) return;
@@ -115,38 +118,49 @@ function initLoginScene() {
   window.addEventListener("resize", resize);
   resize();
 
-  // Constellation : profondeur simulée par la taille/vitesse (plus petit = plus loin = plus lent).
-  const particles = Array.from({ length: 70 }, () => ({
-    x: Math.random(), y: Math.random(),
-    r: Math.random() * 1.6 + .4,
-    phase: Math.random() * Math.PI * 2,
-    base: Math.random() * .5 + .25,
+  // Fibres d'iris : longueur/épaisseur/opacité irrégulières pour un rendu organique,
+  // générées une fois (pas à chaque frame) pour rester stables pendant la rotation.
+  const FIBER_COUNT = 130;
+  const fibers = Array.from({ length: FIBER_COUNT }, () => ({
+    a: Math.random() * Math.PI * 2,
+    len: .62 + Math.random() * .38,
+    lw: .6 + Math.random() * 1.3,
+    op: .18 + Math.random() * .3,
   }));
+  // Anneaux de mesure façon diagramme de lentille intraoculaire (gradués, comme un
+  // instrument optique) : chacun tourne à sa propre vitesse pour suggérer un scanner.
   const RINGS = [
-    { r: .50, lw: 1,   dash: [],       speed:  .00002, op: .06, color: "255,255,255" },
-    { r: .40, lw: 1.2, dash: [3, 14],  speed:  .00005, op: .14, color: "79,179,217" },
-    { r: .30, lw: 1.6, dash: [16, 10], speed: -.00004, op: .20, color: "30,138,184" },
-    { r: .21, lw: 1.4, dash: [2, 6],   speed:  .00008, op: .28, color: "169,212,232" },
-    { r: .13, lw: 1,   dash: [],       speed: -.00006, op: .35, color: "79,179,217" },
+    { r: .82, lw: 1,   dash: [1, 9],   speed:  .00001, op: .16, color: "169,212,232", ticks: 48 },
+    { r: .63, lw: 1,   dash: [],       speed: -.000015,op: .22, color: "79,179,217",  ticks: 0  },
+    { r: .40, lw: 1.4, dash: [2, 7],   speed:  .00003, op: .30, color: "255,255,255", ticks: 24 },
   ];
-  const IRIS_BLADES = 10;
+  // Particules : reflets flottants façon poussières en suspension dans un liquide oculaire.
+  const particles = Array.from({ length: 34 }, () => ({
+    x: Math.random(), y: Math.random(),
+    r: Math.random() * 2 + .6,
+    phase: Math.random() * Math.PI * 2,
+    base: Math.random() * .35 + .15,
+  }));
   const t0 = performance.now();
 
   function draw(dt) {
-    const cx = w * .5, cy = h * .4;
-    const scale = Math.min(w, h) * .95;
+    // Centre décalé en haut à droite : l'œil déborde du cadre, visible en marge du
+    // contenu plutôt que caché dessous — c'est l'illustration qui donne le ton, pas
+    // un fond décoratif qu'on ne remarque pas.
+    const cx = w * .78, cy = h * .30;
+    const scale = Math.max(w, h) * .62;
     ctx.clearRect(0, 0, w, h);
 
-    // Halo central, respire doucement.
-    const pulse = reduceMotion ? 1 : .88 + Math.sin(dt * .0006) * .12;
-    const glowR = scale * .22 * pulse;
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
-    glow.addColorStop(0, "rgba(79,179,217,.35)");
-    glow.addColorStop(1, "rgba(0,96,141,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
+    // Halo large derrière tout l'œil, pour détacher la forme du fond.
+    const haloR = scale * 1.05;
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, haloR);
+    halo.addColorStop(0, "rgba(30,138,184,.30)");
+    halo.addColorStop(.55, "rgba(10,74,107,.16)");
+    halo.addColorStop(1, "rgba(3,15,22,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(cx, cy, haloR, 0, Math.PI * 2); ctx.fill();
 
-    // Anneaux concentriques, chacun tourne à sa propre vitesse/sens.
+    // Anneaux de mesure gradués (diagramme d'instrument optique).
     RINGS.forEach(ring => {
       ctx.save();
       ctx.translate(cx, cy);
@@ -155,28 +169,78 @@ function initLoginScene() {
       ctx.strokeStyle = `rgba(${ring.color},${ring.op})`;
       ctx.lineWidth = ring.lw;
       ctx.beginPath(); ctx.arc(0, 0, scale * ring.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      if (ring.ticks) {
+        ctx.strokeStyle = `rgba(${ring.color},${ring.op * 1.3})`;
+        for (let i = 0; i < ring.ticks; i++) {
+          const a = (i / ring.ticks) * Math.PI * 2;
+          const long = i % 6 === 0;
+          const r1 = scale * ring.r - (long ? 10 : 5), r2 = scale * ring.r + (long ? 10 : 5);
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+          ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     });
 
-    // Lamelles d'iris (clin d'œil optique EyeD).
+    // Iris : fibres radiales denses, teinte bleu EyeD, rotation lente d'ensemble.
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(reduceMotion ? 0 : dt * .00003);
-    ctx.strokeStyle = "rgba(169,212,232,.3)"; ctx.lineWidth = 1.5;
-    for (let i = 0; i < IRIS_BLADES; i++) {
-      const a = (i / IRIS_BLADES) * Math.PI * 2;
+    ctx.rotate(reduceMotion ? 0 : dt * .000025);
+    const innerR = scale * .17, outerR = scale * .40;
+    fibers.forEach(f => {
+      const a = f.a;
+      const r1 = innerR, r2 = innerR + (outerR - innerR) * f.len;
+      const grad = ctx.createLinearGradient(Math.cos(a) * r1, Math.sin(a) * r1, Math.cos(a) * r2, Math.sin(a) * r2);
+      grad.addColorStop(0, `rgba(169,212,232,${f.op})`);
+      grad.addColorStop(1, `rgba(30,138,184,0)`);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = f.lw;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * scale * .1, Math.sin(a) * scale * .1);
-      ctx.lineTo(Math.cos(a) * scale * .16, Math.sin(a) * scale * .16);
+      ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
       ctx.stroke();
-    }
+    });
     ctx.restore();
 
-    // Constellation de particules (dérive + scintillement discrets).
+    // Pupille : noyau sombre + reflet spéculaire, comme une lentille précise.
+    const pupilR = scale * .155;
+    const pupilGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pupilR);
+    pupilGrad.addColorStop(0, "#020C12");
+    pupilGrad.addColorStop(.75, "#03141D");
+    pupilGrad.addColorStop(1, "rgba(79,179,217,.4)");
+    ctx.fillStyle = pupilGrad;
+    ctx.beginPath(); ctx.arc(cx, cy, pupilR, 0, Math.PI * 2); ctx.fill();
+    const catchPulse = reduceMotion ? 1 : .85 + Math.sin(dt * .0012) * .15;
+    const catchR = pupilR * .32 * catchPulse;
+    ctx.beginPath();
+    ctx.arc(cx - pupilR * .32, cy - pupilR * .32, catchR, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    ctx.fill();
+
+    // Balayage façon scanner rétinien : une ligne lumineuse tourne autour de l'iris,
+    // avec une traînée dégressive — mouvement net et évidemment intentionnel.
+    if (!reduceMotion) {
+      const sweepA = dt * .00045;
+      for (let i = 0; i < 18; i++) {
+        const a = sweepA - i * .045;
+        const op = (1 - i / 18) * .5;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * innerR, cy + Math.sin(a) * innerR);
+        ctx.lineTo(cx + Math.cos(a) * outerR, cy + Math.sin(a) * outerR);
+        ctx.strokeStyle = `rgba(255,255,255,${op})`;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+    }
+
+    // Reflets en suspension, discrets, sur toute la scène.
     particles.forEach(p => {
-      const drift = reduceMotion ? 0 : Math.sin(dt * .00018 + p.phase) * .012;
+      const drift = reduceMotion ? 0 : Math.sin(dt * .00016 + p.phase) * .01;
       const x = (p.x + drift) * w, y = (p.y + drift * .6) * h;
-      const twinkle = reduceMotion ? p.base : p.base * (.6 + Math.sin(dt * .0015 + p.phase) * .4);
+      const twinkle = reduceMotion ? p.base : p.base * (.6 + Math.sin(dt * .0013 + p.phase) * .4);
       ctx.beginPath(); ctx.arc(x, y, p.r, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255,255,255,${twinkle})`;
       ctx.fill();
