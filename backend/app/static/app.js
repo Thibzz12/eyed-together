@@ -193,6 +193,7 @@ const ROUTES = {
   quiz: { title: "Quiz", render: viewQuiz },
   medias: { title: "Médias", render: viewMedias },
   profil: { title: "Mon profil", render: viewProfil },
+  aide: { title: "Aide", render: viewAide },
   admin: { title: "Administration", render: viewAdmin },
 };
 let adminState = null;
@@ -2234,6 +2235,7 @@ function openMenuSheet() {
   const items = [
     { route: "idees", label: "Idées", icon: "💡" }, { route: "quiz", label: "Quiz", icon: "🧠" },
     { route: "medias", label: "Médias", icon: "🎬" }, { route: "recherche", label: "Recherche", icon: "🔍" },
+    { route: "aide", label: "Aide", icon: "❓" },
   ];
   if (state.profile.role === "admin") items.push({ route: "admin", label: "Administration", icon: "⚙️" });
   document.getElementById("menuGrid").innerHTML = items.map(e => `
@@ -2359,6 +2361,151 @@ async function loadLeaderboard(myId, period) {
     <div class="event-item leaderboard-row${r.id === myId ? " me" : ""}"><span class="event-date">#${i + 1}</span>
       <span class="event-title">${r.name}${r.id === myId ? " (toi)" : ""}</span><span class="ev-status-badge">${r.total_points} pts</span></div>`).join("")
     || `<div class="empty">Pas encore de classement.</div>`;
+}
+
+/* ============================================================
+   VUE : AIDE (guide pratique — comment utiliser l'app au quotidien)
+   ============================================================ */
+function viewAide() {
+  const isAdmin = state.profile.role === "admin";
+  const sections = [
+    {
+      id: "reserver",
+      q: "🪑 Réserver une place",
+      a: `<p>Choisis un jour puis clique sur un poste libre (vert) sur le plan. Trois durées possibles : <b>matin</b>, <b>après-midi</b> ou <b>journée</b> (par défaut, la plus simple si tu ne changes pas d'avis en cours de journée).</p>
+        <ul>
+          <li><b>Bureaux fermés</b> (Bureau 1/2) : réserve un poste individuel en cliquant sur un siège précis, ou "Réserver toute la salle" pour prendre toute la pièce d'un coup (pratique pour une réunion d'équipe) — bloqué si un seul poste de la salle est déjà pris, par n'importe qui.</li>
+          <li><b>Open space</b> : les postes marqués d'une icône (écran, debout, calme, fenêtre…) ont des caractéristiques particulières — survole ou clique un poste pour les voir avant de réserver.</li>
+          <li><b>Bulles calmes</b> (BC-1, BC-2) : pour un appel ou un moment de concentration. Réservables par <b>créneau horaire libre</b> (ex. 14h15–15h00), pas par demi-journée. Elles ne rapportent pas de points (pour éviter les réservations répétées juste pour farmer des points) et ne comptent pas dans le taux d'occupation affiché sur l'accueil.</li>
+          <li>Limites anti-abus, valables pour tout le monde : pas de réservation le week-end, un horizon maximum de jours à l'avance (visible en haut de la page "Réserver", réglé par l'admin), et un nombre maximum de jours ouvrés <b>consécutifs</b> réservés d'affilée.</li>
+          <li>Tu peux annuler une réservation à tout moment depuis "Mes réservations" (page Réserver) ou l'accueil.</li>
+        </ul>
+        <p><b>⚠️ Le jour J, clique "Je suis arrivé"</b> (bouton sur l'accueil ou dans "Mes réservations") une fois sur place. Une demi-journée réservée mais jamais confirmée devient un <b>no-show</b> : -10 points, automatiquement, sans rattrapage possible après coup.</p>
+        <p>💡 <b>Astuce</b> : si tu déclares le statut "Coworking" (voir section suivante) sans avoir encore réservé, l'app te le propose directement — pas besoin de changer d'écran.</p>`,
+    },
+    {
+      id: "presence",
+      q: "📋 Déclarer sa présence",
+      a: `<p>Dans "Ma présence" (ou directement sur l'accueil), indique ton statut <b>séparément pour le matin et l'après-midi</b> : coworking, télétravail, déplacement, congé — ou un statut personnalisé si l'admin en a ajouté un pour ton équipe.</p>
+        <p>Si tu changes de statut un jour où tu as déjà une réservation active, l'app te prévient et te laisse choisir : garder la réservation ou l'annuler avant d'enregistrer le nouveau statut. Rien n'est fait à ta place sans confirmation.</p>
+        <p>La page "Ma présence" affiche aussi un aperçu de ta semaine, pratique pour visualiser tes prochains jours d'un coup d'œil.</p>`,
+    },
+    {
+      id: "gamification",
+      q: "⭐ Points, niveaux et badges",
+      a: `<p>Ce que ça rapporte (ou coûte) concrètement :</p>
+        <ul>
+          <li>+10 points par réservation confirmée (validée dès la création, pas seulement au check-in) ; -10 en cas d'annulation ou de <b>no-show</b>.</li>
+          <li>+2 points par bonne réponse à un quiz (les sondages n'en rapportent pas, ils n'ont pas de bonne/mauvaise réponse).</li>
+          <li>+15 points bonus la première fois que tu débloques un badge.</li>
+        </ul>
+        <p>Les <b>niveaux</b> montent à l'infini (jamais de "fin de jeu") : plus tu progresses, plus le palier suivant demande de points, un peu comme dans un jeu à XP. Ta progression et le nombre de points qui te séparent du niveau suivant sont visibles sur ton Profil et dans le cadran de l'accueil.</p>
+        <p>Les <b>badges</b> récompensent des habitudes dans la durée (assiduité, présence sans faute, participation aux quiz, aux idées…). Certains ont plusieurs paliers (I, II, III, IV) qui se débloquent progressivement, plutôt qu'un seul badge figé.</p>
+        <p>Le <b>🔥 streak</b> (visible sur ton profil) compte tes jours ouvrés consécutifs avec un check-in confirmé — casse au premier oubli.</p>
+        <p>Deux classements existent : <b>général</b> (depuis toujours) et <b>mensuel</b> (remis à zéro chaque mois — une bonne raison de rester actif même après plusieurs mois d'usage).</p>`,
+    },
+    {
+      id: "evenements",
+      q: "📅 Événements",
+      a: `<p>Inscris-toi en un clic depuis "Événements" ou la carte "Événements à venir" de l'accueil. Si l'événement est complet, tu passes automatiquement en <b>liste d'attente</b> — dès qu'une place se libère (quelqu'un se désinscrit), la première personne en attente est promue automatiquement, sans action de ta part.</p>
+        <p>"+ Calendrier" télécharge un fichier <b>.ics</b> à ouvrir dans ton application de calendrier habituelle (Outlook, Google Calendar…) — pas d'intégration automatique dans ta messagerie, mais ça s'ouvre nativement partout.</p>
+        <p>Un rappel est envoyé automatiquement (notification in-app) la veille et le jour même d'un événement où tu es inscrit.</p>
+        <p><i>Limite connue</i> : la date affichée dépend de ce que l'intranet WordPress expose ; si un événement n'a pas de date précise renseignée côté intranet, l'app se rabat sur sa date de publication.</p>`,
+    },
+    {
+      id: "idees",
+      q: "💡 Boîte à idées",
+      a: `<p>Propose une idée (titre, description, catégorie libre), avec ou sans ton nom (case "Publier anonymement" — dans ce cas ton nom n'apparaît nulle part, même pas sur ton profil).</p>
+        <p>Vote pour les idées que tu soutiens (1 vote max par idée et par personne, la liste est triée par popularité) et commente pour enrichir la discussion.</p>
+        <p>Le statut de chaque idée (nouvelle → étudiée → acceptée / refusée / archivée) est mis à jour par l'équipe qui gère la boîte à idées ; une idée archivée disparaît simplement de la liste.</p>`,
+    },
+    {
+      id: "quiz",
+      q: "🧠 Quiz",
+      a: `<p>Une seule tentative par quiz et par personne — pas de repasse en cas d'erreur, donc prends ton temps avant de valider.</p>
+        <p>Deux modes : <b>quiz classique</b> (correction automatique et immédiate, bonnes/mauvaises réponses surlignées, +2 points par bonne réponse) et <b>sondage</b> (pas de bonne réponse : après avoir répondu, tu vois la répartition des votes de tout le monde, en pourcentage).</p>
+        <p>Un classement par quiz est consultable une fois que tu as répondu.</p>`,
+    },
+    {
+      id: "medias",
+      q: "🎬 Médias",
+      a: `<p>Bibliothèque de vidéos et d'albums photos, toujours en <b>liens externes</b> (rien n'est hébergé sur nos serveurs). Les vidéos YouTube se lisent directement dans l'app (lecteur intégré) ; les autres liens (Drive, albums en ligne…) s'ouvrent dans un nouvel onglet.</p>
+        <p>Certains médias permettent de laisser un commentaire — l'option est activée au cas par cas par l'admin selon le contenu.</p>`,
+    },
+    {
+      id: "recherche",
+      q: "🔍 Recherche & notifications",
+      a: `<p>La loupe (en haut de l'écran) cherche <b>partout à la fois</b> : collègues (nom/email), événements et actualités de l'intranet, idées (titre/description), liens utiles (libellé). Les résultats sont groupés par catégorie.</p>
+        <p>Clique sur un collègue pour ouvrir son <b>profil public</b> : son statut des prochains jours, ses réservations à venir, ses idées signées (les anonymes restent anonymes) et ses résultats de quiz.</p>
+        <p>La cloche affiche tes notifications : rappels d'événements et annonces envoyées par l'équipe. Le badge rouge compte les non-lues (mis à jour automatiquement). Clique une notification pour la marquer lue, "Tout marquer lu" pour vider le badge d'un coup, ✕ pour la supprimer. Pas d'email ni de notification Teams à ce jour — tout se passe dans l'app.</p>`,
+    },
+    {
+      id: "profil",
+      q: "👤 Mon profil",
+      a: `<p>Ta carte d'identité dans l'app : avatar, département, rôle, points et niveau avec la progression vers le palier suivant, grille de badges obtenus (clique un badge pour voir son détail), série de présence (🔥), classement général et mensuel.</p>
+        <p>Tu y retrouves aussi tes propres réservations à venir, tes idées, tes quiz passés — en un seul endroit, sans avoir à naviguer entre plusieurs pages.</p>
+        <p><b>Paramètres</b> (en bas du profil) : renseigne ta date d'anniversaire (jour et mois affichés uniquement, jamais l'année) pour apparaître dans la carte "Anniversaires" de l'accueil le jour J. Tu peux aussi t'y déconnecter.</p>`,
+    },
+  ];
+
+  if (isAdmin) sections.push({
+    id: "admin",
+    q: "⚙️ Administration (accès restreint)",
+    a: `<p>Visible uniquement par une liste restreinte de personnes (indépendamment de ton rôle sur l'intranet WordPress). Aperçu de ce qui est configurable, onglet par onglet :</p>
+      <ul>
+        <li><b>Accueil</b> : active/désactive/réordonne/met en avant les cartes du tableau de bord, configure le jalon "Building Our Future Home" et les statuts de présence proposés.</li>
+        <li><b>Coworking</b> : postes (création, désactivation, caractéristiques, position sur le plan), horizon de réservation, noms affichés des salles/bulles.</li>
+        <li><b>Événements</b> : capacité par événement, liste des inscrits/liste d'attente, envoi d'une notification manuelle à tous les inscrits.</li>
+        <li><b>Contenu</b> (sous-onglets) : Idées (workflow de statut), Quiz (création/édition, y compris en mode sondage), Médias (ajout/édition), Badges (création de badges personnalisés, attribution/retrait manuel, points par badge).</li>
+        <li><b>Collaborateurs</b> : renseigner l'anniversaire de n'importe qui (à défaut d'une source fiable côté intranet).</li>
+        <li><b>Statistiques</b> : KPI d'usage (occupation, réservations, quiz, idées…) et alertes automatiques (quiz sans question, idées en attente, événement complet avec liste d'attente…).</li>
+      </ul>`,
+  });
+
+  sections.push({
+    id: "astuces",
+    q: "🚀 Pour en tirer le maximum",
+    a: `<ul>
+        <li>Réserve <b>dès le début de la semaine</b> si tu vises un poste précis (fenêtre, écran…) — les places populaires partent vite selon l'horizon configuré.</li>
+        <li>Pense au <b>check-in</b> dès ton arrivée, ça prend 2 secondes et t'évite une perte de points sans même t'en rendre compte.</li>
+        <li>Si tu ne viendras plus, <b>annule</b> plutôt que de laisser la réservation devenir un no-show — ça libère la place pour quelqu'un d'autre et t'évite la pénalité.</li>
+        <li>Consulte la carte "Présents aujourd'hui" avant de réserver pour repérer qui sera sur site le même jour que toi.</li>
+        <li>Une <b>bulle calme</b> vaut mieux qu'un poste classique pour un appel important — pas besoin de bloquer une demi-journée entière pour 30 minutes.</li>
+        <li>Le classement se réinitialise chaque mois : même après une pause, tu repars à égalité avec tout le monde.</li>
+      </ul>`,
+  });
+
+  sections.push({
+    id: "faq",
+    q: "❓ Questions fréquentes",
+    a: `<ul>
+          <li><b>Je ne peux pas réserver un jour donné</b> → soit c'est un week-end, soit c'est au-delà de l'horizon autorisé (affiché en haut de la page Réserver), soit tu as déjà une série de jours consécutifs réservés au maximum autorisé.</li>
+          <li><b>J'ai perdu des points sans comprendre</b> → tu as probablement une réservation passée jamais confirmée par "Je suis arrivé" (no-show, -10 pts), ou tu as annulé une réservation déjà validée.</li>
+          <li><b>"Réserver toute la salle" ne marche pas</b> → il suffit qu'un seul poste actif de la salle soit déjà pris par quelqu'un pour bloquer toute la salle sur ce créneau.</li>
+          <li><b>Je ne vois pas l'onglet Administration</b> → il est réservé à une liste restreinte de personnes, indépendamment de ton rôle sur l'intranet.</li>
+          <li><b>Je ne reçois pas d'email pour les rappels/notifications</b> → normal, tout est in-app pour l'instant (pas d'email ni de Teams configuré côté app).</li>
+          <li><b>La date d'un événement semble fausse</b> → l'app affiche la date exacte quand l'intranet la fournit ; sinon elle se rabat sur la date de publication de l'article, qui peut différer de la date réelle.</li>
+        </ul>`,
+  });
+
+  document.getElementById("view").innerHTML = `
+    <p class="sub" style="color:var(--muted);margin:0 0 14px">Le guide pratique de l'app, section par section. Clique un titre pour déplier, ou passe directement à une section :</p>
+    <div class="aide-toc">
+      ${sections.map(s => `<a href="#aide" data-aide-jump="${s.id}">${s.q.replace(/^\S+\s/, "")}</a>`).join("")}
+    </div>
+    <div class="aide-list">
+      ${sections.map((s, i) => `
+        <details class="card aide-item" id="aide-${s.id}"${i === 0 ? " open" : ""}>
+          <summary>${s.q}</summary>
+          <div class="aide-body">${s.a}</div>
+        </details>`).join("")}
+    </div>`;
+  document.querySelectorAll("[data-aide-jump]").forEach(a => a.addEventListener("click", (e) => {
+    e.preventDefault();
+    const target = document.getElementById("aide-" + a.dataset.aideJump);
+    target.open = true;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
 }
 
 /* ---------------- Effets ---------------- */

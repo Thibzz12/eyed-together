@@ -178,6 +178,31 @@ button, input { font-family: inherit; }
   content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid #4FB3D9;
 }
 
+/* ---------------- Aide (guide pratique, accordéon natif <details>) ---------------- */
+.aide-toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.aide-toc a {
+  font-size: .78rem; font-weight: 600; color: var(--blue); background: var(--blue-050);
+  padding: 6px 12px; border-radius: 999px; text-decoration: none; transition: background .15s ease;
+}
+.aide-toc a:hover { background: var(--blue-100); }
+.aide-list { display: flex; flex-direction: column; gap: 12px; }
+.aide-item summary {
+  cursor: pointer; font-weight: 700; font-size: .96rem; color: var(--ink);
+  list-style: none; display: flex; align-items: center; justify-content: space-between;
+}
+.aide-item summary::-webkit-details-marker { display: none; }
+.aide-item summary::after {
+  content: "+"; font-size: 1.3rem; font-weight: 400; color: var(--muted); flex-shrink: 0; margin-left: 12px;
+  transition: transform .18s ease;
+}
+.aide-item[open] summary::after { content: "−"; }
+.aide-body { margin-top: 12px; font-size: .88rem; color: var(--ink); line-height: 1.6; }
+.aide-body p { margin: 0 0 10px; }
+.aide-body p:last-child { margin-bottom: 0; }
+.aide-body ul { margin: 0; padding-left: 20px; }
+.aide-body li { margin-bottom: 6px; }
+.aide-body li:last-child { margin-bottom: 0; }
+
 /* ---------------- Cartes génériques ---------------- */
 /* Panneau (pas d'ombre, filet fin) — cohérent sur toutes les pages, pas seulement l'accueil. */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: none; transition: border-color .18s ease; }
