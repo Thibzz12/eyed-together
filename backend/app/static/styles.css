@@ -147,6 +147,9 @@ button, input { font-family: inherit; }
   position: sticky; top: 0; z-index: 20; background: rgba(243,246,249,.92); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
+/* Logo : masqué en mobile (déjà visible dans le tiroir de nav), affiché dans la topbar claire
+   en desktop — le rail sombre n'a gardé qu'un repère minimal, ce n'est plus assez pour la marque. */
+.topbar-logo { display: none; }
 .mobile-menu-btn { border: none; background: #fff; box-shadow: var(--shadow-1); width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
 .mobile-menu-btn svg { width: 20px; height: 20px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; }
 .topbar h1 { font-size: 1.1rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -752,6 +755,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   .mobile-menu-btn, .tabbar, .menu-only-mobile { display: none; }
   .main { padding-bottom: 0; }
   .topbar { padding: 18px 32px; background: transparent; backdrop-filter: none; border-bottom: 1px solid var(--line); position: static; }
+  .topbar-logo { display: block; height: 26px; width: auto; padding-right: 18px; margin-right: 4px; border-right: 1px solid var(--line); flex-shrink: 0; }
   .topbar h1 { font-size: 1.35rem; }
   .view { padding: 6px 32px 60px; }
   .stat-row { grid-template-columns: repeat(3, minmax(200px, 1fr)); }
