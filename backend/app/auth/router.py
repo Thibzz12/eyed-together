@@ -8,7 +8,6 @@ Parcours :
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.msal_client import SCOPES, build_msal_app
@@ -16,14 +15,9 @@ from app.core.config import settings
 from app.db import models as m
 from app.db.session import get_db
 from app.services.users import sync_admin_role, upsert_user_from_claims
-from app.services.wordpress import WordPressAuthError, authenticate_wp, verify_bridge_token
+from app.services.wordpress import verify_bridge_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class WordPressLogin(BaseModel):
-    email: str
-    password: str
 
 
 def _open_session(request: Request, user: m.User) -> None:
@@ -52,22 +46,6 @@ def wordpress_callback(token: str, request: Request, db: Session = Depends(get_d
     sync_admin_role(db, user)
     _open_session(request, user)
     return RedirectResponse("/")
-
-
-@router.post("/wordpress-login")
-def wordpress_login(data: WordPressLogin, request: Request, db: Session = Depends(get_db)):
-    """Connexion avec les identifiants WordPress (validés côté intranet)."""
-    try:
-        claims = authenticate_wp(data.email, data.password)
-    except WordPressAuthError as exc:
-        # DEBUG : on affiche la vraie raison renvoyée par WordPress.
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"WordPress → {exc}")
-    if claims is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Connexion WordPress pas encore configurée.")
-    user = upsert_user_from_claims(db, claims)
-    sync_admin_role(db, user)
-    _open_session(request, user)
-    return {"ok": True, "name": user.display_name}
 
 
 def _sso_configured() -> bool:
