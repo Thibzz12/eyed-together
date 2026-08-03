@@ -151,10 +151,7 @@ function initLoginScene() {
 
   function draw(dt) {
     if (!w || !h) return; // taille pas encore connue (voir ResizeObserver ci-dessus)
-    // Centre décalé en haut à droite : l'œil déborde du cadre, visible en marge du
-    // contenu plutôt que caché dessous — c'est l'illustration qui donne le ton, pas
-    // un fond décoratif qu'on ne remarque pas.
-    const cx = w * .78, cy = h * .30;
+    const cx = w * .5, cy = h * .30;
     const scale = Math.max(w, h) * .62;
     ctx.clearRect(0, 0, w, h);
 
