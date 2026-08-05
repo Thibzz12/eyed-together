@@ -8,7 +8,7 @@ Particularités :
 
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from alembic import context
 
@@ -17,8 +17,9 @@ from app.db.base import Base
 from app.db import models  # noqa: F401  -> enregistre les modèles dans Base.metadata
 
 config = context.config
-# Injecte l'URL depuis les settings (secrets hors du dépôt).
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# L'URL vient des settings (secrets hors du dépôt) et n'est JAMAIS écrite dans la config
+# Alembic : celle-ci passe par configparser, où `%` amorce une interpolation. Un mot de
+# passe percent-encodé (`%2B` pour un `+`) y déclencherait un ValueError au démarrage.
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -45,11 +46,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Migrations en mode 'online' (connexion réelle à la base)."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(settings.DATABASE_URL, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
