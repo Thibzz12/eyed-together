@@ -55,6 +55,10 @@ Vérifier qu'Alembic n'a rien oublié de détecter :
 alembic check
 ```
 
+⚠️ Une migration commitée part **automatiquement** en production : Render
+exécute `alembic upgrade head` au démarrage. Relis-la avant de pousser, et
+garde-la compatible PostgreSQL (le dev tourne sur SQLite, pas la prod).
+
 ## 5. Lancer le serveur
 
 ```bash
