@@ -6,17 +6,22 @@ services:
     region: frankfurt
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # Le schéma est mis à jour à chaque démarrage : `alembic upgrade head` est idempotent
+    # (il ne rejoue que les migrations manquantes) et le conteneur ne démarre pas si elle échoue.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7   # évite la 3.14 par défaut : pas de wheel précompilé pour pydantic-core dessus, échec de build
       - key: ENVIRONMENT
-        value: development   # garde la création auto des tables (SQLite) + /auth/dev-login pour le test rapide
+        value: production   # schéma piloté par Alembic, cookies Secure, /auth/dev-login désactivé
       - key: SECRET_KEY
         generateValue: true
+      # ⚠️ JAMAIS de SQLite ici : le disque du plan gratuit est éphémère, la base
+      # disparaît à chaque redémarrage. URL PostgreSQL (Supabase) saisie dans le
+      # dashboard Render — elle contient le mot de passe, donc jamais dans le dépôt.
       - key: DATABASE_URL
-        value: sqlite:///./coworking.db
+        sync: false
       - key: FRONTEND_ORIGIN
         value: https://eyedtogether.onrender.com
       - key: WORDPRESS_URL

@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import router as api_router
@@ -36,22 +38,35 @@ from app.services.dashboard import DashboardError
 from app.services.reservations import ReservationError
 
 
+def _seed_reference_data(db: Session) -> None:
+    """Garnit les données de référence : postes, bulles calmes, liens utiles,
+    cartes d'accueil et catalogue de badges."""
+    seed_desks_if_empty(db)
+    seed_pods_if_missing(db)
+    seed_useful_links_if_missing(db)
+    seed_dashboard_if_empty(db)
+    seed_badges_if_empty(db)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Au démarrage : en DEV (SQLite), crée les tables et les postes de démo.
 
-    En production, c'est Alembic qui gère le schéma (jamais create_all).
+    En production, c'est Alembic qui gère le schéma (jamais create_all) et on ne
+    garnit QUE les bases réellement vierges : rejouer les seeds à chaque
+    redémarrage ressusciterait les liens ou les cartes qu'un admin a supprimés.
     """
     if not settings.is_production and settings.DATABASE_URL.startswith("sqlite"):
         Base.metadata.create_all(bind=engine)
         with SessionLocal() as db:
-            seed_desks_if_empty(db)
+            _seed_reference_data(db)
+            # Rattrapages de données historiques, propres aux bases de dev.
             cleanup_demo_colleagues_if_present(db)
             limit_bureau_seats_if_needed(db)
-            seed_pods_if_missing(db)
-            seed_useful_links_if_missing(db)
-            seed_dashboard_if_empty(db)
-            seed_badges_if_empty(db)
+    else:
+        with SessionLocal() as db:
+            if db.scalar(select(func.count()).select_from(models.Desk)) == 0:
+                _seed_reference_data(db)
     yield
 
 
