@@ -50,8 +50,8 @@ WordPress lui-même, jamais transmis à notre backend.
 
 | Sujet | Limite | Pourquoi |
 |---|---|---|
-| Base de données en prod | SQLite sur le disque Render (plan gratuit, **non persistant** entre déploiements) | Phase de test ; passer en PostgreSQL avant un vrai lancement (voir `DEPLOYMENT.md`) |
-| `ENVIRONMENT` sur Render | `development` (pas `production`) | Volontaire pour l'instant : garde `/auth/dev-login` actif et la création auto des tables — à corriger avant un vrai lancement |
+| Base de données en prod | PostgreSQL hébergé chez Supabase (plan gratuit) | Le plan gratuit se met en pause après ~1 semaine **sans aucune** activité (un usage normal suffit à l'éviter) et plafonne à 500 Mo. Voir `DEPLOYMENT.md` |
+| Service Render | Plan gratuit : mise en veille après ~15 min sans trafic | Premier appel après la veille : jusqu'à ~50 s d'attente. Les données n'en souffrent plus (elles sont chez Supabase, hors du conteneur) |
 | Emails / Teams / push | Aucun envoi externe, tout est in-app | Aucune infra d'envoi (SMTP, compte M365) n'a jamais existé dans le projet |
 | Dates d'événements | Dépend d'un champ ACF exposé côté WordPress (`acf.date`) | Si ce réglage WordPress est un jour désactivé ou renommé côté intranet, l'app se rabat silencieusement sur la date de publication — aucune alerte ne préviendrait |
 | Anniversaires | Auto-déclarées par chaque employé (ou saisies par un admin) | Pas de champ fiable exposé par l'API REST WordPress au moment du développement |
