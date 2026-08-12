@@ -67,6 +67,23 @@ d'accueil, badges) ne s'exécutent **que si la base est vierge**. Les rejouer à
 chaque démarrage ressusciterait les éléments par défaut qu'un admin a
 volontairement supprimés.
 
+### API REST Supabase : fermée
+
+Un projet Supabase expose par défaut **toutes** les tables du schéma `public`
+via PostgREST : sans Row-Level Security, n'importe qui connaissant l'URL du
+projet peut lire, modifier et supprimer les données (c'est l'alerte
+« Table publicly accessible » envoyée par Supabase le 09/08/2026).
+
+L'app n'utilise pas cette API — elle parle à PostgreSQL en direct via
+SQLAlchemy, avec le rôle `postgres` qui a `BYPASSRLS`. La migration
+`d1a4b7c2e883` referme donc la porte sans rien changer côté app : RLS activé
+sur toutes les tables (aucune policy = tout est refusé côté API) et droits des
+rôles `anon` / `authenticated` révoqués sur le schéma `public`, y compris pour
+les tables créées plus tard (`ALTER DEFAULT PRIVILEGES`).
+
+Conséquence : si un jour on veut vraiment utiliser l'API Supabase ou son
+client JS, il faudra écrire des policies **et** rendre les droits à ces rôles.
+
 ## Autres points de vigilance
 
 - **`SECRET_KEY`** : `generateValue: true` la génère une fois à la création du
@@ -122,5 +139,7 @@ planter.
       nouveau) : elles s'appliquent automatiquement au démarrage.
 - [ ] `DATABASE_URL` pointe bien sur PostgreSQL, jamais sur SQLite.
 - [ ] `ADMIN_EMAILS` à jour (qui doit avoir accès à l'onglet Administration).
+- [ ] Supabase → *Advisors* → *Security Advisor* : zéro erreur « RLS Disabled
+      in Public » (une nouvelle table non couverte y réapparaîtrait).
 - [ ] Secrets (`WP_APP_SECRET`, `SECRET_KEY`) jamais committés — toujours via
       les variables d'environnement de la plateforme d'hébergement.
