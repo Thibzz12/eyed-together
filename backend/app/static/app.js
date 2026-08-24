@@ -1524,7 +1524,7 @@ function viewReserver() {
         <div id="tableSections"><div class="empty">Chargement…</div></div>
         <div class="section-eyebrow">Plan de l'espace</div>
         <div class="card plan-panel">
-          <img src="/static/img/floorplan.png" alt="Plan réel de l'open space et des bureaux" class="plan-image">
+          <img src="/static/img/floorplan.jpg" alt="Plan réel des locaux : tables 1 à 4 de l'open space, bureaux fermés, bulles calmes et entrées" class="plan-image">
         </div>
       </div>
       <div class="side-cards">
