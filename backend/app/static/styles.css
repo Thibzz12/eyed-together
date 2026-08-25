@@ -640,7 +640,10 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .ts-surface { min-height: 58px; width: 40px; padding: 8px 0; border-radius: 10px; background: #EEF2F6; border: 1.5px solid #CBD5E1; display: flex; align-items: center; justify-content: center; color: #94A3B8; font-weight: 700; font-size: .74rem; writing-mode: vertical-rl; text-orientation: mixed; }
 .table-widget-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .ts-label { font-size: .78rem; font-weight: 700; color: var(--navy); margin-top: 2px; }
-.tseat { width: 26px; height: 26px; border-radius: 7px; padding: 0; cursor: pointer; font-family: inherit; transition: transform .12s ease; border: 1.5px solid var(--line); font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: -.02em; line-height: 1; color: var(--ink); overflow: hidden; }
+/* Élargi de 26 à 32px et police remontée : les places portent désormais un acronyme
+   de quatre lettres (OLVA) et non plus deux initiales. À 26px il devenait illisible,
+   or c'est justement la notation qu'ils lisent en un coup d'œil sur le plan. */
+.tseat { width: 32px; height: 30px; border-radius: 7px; padding: 0; cursor: pointer; font-family: inherit; transition: transform .12s ease; border: 1.5px solid var(--line); font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: -.04em; line-height: 1; color: var(--ink); overflow: hidden; }
 .tseat:hover:not(:disabled) { transform: scale(1.2); z-index: 2; position: relative; }
 .tseat.free { background: var(--seat-free); border-color: var(--seat-free-b); }
 .tseat.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); cursor: not-allowed; color: #9F1239; }
@@ -682,7 +685,14 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .dash-card .event-item { border: none; border-radius: 0; padding: 13px 0; border-top: 1px solid var(--line); background: none; }
 .dash-card .event-item:first-child { border-top: none; padding-top: 0; }
 .res-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; }
-.res-item .info { min-width: 0; } .res-item .info b { font-size: .88rem; } .res-item .info small { color: var(--muted); }
+.res-item .info { min-width: 0; }
+/* Bloc plutôt qu'inline : sinon le nom du poste et la date se collent l'un à l'autre. */
+.res-item .info b { display: block; font-size: .88rem; }
+.res-item .info small { display: block; color: var(--muted); margin-top: 2px; }
+/* Les étiquettes d'équipement sont ici sous la date, pas au-dessus d'un titre : on annule
+   la marge négative prévue pour la page Réserver. */
+.res-item .feature-tags { margin: 6px 0 0; }
+.res-item .feature-tag { font-size: .7rem; padding: 3px 7px; }
 .res-item .cancel { border: none; background: var(--red-050); color: var(--red); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; flex-shrink: 0; }
 .res-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .checkin { border: none; background: var(--green-050); color: var(--green); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; }
@@ -846,3 +856,132 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   .sheet { border-radius: 20px; margin-bottom: 40px; }
   .toast { bottom: 100px; }
 }
+
+/* ============================================================
+   Présence dans les locaux (arrivée, départ, visiteurs)
+   ============================================================ */
+/* Bouton de départ dans l'entête : visible uniquement quand on est marqué présent. */
+.leave-btn {
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: none;
+  border-radius: 999px; background: var(--blue-050); color: var(--blue);
+  font-family: inherit; font-weight: 600; font-size: .82rem; cursor: pointer;
+  transition: filter .12s ease;
+}
+.leave-btn:hover { filter: brightness(.96); }
+.leave-btn svg { width: 15px; height: 15px; }
+
+.presence-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.presence-row { display: flex; align-items: center; gap: 12px; }
+.presence-row .colleague-av { width: 40px; height: 40px; font-size: .8rem; flex-shrink: 0; }
+.presence-id { min-width: 0; flex: 1; }
+.presence-id b { display: block; font-size: .9rem; color: var(--navy); }
+.presence-id small { display: block; font-size: .76rem; color: var(--muted); }
+.presence-out {
+  border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  border-radius: 999px; padding: 5px 12px; font-family: inherit; font-weight: 600;
+  font-size: .76rem; cursor: pointer; flex-shrink: 0;
+}
+.presence-out:hover { border-color: var(--blue); color: var(--blue); }
+
+/* Avatar de visiteur : contour plutôt qu'aplat, pour le distinguer d'un employé au premier coup d'œil. */
+.visitor-av { background: transparent; border: 2px dashed var(--blue); color: var(--blue); }
+
+.visitor-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.visitor-form input {
+  flex: 1 1 9rem; min-width: 0; padding: 11px 14px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); font-family: inherit; font-size: .9rem;
+}
+.visitor-form input:focus { outline: none; border-color: var(--blue); }
+.visitor-form .btn { flex: 1 1 100%; margin: 4px 0 0; }
+.visitor-chip {
+  display: inline-block; margin: .2rem .3rem .2rem 0; padding: .3rem .7rem;
+  border-radius: 999px; background: var(--blue-050); color: var(--blue);
+  font-size: .8rem; font-weight: 600;
+}
+.empty-inline { font-size: .82rem; color: var(--muted); padding: .3rem 0; }
+
+/* ============================================================
+   Page Récompenses (niveau, barème, badges)
+   ============================================================ */
+.reward-hero { text-align: center; background: linear-gradient(160deg, var(--navy), var(--blue-900)); border: none; color: #fff; }
+.reward-points { font-family: var(--font-display, var(--font)); font-size: 3rem; font-weight: 800; line-height: 1; }
+.reward-level { font-size: .9rem; font-weight: 600; opacity: .85; margin-top: 4px; }
+.reward-progress { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .18); margin: 14px auto 8px; max-width: 320px; overflow: hidden; }
+.reward-progress span { display: block; height: 100%; border-radius: 999px; background: var(--amber); transition: width .3s ease; }
+.reward-next { font-size: .78rem; opacity: .75; }
+
+.reward-rules { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.reward-rule { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #F9FAFC; }
+.reward-rule-text { min-width: 0; }
+.reward-rule-text b { display: block; font-size: .86rem; color: var(--navy); }
+.reward-rule-text small { display: block; font-size: .75rem; color: var(--muted); margin-top: 2px; }
+.reward-pts { flex-shrink: 0; font-weight: 800; font-size: .95rem; padding: 4px 12px; border-radius: 999px; }
+.reward-pts.gain { color: var(--green); background: var(--green-050); }
+.reward-pts.perte { color: var(--red); background: var(--red-050); }
+.reward-pts.neutre { color: var(--muted); background: #EEF2F6; }
+
+/* ============================================================
+   Réservation d'un espace entier : affectation des places
+   ============================================================ */
+.sheet-tall { max-height: 88vh; overflow-y: auto; }
+.group-seats { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.group-seat { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: #F9FAFC; }
+.group-seat-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.group-seat-head b { font-size: .86rem; color: var(--navy); }
+.group-seat-head small { font-size: .74rem; color: var(--muted); }
+.group-seat-mode, .group-seat-who {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+  font-family: inherit; font-size: .86rem; background: var(--card); color: var(--ink);
+}
+.group-seat-who { margin-top: 6px; }
+.group-seat-mode:focus, .group-seat-who:focus { outline: none; border-color: var(--blue); }
+
+/* Place bloquée par une réservation de groupe mais laissée volontairement vide :
+   ni libre (on ne peut pas la prendre) ni occupée (personne n'est assis dessus). */
+.tseat.held { background: #EEF2F6; border-color: #CBD5E1; color: var(--muted); cursor: not-allowed; }
+
+/* --- Administration : interrupteurs et règles d'icônes --- */
+.toggle-list { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.toggle-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; cursor: pointer; border-radius: 8px; }
+.toggle-row:hover { background: var(--blue-050); }
+.toggle-row input { width: 17px; height: 17px; accent-color: var(--blue); cursor: pointer; flex-shrink: 0; }
+.toggle-row span { font-size: .88rem; color: var(--navy); }
+.toggle-row small { font-size: .75rem; margin-left: 6px; }
+.card-note { font-size: .78rem; color: var(--muted); line-height: 1.45; margin-top: 4px; }
+
+.icon-rule { display: flex; align-items: center; gap: 10px; padding: 7px 10px; margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; background: #F9FAFC; }
+.icon-rule-emoji { font-size: 1.1rem; flex-shrink: 0; width: 1.6rem; text-align: center; }
+.icon-rule-keyword { flex: 1; font-size: .85rem; color: var(--navy); min-width: 0; }
+
+/* Icône d'équipement sur une place libre : discrète, elle ne doit pas concurrencer
+   la couleur qui dit « libre ou pris », qui reste l'information principale. */
+.tseat-ic { font-size: 11px; line-height: 1; opacity: .75; }
+
+/* ============================================================
+   Plan interactif : les places posées sur l'image du plan
+   ============================================================ */
+.plan-wrap { position: relative; line-height: 0; }
+.plan-pins { position: absolute; inset: 0; }
+/* Pastille positionnée en pourcentage : le plan reste juste à toutes les tailles
+   d'écran. translate(-50%, -50%) place le CENTRE de la pastille sur le point,
+   sinon chaque place serait décalée vers le bas à droite de sa vraie position. */
+.plan-pin {
+  position: absolute; transform: translate(-50%, -50%);
+  min-width: 26px; height: 20px; padding: 0 4px;
+  border-radius: 6px; border: 1.5px solid var(--line); background: var(--card);
+  font-family: inherit; font-size: 8px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: -.04em; line-height: 1; color: var(--ink);
+  cursor: pointer; transition: transform .12s ease; z-index: 1;
+}
+.plan-pin:hover:not(:disabled) { transform: translate(-50%, -50%) scale(1.35); z-index: 3; }
+.plan-pin.free { background: var(--seat-free); border-color: var(--seat-free-b); }
+.plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
+.plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
+.plan-pin.held { background: #EEF2F6; border-color: #CBD5E1; color: var(--muted); cursor: not-allowed; }
+.plan-note { font-size: .75rem; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+/* --- Éditeur de plan (administration) --- */
+.plan-editor { margin-top: 12px; }
+.plan-editor .plan-wrap { margin-top: 10px; cursor: crosshair; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+.plan-editor .plan-pin { cursor: pointer; font-size: 7px; }
+.plan-pin.selected { background: var(--blue); border-color: var(--blue); color: #fff; z-index: 4; }

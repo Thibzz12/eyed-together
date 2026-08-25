@@ -4,10 +4,11 @@ Toutes les routes exigent une session valide (get_current_user).
 """
 
 
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app import schemas
 from app.db import models as m
 from app.db.session import get_db
 from app.deps import get_current_user, require_admin
+from app.services import attendance as attendance_svc
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
 from app.services import badges as badges_svc
@@ -22,7 +24,8 @@ from app.services import media as media_svc
 from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import stats as stats_svc
-from app.services.profile import get_leaderboard, get_public_profile
+from app.services.gamification import points_rules
+from app.services.profile import get_leaderboard, get_public_profile, level_info
 from app.services import reservations as svc
 from app.services.search import search_all
 from app.services.dashboard import (
@@ -106,8 +109,10 @@ def availability(
 ):
     """Disponibilité de chaque poste pour une date + un créneau."""
     return [
-        schemas.DeskAvailability(desk=desk, is_available=name is None, booked_by=name)
-        for desk, name in svc.get_availability(db, day, slot)
+        schemas.DeskAvailability(
+            desk=desk, is_available=booker is None, booked_by=booker, occupied_by=occupant,
+        )
+        for desk, booker, occupant in svc.get_availability(db, day, slot)
     ]
 
 
@@ -841,3 +846,251 @@ def admin_set_birthday(user_id: int, data: schemas.AdminBirthdayUpdate, db: Sess
     u.birthday = data.birthday
     db.commit()
     return {"id": u.id, "birthday": u.birthday}
+
+
+# ---------------------------------------------------------------- Présence dans les locaux
+#  À ne pas confondre avec /presence ci-dessus, qui liste les RÉSERVATIONS du jour.
+#  Ici on parle de présence physique constatée : qui est réellement dans le bâtiment,
+#  visiteurs externes compris. Sert à la liste d'évacuation incendie.
+@router.get("/attendance/me")
+def attendance_me(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """État du jour : suis-je arrivé, suis-je encore là, quels visiteurs ai-je déclarés."""
+    return attendance_svc.state_for(db, user["id"])
+
+
+@router.post("/attendance/checkin")
+def attendance_checkin(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Confirme l'arrivée dans les locaux (pop-up d'accueil)."""
+    attendance_svc.check_in(db, user["id"], source="popup")
+    return attendance_svc.state_for(db, user["id"])
+
+
+@router.post("/attendance/checkout")
+def attendance_checkout(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Confirme le départ des locaux."""
+    attendance_svc.check_out(db, user["id"])
+    return attendance_svc.state_for(db, user["id"])
+
+
+@router.get("/attendance/today")
+def attendance_today(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Qui est dans les locaux en ce moment, employés et visiteurs. Sans horodatage."""
+    return attendance_svc.who_is_in(db)
+
+
+@router.post("/visitors", response_model=schemas.VisitorRead, status_code=status.HTTP_201_CREATED)
+def create_visitor(
+    data: schemas.VisitorCreate, db: Session = Depends(get_db), user: dict = Depends(get_current_user)
+):
+    """Déclare un visiteur externe que l'on accompagne aujourd'hui."""
+    visitor = attendance_svc.add_visitor(db, user["id"], data.full_name, data.company)
+    return schemas.VisitorRead(
+        id=visitor.id,
+        full_name=visitor.full_name,
+        company=visitor.company,
+        host_user_id=visitor.host_user_id,
+        host_name=user.get("name"),
+    )
+
+
+@router.post("/visitors/{visitor_id}/checkout")
+def visitor_checkout(
+    visitor_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)
+):
+    """Enregistre le départ d'un visiteur. Réservé à son hôte et aux administrateurs."""
+    attendance_svc.visitor_check_out(
+        db, visitor_id, user["id"], is_admin=user.get("role") == "admin"
+    )
+    return {"ok": True}
+
+
+@router.get("/admin/attendance/export")
+def admin_attendance_export(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Relevé du jour au format CSV, imprimable pour l'évacuation."""
+    data = attendance_svc.roster(db)
+    lignes = ["Type;Nom;Société ou service;Arrivée;Départ;Départ confirmé"]
+    for e in data["employees"]:
+        lignes.append(
+            f"Employé;{e['name']};{e['department'] or ''};{e['arrived_at']};"
+            f"{e['left_at'] or ''};{'non' if e['auto_closed'] else 'oui'}"
+        )
+    for v in data["visitors"]:
+        lignes.append(
+            f"Visiteur (reçu par {v['host_name']});{v['full_name']};{v['company'] or ''};"
+            f"{v['arrived_at']};{v['left_at'] or ''};{'non' if v['auto_closed'] else 'oui'}"
+        )
+    # BOM en tête : sans lui, Excel ouvre l'UTF-8 en ANSI et massacre les accents.
+    contenu = "\ufeff" + "\r\n".join(lignes)
+    return Response(
+        content=contenu,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=presence-{data['day']}.csv"},
+    )
+
+
+@router.get("/admin/attendance/settings")
+def admin_attendance_settings(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Heure de clôture automatique en vigueur."""
+    return {"auto_close_hour": attendance_svc.get_auto_close_hour(db)}
+
+
+@router.patch("/admin/attendance/settings")
+def admin_attendance_settings_update(
+    data: schemas.AttendanceSettingsUpdate, db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """Change l'heure à laquelle les présences oubliées sont clôturées."""
+    attendance_svc.set_auto_close_hour(db, data.auto_close_hour)
+    return {"auto_close_hour": data.auto_close_hour}
+
+
+# ---------------------------------------------------------------- Récompenses
+@router.get("/rewards")
+def rewards(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+    """Page Récompenses : niveau, barème des points et catalogue de badges.
+
+    Le barème est calculé à partir des constantes du code (voir gamification.py)
+    et jamais recopié côté client : sinon le premier ajustement de valeur
+    laisserait une page qui ment aux employés.
+    """
+    u = _or_404(db.get(m.User, user["id"]), "Utilisateur introuvable.")
+    return {
+        "total_points": u.total_points,
+        **level_info(u.total_points),
+        "rules": points_rules(svc.NOSHOW_PENALTY),
+        "badges": badges_svc.get_user_badges(db, user["id"]),
+    }
+
+
+# ---------------------------------------------------------------- Espaces réservables d'un bloc
+@router.get("/spaces")
+def spaces(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Salles fermées et tables de l'open space réservables d'un bloc, avec leur état."""
+    return {"groups": svc.bookable_groups(db), "modes": svc.get_booking_toggles(db)}
+
+
+@router.post("/reservations/group", response_model=list[schemas.ReservationRead], status_code=status.HTTP_201_CREATED)
+def book_group(
+    data: schemas.GroupBookingCreate,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Réserve d'un bloc une table de l'open space ou une salle fermée.
+
+    Les occupants sont obligatoires : bloquer quatre à six places sans dire qui
+    s'y installera rend le planning illisible pour tout le monde.
+    """
+    return svc.book_group(
+        db, user["id"], data.ref, data.reservation_date, data.slot,
+        [o.model_dump() for o in data.occupants],
+    )
+
+
+@router.patch("/admin/booking-modes")
+def admin_booking_mode(
+    data: schemas.BookingToggleUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Ouvre ou ferme un mode de réservation (place, table, salle, bulle)."""
+    svc.set_booking_toggle(db, data.mode, data.enabled)
+    return svc.get_booking_toggles(db)
+
+
+@router.patch("/admin/spaces")
+def admin_space_enabled(
+    data: schemas.SpaceEnabledUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Rend un espace précis indisponible (grisé) sans le supprimer."""
+    svc.set_group_enabled(db, data.ref, data.enabled)
+    return {"ref": data.ref, "enabled": data.enabled}
+
+
+@router.get("/feature-icons")
+def feature_icons(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Règles mot-clé vers icône, pour l'affichage des équipements côté client."""
+    return {"rules": svc.get_feature_icons(db)}
+
+
+@router.put("/admin/feature-icons")
+def admin_feature_icons(
+    data: schemas.FeatureIconsUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Remplace les règles d'icônes des types de poste."""
+    svc.set_feature_icons(db, [r.model_dump() for r in data.rules])
+    return {"rules": svc.get_feature_icons(db)}
+
+
+@router.get("/colleagues")
+def colleagues(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Annuaire léger, pour désigner qui occupe une place d'un espace réservé.
+
+    Ne renvoie que le nom et le service : la liste est visible de tous les
+    employés, elle n'a pas à transporter d'adresse ni de date de naissance.
+    """
+    rows = db.scalars(select(m.User).order_by(m.User.display_name))
+    return [{"id": u.id, "name": u.display_name, "department": u.department} for u in rows]
+
+
+@router.get("/reservations/group")
+def my_group_reservation(
+    ref: str = Query(...),
+    day: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """IDs de mes réservations si j'ai pris cet espace entier (vide sinon)."""
+    return {"reservation_ids": svc.my_group_reservation_ids(db, user["id"], ref, day)}
+
+
+# ---------------------------------------------------------------- Plan des locaux
+#  Le plan est conservé EN BASE, pas sur le disque : Render remonte un système de
+#  fichiers neuf à chaque déploiement, et un plan déposé dans app/static/img
+#  disparaîtrait à la mise à jour suivante. C'est le même piège que celui qui avait
+#  fait perdre les données en août avant le passage à PostgreSQL.
+_FLOORPLAN_KEY = "floorplan"
+_MAX_FLOORPLAN_BYTES = 5 * 1024 * 1024
+_STATIC_FLOORPLAN = Path(__file__).resolve().parents[1] / "static" / "img" / "floorplan.jpg"
+
+
+@router.get("/floorplan")
+def floorplan(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Plan des locaux : celui envoyé par l'admin, sinon l'image livrée avec l'application."""
+    row = db.get(m.StoredImage, _FLOORPLAN_KEY)
+    if row is not None:
+        return Response(
+            content=row.data,
+            media_type=row.content_type,
+            # Revalidation à chaque fois : un plan remplacé doit se voir tout de suite,
+            # et l'image ne pèse que quelques centaines de kilooctets.
+            headers={"Cache-Control": "no-cache"},
+        )
+    return FileResponse(_STATIC_FLOORPLAN, media_type="image/jpeg")
+
+
+@router.post("/admin/floorplan")
+async def admin_floorplan_upload(
+    file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Remplace le plan des locaux. Réservé aux administrateurs."""
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le fichier doit être une image.")
+
+    contenu = await file.read()
+    if not contenu:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le fichier est vide.")
+    if len(contenu) > _MAX_FLOORPLAN_BYTES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Image trop lourde ({len(contenu) // 1024} Ko). Maximum 5 Mo.",
+        )
+
+    row = db.get(m.StoredImage, _FLOORPLAN_KEY)
+    if row is None:
+        db.add(m.StoredImage(
+            key=_FLOORPLAN_KEY, content_type=file.content_type,
+            data=contenu, updated_at=datetime.now(timezone.utc),
+        ))
+    else:
+        row.content_type = file.content_type
+        row.data = contenu
+        row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True, "bytes": len(contenu), "content_type": file.content_type}

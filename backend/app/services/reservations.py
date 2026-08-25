@@ -12,6 +12,7 @@ Règles appliquées :
     un "no-show" et coûte des points (cf. apply_noshow_penalties).
 """
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as time_type
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
 from app.schemas import ReservationCreate
+from app.services import attendance as attendance_svc
 from app.services.gamification import POINTS_PER_BOOKING, award_points
 
 # Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
@@ -202,14 +204,19 @@ def slots_for(slot_str: str) -> list[m.ReservationSlot]:
     return [m.ReservationSlot(slot_str)]  # lève ValueError si invalide
 
 
-def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk, str | None]]:
-    """Pour une date + un créneau (AM/PM/DAY) : chaque poste avec l'occupant s'il est pris.
+def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk, str | None, str | None]]:
+    """Pour une date + un créneau (AM/PM/DAY) : chaque poste, qui l'a réservé et qui l'occupe.
 
     En 'DAY', un poste est indisponible si le matin OU l'après-midi est déjà pris.
+
+    Réservant et occupant diffèrent sur une réservation de groupe : celui qui bloque
+    une table entière désigne qui s'installe sur chaque place. Afficher le réservant
+    partout ferait apparaître son nom sur les six sièges, ce qui est faux et rend la
+    demande d'Olivier (savoir qui est où) sans effet.
     """
     slots = slots_for(slot_str)
     desks = list_desks(db)
-    taken: dict[int, str] = {}
+    taken: dict[int, tuple[str, str | None]] = {}
     reserved = db.scalars(
         select(m.Reservation)
         .where(
@@ -217,11 +224,21 @@ def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk
             m.Reservation.slot.in_(slots),
             m.Reservation.status == m.ReservationStatus.BOOKED,
         )
-        .options(joinedload(m.Reservation.user))
+        .options(joinedload(m.Reservation.user), joinedload(m.Reservation.occupant))
     )
     for r in reserved:
-        taken.setdefault(r.desk_id, r.user.display_name)
-    return [(d, taken.get(d.id)) for d in desks]
+        if r.occupant is not None:
+            occupant = r.occupant.display_name
+        elif r.occupant_name:
+            occupant = r.occupant_name
+        elif r.is_group_booking:
+            # Place bloquée par une réservation d'espace entier, volontairement vide.
+            occupant = None
+        else:
+            # Réservation individuelle : l'occupant est le réservant lui-même.
+            occupant = r.user.display_name
+        taken.setdefault(r.desk_id, (r.user.display_name, occupant))
+    return [(d, *taken.get(d.id, (None, None))) for d in desks]
 
 
 def my_reservations(db: Session, user_id: int) -> list[m.Reservation]:
@@ -278,6 +295,11 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
     desk = db.get(m.Desk, data.desk_id)
     if desk is None or not desk.is_active:
         raise DeskNotFound("Ce poste n'existe pas ou n'est pas disponible.")
+
+    _require_mode(db, "seat")
+    groupe = _group_of(desk)
+    if groupe and not is_group_enabled(db, groupe):
+        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
 
     slots = slots_for(data.slot)
 
@@ -410,6 +432,274 @@ def book_room(db: Session, user_id: int, zone: str, reservation_date: date, slot
     return created
 
 
+# --------------------------------------------------------------------------
+#  Icônes d'équipement, administrables
+# --------------------------------------------------------------------------
+#  `Desk.features` est du texte libre ("Double écran, station assise/debout").
+#  Chaque étiquette reçoit une icône par correspondance de mot-clé. Ces règles
+#  vivaient en dur dans app.js : ajouter un type de poste imposait de toucher au
+#  code. Elles sont désormais modifiables depuis l'administration.
+_FEATURE_ICONS_KEY = "feature_icon_rules"
+_DEFAULT_FEATURE_ICONS = [
+    {"keyword": "double écran", "icon": "🖥️"},
+    {"keyword": "écran courbé", "icon": "🖥"},
+    {"keyword": "écran", "icon": "🖥️"},
+    {"keyword": "docking", "icon": "🔌"},
+    {"keyword": "surface", "icon": "📱"},
+    {"keyword": "debout", "icon": "🧍"},
+    {"keyword": "clavier", "icon": "⌨️"},
+    {"keyword": "casque", "icon": "🎧"},
+    {"keyword": "calme", "icon": "🤫"},
+    {"keyword": "fenêtre", "icon": "☀️"},
+    {"keyword": "cabine", "icon": "🚪"},
+]
+
+
+def get_feature_icons(db: Session) -> list[dict]:
+    """Règles mot-clé vers icône, dans l'ordre de priorité (la première qui colle gagne)."""
+    row = db.get(m.AppSetting, _FEATURE_ICONS_KEY)
+    if row is None or not row.value:
+        return [dict(r) for r in _DEFAULT_FEATURE_ICONS]
+    try:
+        regles = json.loads(row.value)
+    except (TypeError, ValueError):
+        return [dict(r) for r in _DEFAULT_FEATURE_ICONS]
+    return [r for r in regles if isinstance(r, dict) and r.get("keyword") and r.get("icon")]
+
+
+def set_feature_icons(db: Session, rules: list[dict]) -> None:
+    """Remplace toutes les règles. Un mot-clé ou une icône vide est refusé."""
+    propres = []
+    for r in rules or []:
+        mot = (r.get("keyword") or "").strip()
+        icone = (r.get("icon") or "").strip()
+        if not mot or not icone:
+            raise ReservationError("Chaque règle a besoin d'un mot-clé et d'une icône.")
+        propres.append({"keyword": mot[:60], "icon": icone[:8]})
+
+    row = db.get(m.AppSetting, _FEATURE_ICONS_KEY)
+    valeur = json.dumps(propres, ensure_ascii=False)
+    if row is None:
+        db.add(m.AppSetting(key=_FEATURE_ICONS_KEY, value=valeur))
+    else:
+        row.value = valeur
+    db.commit()
+
+
+# --------------------------------------------------------------------------
+#  Interrupteurs d'administration : quels modes de réservation sont ouverts
+# --------------------------------------------------------------------------
+#  Tout est ouvert par défaut : un réglage absent ne doit jamais fermer une
+#  fonction que les employés utilisaient la veille.
+_TOGGLE_LABELS = {
+    "seat": "Réservation d'une place",
+    "table": "Réservation d'une table entière",
+    "room": "Réservation d'une salle entière",
+    "pod": "Réservation d'une bulle calme",
+}
+_TOGGLE_KEY = "booking_enabled_{}"
+_GROUP_KEY = "space_enabled_{}"
+
+
+def _flag(db: Session, key: str, defaut: bool = True) -> bool:
+    row = db.get(m.AppSetting, key)
+    if row is None:
+        return defaut
+    return row.value not in ("0", "false", "False", "")
+
+
+def _set_flag(db: Session, key: str, enabled: bool) -> None:
+    valeur = "1" if enabled else "0"
+    row = db.get(m.AppSetting, key)
+    if row is None:
+        db.add(m.AppSetting(key=key, value=valeur))
+    else:
+        row.value = valeur
+    db.commit()
+
+
+def get_booking_toggles(db: Session) -> dict[str, bool]:
+    """État des quatre modes de réservation."""
+    return {mode: _flag(db, _TOGGLE_KEY.format(mode)) for mode in _TOGGLE_LABELS}
+
+
+def set_booking_toggle(db: Session, mode: str, enabled: bool) -> None:
+    if mode not in _TOGGLE_LABELS:
+        raise ReservationError("Mode de réservation inconnu.")
+    _set_flag(db, _TOGGLE_KEY.format(mode), enabled)
+
+
+def is_group_enabled(db: Session, ref: str) -> bool:
+    """Un espace grisé par l'admin reste visible sur le plan mais n'est plus réservable."""
+    return _flag(db, _GROUP_KEY.format(ref))
+
+
+def set_group_enabled(db: Session, ref: str, enabled: bool) -> None:
+    _set_flag(db, _GROUP_KEY.format(ref), enabled)
+
+
+def _require_mode(db: Session, mode: str) -> None:
+    if not _flag(db, _TOGGLE_KEY.format(mode)):
+        raise ReservationError(f"{_TOGGLE_LABELS[mode]} est désactivée pour le moment.")
+
+
+# --------------------------------------------------------------------------
+#  Groupes réservables d'un bloc : salles fermées ET tables de l'open space
+# --------------------------------------------------------------------------
+#  Une salle est un groupe par sa zone ("Bureau 1"). Une table est un groupe par
+#  le préfixe du nom de ses postes ("T1" pour T1-1 … T1-4). On ne se base pas sur
+#  `features` pour regrouper : ce champ est du texte libre que l'admin modifie,
+#  et il sert déjà à décrire les équipements.
+def _group_of(desk: m.Desk) -> str | None:
+    """Référence du groupe auquel appartient un poste, ou None s'il n'en a pas."""
+    if desk.zone in ROOM_ZONES:
+        return desk.zone
+    if desk.zone == POD_ZONE:
+        return None  # une bulle calme se réserve par créneau, jamais en groupe
+    prefixe = desk.name.split("-")[0]
+    return prefixe if prefixe != desk.name else None
+
+
+def _group_desks(db: Session, ref: str) -> list[m.Desk]:
+    """Postes actifs d'un groupe (salle ou table)."""
+    desks = [
+        d for d in db.scalars(select(m.Desk).where(m.Desk.is_active.is_(True)).order_by(m.Desk.name))
+        if _group_of(d) == ref
+    ]
+    if not desks:
+        raise DeskNotFound("Cet espace n'existe pas ou n'a aucun poste disponible.")
+    return desks
+
+
+def bookable_groups(db: Session) -> list[dict]:
+    """Tous les groupes réservables d'un bloc, avec leur libellé et leur nombre de places."""
+    groupes: dict[str, list[m.Desk]] = {}
+    for d in db.scalars(select(m.Desk).where(m.Desk.is_active.is_(True)).order_by(m.Desk.name)):
+        ref = _group_of(d)
+        if ref:
+            groupes.setdefault(ref, []).append(d)
+
+    labels = get_room_labels(db)
+    out = []
+    for ref, desks in groupes.items():
+        # Libellé d'une table : celui que porte le poste (« Table 1 »), à défaut la référence.
+        label = labels.get(ref) or (desks[0].features if ref not in ROOM_ZONES else None) or ref
+        out.append({
+            "ref": ref,
+            "label": label,
+            "zone": desks[0].zone,
+            "seats": len(desks),
+            "kind": "room" if ref in ROOM_ZONES else "table",
+            "enabled": is_group_enabled(db, ref),
+        })
+    return sorted(out, key=lambda g: (g["kind"] != "room", g["ref"]))
+
+
+def _validate_occupants(occupants: list[dict] | None, desks: list[m.Desk]) -> dict[int, dict]:
+    """Vérifie les occupants déclarés et les indexe par poste.
+
+    Réserver une table entière retire quatre à six places du planning d'un coup :
+    on exige de savoir qui s'y installera, sinon les places disparaissent sans
+    que personne ne puisse dire qui les occupe (demande explicite d'Olivier).
+    """
+    occupants = occupants or []
+    if not occupants:
+        raise ReservationError("Indique qui occupera cet espace avant de le réserver.")
+
+    ids_du_groupe = {d.id for d in desks}
+    par_poste: dict[int, dict] = {}
+    for o in occupants:
+        desk_id = o.get("desk_id")
+        if desk_id not in ids_du_groupe:
+            raise ReservationError("Une des places indiquées n'appartient pas à cet espace.")
+        if desk_id in par_poste:
+            raise ReservationError("Deux personnes sont indiquées sur la même place.")
+        nom = (o.get("name") or "").strip()
+        if not o.get("user_id") and not nom:
+            raise ReservationError("Indique un collègue ou le nom d'une personne extérieure.")
+        par_poste[desk_id] = {
+            "user_id": o.get("user_id"),
+            "name": nom[:120] or None,
+            "company": ((o.get("company") or "").strip() or None),
+        }
+    return par_poste
+
+
+def book_group(
+    db: Session,
+    user_id: int,
+    ref: str,
+    reservation_date: date,
+    slot_str: str,
+    occupants: list[dict] | None = None,
+) -> list[m.Reservation]:
+    """Réserve d'un bloc tous les postes actifs d'une salle fermée ou d'une table.
+
+    Bloquée dès qu'un seul poste du groupe est déjà réservé sur le créneau visé,
+    peu importe par qui : pas de réservation de groupe partielle.
+    """
+    if reservation_date < date.today():
+        raise PastDate("Impossible de réserver une date déjà passée.")
+    _check_booking_policy(db, user_id, reservation_date)
+
+    desks = _group_desks(db, ref)
+    _require_mode(db, "room" if ref in ROOM_ZONES else "table")
+    if not is_group_enabled(db, ref):
+        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
+    par_poste = _validate_occupants(occupants, desks)
+    desk_ids = [d.id for d in desks]
+    slots = slots_for(slot_str)
+
+    for slot_enum in slots:
+        already = db.scalar(
+            select(m.Reservation).where(
+                m.Reservation.user_id == user_id,
+                m.Reservation.reservation_date == reservation_date,
+                m.Reservation.slot == slot_enum,
+                m.Reservation.status == m.ReservationStatus.BOOKED,
+            )
+        )
+        if already:
+            raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
+        conflict = db.scalar(
+            select(m.Reservation).where(
+                m.Reservation.desk_id.in_(desk_ids),
+                m.Reservation.reservation_date == reservation_date,
+                m.Reservation.slot == slot_enum,
+                m.Reservation.status == m.ReservationStatus.BOOKED,
+            )
+        )
+        if conflict:
+            raise SlotConflict("Cet espace n'est pas disponible : une place y est déjà réservée sur ce créneau.")
+
+    created = []
+    for d in desks:
+        occupant = par_poste.get(d.id, {})
+        for s in slots:
+            created.append(m.Reservation(
+                user_id=user_id, desk_id=d.id, reservation_date=reservation_date, slot=s,
+                is_group_booking=True,
+                occupant_user_id=occupant.get("user_id"),
+                occupant_name=occupant.get("name"),
+                occupant_company=occupant.get("company"),
+            ))
+    db.add_all(created)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise SlotConflict("Cet espace vient d'être réservé par quelqu'un d'autre.")
+
+    # Points comme une réservation de poste normale (par créneau, pas multiplié par le
+    # nombre de places — sinon bloquer une table entière rapporterait bien plus qu'une place.)
+    for _ in slots:
+        award_points(db, user_id, POINTS_PER_BOOKING, "reservation_created")
+    db.commit()
+    for r in created:
+        db.refresh(r)
+    return created
+
+
 def my_room_reservation_ids(db: Session, user_id: int, zone: str, reservation_date: date) -> list[int]:
     """IDs des réservations de l'utilisateur pour CETTE SALLE ENTIÈRE (tous les postes actifs
     de la zone) à cette date — [] s'il n'a réservé qu'une partie des postes individuellement
@@ -439,6 +729,37 @@ def my_room_reservation_ids(db: Session, user_id: int, zone: str, reservation_da
     for r in rows:
         by_slot.setdefault(r.slot, set()).add(r.desk_id)
     if not any(covered == desk_ids for covered in by_slot.values()):
+        return []
+    return [r.id for r in rows]
+
+
+def my_group_reservation_ids(db: Session, user_id: int, ref: str, reservation_date: date) -> list[int]:
+    """IDs de mes réservations quand j'ai pris CET ESPACE ENTIER (salle ou table).
+
+    Renvoie [] si je n'ai réservé qu'une partie des places : ce n'est alors pas
+    « la table », juste des places ordinaires que j'ai prises une par une.
+    """
+    try:
+        desks = _group_desks(db, ref)
+    except DeskNotFound:
+        return []
+    desk_ids = {d.id for d in desks}
+
+    rows = list(db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == reservation_date,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.desk_id.in_(desk_ids),
+        )
+    ))
+    if not rows:
+        return []
+
+    by_slot: dict[m.ReservationSlot, set[int]] = {}
+    for r in rows:
+        by_slot.setdefault(r.slot, set()).add(r.desk_id)
+    if not any(couvert == desk_ids for couvert in by_slot.values()):
         return []
     return [r.id for r in rows]
 
@@ -477,6 +798,7 @@ def book_timeslot(
     """
     if reservation_date < date.today():
         raise PastDate("Impossible de réserver une date déjà passée.")
+    _require_mode(db, "pod")
     if _is_weekend(reservation_date):
         raise WeekendNotAllowed("Pas de réservation le week-end.")
     advance_days = get_booking_advance_days(db)
@@ -551,6 +873,10 @@ def check_in(db: Session, user_id: int, reservation_id: int) -> m.Reservation:
     reservation.checked_in_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(reservation)
+
+    # Confirmer sa présence sur sa réservation, c'est aussi être dans les locaux :
+    # une seule source de vérité pour la liste d'évacuation (voir services/attendance.py).
+    attendance_svc.check_in(db, user_id, source="reservation")
     return reservation
 
 

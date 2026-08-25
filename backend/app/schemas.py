@@ -66,7 +66,10 @@ class DeskAvailability(BaseModel):
     """État d'un poste pour une date + un créneau donnés."""
     desk: DeskRead
     is_available: bool
-    booked_by: str | None = None   # nom de la personne si le poste est pris
+    booked_by: str | None = None    # qui a fait la réservation
+    # Qui s'installe réellement : diffère du réservant sur une table réservée d'un
+    # bloc, où chaque place peut revenir à quelqu'un d'autre. None = place gardée libre.
+    occupied_by: str | None = None
 
 
 # ---------------------------------------------------------------- Réservation de salle entière
@@ -315,3 +318,63 @@ class PresenceEntry(BaseModel):
     department: str | None = None
     desk_name: str
     slot: ReservationSlot
+
+
+# ---------------------------------------------------------------- Présence dans les locaux
+class VisitorCreate(BaseModel):
+    """Déclaration d'un visiteur externe par le collègue qui l'accompagne."""
+    full_name: str = Field(min_length=1, max_length=120)
+    company: str | None = Field(default=None, max_length=120)
+
+
+class VisitorRead(BaseModel):
+    id: int
+    full_name: str
+    company: str | None = None
+    host_user_id: int
+    host_name: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AttendanceSettingsUpdate(BaseModel):
+    """Heure à laquelle les présences oubliées sont clôturées d'office."""
+    auto_close_hour: int = Field(ge=0, le=23)
+
+
+# ---------------------------------------------------------------- Réservation d'un groupe (table ou salle)
+class OccupantIn(BaseModel):
+    """Qui s'installe sur une place d'un espace réservé d'un bloc.
+
+    Soit un collègue (`user_id`), soit une personne extérieure (`name`, `company`).
+    """
+    desk_id: int
+    user_id: int | None = None
+    name: str | None = Field(default=None, max_length=120)
+    company: str | None = Field(default=None, max_length=120)
+
+
+class GroupBookingCreate(BaseModel):
+    ref: str = Field(min_length=1, max_length=60)   # "Bureau 1", "T1"…
+    reservation_date: date
+    slot: Literal["AM", "PM", "DAY"]
+    occupants: list[OccupantIn] = Field(default_factory=list)
+
+
+class BookingToggleUpdate(BaseModel):
+    mode: Literal["seat", "table", "room", "pod"]
+    enabled: bool
+
+
+class SpaceEnabledUpdate(BaseModel):
+    ref: str = Field(min_length=1, max_length=60)
+    enabled: bool
+
+
+class FeatureIconRule(BaseModel):
+    keyword: str = Field(min_length=1, max_length=60)
+    icon: str = Field(min_length=1, max_length=8)
+
+
+class FeatureIconsUpdate(BaseModel):
+    rules: list[FeatureIconRule]

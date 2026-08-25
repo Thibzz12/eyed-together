@@ -106,6 +106,23 @@ traduire leurs exceptions en réponses HTTP.
 | `notifications.py` | Notifications in-app (rappels automatiques + notifications admin manuelles) |
 | `search.py` | Recherche globale (agrège collaborateurs, événements, actus, idées, liens) |
 | `stats.py` | Cockpit admin : KPI agrégés + alertes |
+| `attendance.py` | Présence physique dans les locaux : arrivées, départs, visiteurs externes, liste d'évacuation. Clôture du soir par balayage paresseux, sans planificateur. À distinguer de `daily_status`, qui porte l'intention déclarée |
+
+Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanbrabant :
+
+- **Espaces réservables d'un bloc** : une salle fermée est un groupe par sa zone
+  (« Bureau 1 »), une table de l'open space par le préfixe du nom de ses postes
+  (« T1 » pour T1-1 à T1-4). Le regroupement ne s'appuie pas sur `features`, qui
+  est du texte libre modifiable par l'admin.
+- **Occupants** : réserver un espace entier oblige à dire qui s'y installe, place
+  par place. Un occupant est soit un collègue, soit une personne extérieure.
+  `is_group_booking` distingue une place bloquée mais vide d'une réservation
+  individuelle : sans ce drapeau, les deux ont les mêmes colonnes à NULL.
+- **Interrupteurs** : chaque mode de réservation (place, table, salle, bulle) et
+  chaque espace peuvent être fermés depuis l'administration. Tout est ouvert par
+  défaut, un réglage absent ne doit jamais fermer une fonction en service.
+- **Icônes d'équipement** : les règles mot-clé vers icône sont en base, plus dans
+  `app.js`. Ajouter un type de poste ne demande plus de toucher au code.
 
 ### Le modèle de données
 
@@ -119,6 +136,9 @@ traduire leurs exceptions en réponses HTTP.
 | `PointTransaction` | Journal des points gagnés/perdus — **source de vérité**, `User.total_points` n'en est que le cumul |
 | `Badge` / `UserBadge` | Récompenses (relation N-N), certains badges ont des paliers |
 | `DailyStatus` | Statut déclaré par un employé (coworking/télétravail/…), matin **et** après-midi séparément |
+| `Attendance` | Présence physique **constatée** : une ligne par personne et par jour, `left_at` à NULL tant qu'elle est dans le bâtiment. Ne pas confondre avec `DailyStatus`, qui est une intention annoncée à l'avance |
+| `Visitor` | Visiteur externe déclaré par le collègue qui le reçoit (nom, société), pour que la liste d'évacuation soit complète |
+| `StoredImage` | Images envoyées depuis l'administration (le plan des locaux). **En base et pas sur le disque** : Render remonte un système de fichiers neuf à chaque déploiement, un fichier déposé y disparaîtrait |
 | `DashboardCard` | Configuration admin de l'accueil (activée, ordre, mise en avant) |
 | `AppSetting` | Table clé/valeur générique pour tout réglage qui ne mérite pas sa propre table (catalogue de statuts, jalon projet, libellés de salles…) |
 

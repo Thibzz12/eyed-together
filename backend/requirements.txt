@@ -18,3 +18,10 @@ slowapi==0.1.9                 # Rate limiting (anti brute-force / spam)
 
 # --- Intégration WordPress (lecture événements/actus) ---
 httpx==0.28.1
+
+# --- Envoi de fichiers (plan des locaux, remplacé depuis l'administration) ---
+python-multipart==0.0.32
+
+# --- Fuseaux horaires ---
+tzdata==2026.3                 # Base de fuseaux IANA : indispensable sous Windows, où
+                               # zoneinfo n'a aucune source système (Europe/Brussels sinon introuvable).

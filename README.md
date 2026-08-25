@@ -54,3 +54,20 @@ simple à reprendre par n'importe quel développeur sans connaître un
 écosystème front spécifique. `app.js` est un gros fichier organisé en
 sections (une par écran) plutôt qu'en multiples petits modules — voir
 `docs/ARCHITECTURE.md` pour s'y retrouver.
+
+## Tests
+
+Le projet n'a longtemps eu aucun test automatisé. La présence dans les locaux
+(voir `backend/app/services/attendance.py`) en est couverte, car sa logique
+de clôture et d'attribution de points se vérifie mal à la main.
+
+```bash
+cd backend
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+.venv/Scripts/python.exe -m pytest tests/ -v
+```
+
+Les tests tournent sur une base SQLite en mémoire, recréée pour chaque test :
+ils ne touchent jamais `coworking.db`. Le client de test n'active pas le
+lifespan de l'application, précisément pour éviter que les seeds de démarrage
+n'écrivent dans la base de développement.

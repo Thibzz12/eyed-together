@@ -26,6 +26,7 @@ from app.db.seed import (
     seed_pods_if_missing,
     seed_useful_links_if_missing,
 )
+from app.services.attendance import AttendanceError
 from app.services.badges import BadgeError
 from app.services.badges import seed_catalog_if_empty as seed_badges_if_empty
 from app.db.session import SessionLocal, engine
@@ -106,6 +107,11 @@ async def dashboard_error_handler(request: Request, exc: DashboardError):
 
 @app.exception_handler(BadgeError)
 async def badge_error_handler(request: Request, exc: BadgeError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+@app.exception_handler(AttendanceError)
+async def attendance_error_handler(request: Request, exc: AttendanceError):
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 # --- Session signée (itsdangerous) : cookie httpOnly + Secure(prod) ---

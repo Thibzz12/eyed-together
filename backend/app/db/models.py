@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     Time,
@@ -120,8 +121,11 @@ class User(Base):
     total_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # foreign_keys explicite : `reservations` porte deux clés vers users (le réservant
+    # et l'occupant du poste), SQLAlchemy ne peut pas deviner laquelle utiliser ici.
     reservations: Mapped[list["Reservation"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user", cascade="all, delete-orphan",
+        foreign_keys="Reservation.user_id",
     )
     point_transactions: Mapped[list["PointTransaction"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
@@ -190,9 +194,25 @@ class Reservation(Base):
     )
     # Rempli quand l'employé confirme sa présence (check-in). Sert à détecter les no-show.
     checked_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Occupant du poste, pour les réservations de groupe (table ou salle entière) ---
+    # Celui qui bloque une table entière doit dire qui s'y installera : sans cela, six
+    # places disparaissent du planning sans qu'on sache qui les occupe.
+    # occupant_user_id : un collègue. occupant_name/company : une personne extérieure.
+    # Les trois à NULL sur une réservation de groupe = place gardée volontairement libre.
+    # Sur une réservation individuelle, l'occupant est le réservant (user_id).
+    occupant_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    occupant_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    occupant_company: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # True quand la place vient d'une réservation d'espace entier. Sans ce drapeau, une
+    # place bloquée mais laissée vide serait indiscernable d'une réservation individuelle :
+    # les deux ont les trois colonnes d'occupant à NULL.
+    is_group_booking: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    user: Mapped["User"] = relationship(back_populates="reservations")
+    user: Mapped["User"] = relationship(back_populates="reservations", foreign_keys=[user_id])
+    occupant: Mapped["User | None"] = relationship(foreign_keys=[occupant_user_id])
     desk: Mapped["Desk"] = relationship(back_populates="reservations")
 
 
@@ -492,3 +512,78 @@ class UserBadge(Base):
 
     user: Mapped["User"] = relationship(back_populates="badges")
     badge: Mapped["Badge"] = relationship(back_populates="user_badges")
+
+
+# ------------------------------------------------------------------
+#  Présence physique dans les locaux (sécurité incendie)
+# ------------------------------------------------------------------
+class Attendance(Base):
+    """Présence physique constatée d'un employé, pour une journée.
+
+    À ne pas confondre avec DailyStatus, qui enregistre une *intention*
+    déclarée à l'avance (bureau, télétravail, congé). Ici c'est un fait :
+    la personne a confirmé être dans le bâtiment.
+
+    Une seule ligne par personne et par jour, volontairement : repartir puis
+    revenir rouvre la ligne existante au lieu d'en créer une seconde. On
+    répond à « est-il dans le bâtiment maintenant ? », on ne reconstitue pas
+    un relevé d'heures.
+    """
+
+    __tablename__ = "attendance"
+    __table_args__ = (
+        UniqueConstraint("user_id", "day", name="uq_attendance_user_day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    day: Mapped[date] = mapped_column(Date, index=True)
+    arrived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # NULL = la personne est encore dans les locaux.
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "popup", "reservation" ou "admin" — chaîne libre plutôt qu'un enum, pour ne pas
+    # imposer une migration de type PostgreSQL à chaque nouvelle source de pointage.
+    source: Mapped[str] = mapped_column(String(20), default="popup", nullable=False)
+    # True quand le départ vient du balayage du soir et non d'un clic : permet à l'admin
+    # de distinguer un départ confirmé d'un oubli.
+    auto_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    user: Mapped["User"] = relationship()
+
+
+class Visitor(Base):
+    """Visiteur externe accompagné par un employé, présent dans les locaux."""
+
+    __tablename__ = "visitors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    day: Mapped[date] = mapped_column(Date, index=True)
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    company: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    arrived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    host: Mapped["User"] = relationship()
+
+
+class StoredImage(Base):
+    """Image envoyée depuis l'administration, conservée en base et non sur le disque.
+
+    Render remonte un système de fichiers neuf à chaque déploiement : un fichier
+    déposé dans app/static/img disparaîtrait à la mise à jour suivante. La base
+    est le seul endroit qui survit, et une image de plan pèse assez peu pour y
+    tenir sans peser sur les requêtes (elle n'est lue que par sa propre route).
+    """
+
+    __tablename__ = "stored_images"
+
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)   # ex: "floorplan"
+    content_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
