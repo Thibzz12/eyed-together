@@ -17,7 +17,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as time_type
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -236,7 +236,9 @@ def slots_for(slot_str: str) -> list[m.ReservationSlot]:
     return [m.ReservationSlot(slot_str)]  # lève ValueError si invalide
 
 
-def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk, str | None, str | None]]:
+def get_availability(
+    db: Session, day: date, slot_str: str
+) -> list[tuple[m.Desk, str | None, str | None, bool]]:
     """Pour une date + un créneau (AM/PM/DAY) : chaque poste, qui l'a réservé et qui l'occupe.
 
     En 'DAY', un poste est indisponible si le matin OU l'après-midi est déjà pris.
@@ -245,6 +247,10 @@ def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk
     une table entière désigne qui s'installe sur chaque place. Afficher le réservant
     partout ferait apparaître son nom sur les six sièges, ce qui est faux et rend la
     demande d'Olivier (savoir qui est où) sans effet.
+
+    Le quatrième élément dit si la place est fermée CE JOUR-LÀ : une place hors
+    service ou un espace fermé pour la semaine. Distinct de « déjà réservée » :
+    personne ne l'occupe, elle n'est simplement pas proposable.
     """
     slots = slots_for(slot_str)
     desks = list_desks(db)
@@ -270,16 +276,32 @@ def get_availability(db: Session, day: date, slot_str: str) -> list[tuple[m.Desk
             # Réservation individuelle : l'occupant est le réservant lui-même.
             occupant = r.user.display_name
         taken.setdefault(r.desk_id, (r.user.display_name, occupant))
-    return [(d, *taken.get(d.id, (None, None))) for d in desks]
+    postes_fermes, espaces_fermes = _fermetures(db, day)
+
+    def fermee(d: m.Desk) -> bool:
+        if d.name in postes_fermes:
+            return True
+        groupe = _group_of(d) or (d.name if d.zone == POD_ZONE else None)
+        return bool(groupe and groupe in espaces_fermes)
+
+    return [(d, *taken.get(d.id, (None, None)), fermee(d)) for d in desks]
 
 
 def my_reservations(db: Session, user_id: int) -> list[m.Reservation]:
-    """Mes réservations à venir (aujourd'hui inclus), triées."""
+    """Mes réservations à venir : celles que j'ai prises, et les places qu'on m'a données.
+
+    Un collègue installé sur une table réservée par quelqu'un d'autre doit voir
+    sa place chez lui : c'est à lui de confirmer son arrivée, son départ, ou de
+    se retirer. Le réservant garde par ailleurs la main sur l'espace entier.
+    """
     return list(
         db.scalars(
             select(m.Reservation)
             .where(
-                m.Reservation.user_id == user_id,
+                or_(
+                    m.Reservation.user_id == user_id,
+                    m.Reservation.occupant_user_id == user_id,
+                ),
                 m.Reservation.status == m.ReservationStatus.BOOKED,
                 m.Reservation.reservation_date >= date.today(),
             )
@@ -329,9 +351,8 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
         raise DeskNotFound("Ce poste n'existe pas ou n'est pas disponible.")
 
     _require_mode(db, "seat")
-    groupe = _group_of(desk)
-    if groupe and not is_group_enabled(db, groupe):
-        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
+    if not is_desk_bookable(db, desk, data.reservation_date):
+        raise ReservationError("Cette place n'est pas disponible à cette date.")
 
     slots = slots_for(data.slot)
 
@@ -379,51 +400,85 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
 
 
 def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
-    """Annule une réservation (uniquement la sienne) et reprend les points."""
+    """Annule une réservation, ou retire un occupant d'un espace réservé d'un bloc.
+
+    Trois cas, selon qui demande quoi :
+
+    - réservation individuelle : elle est annulée, les points repris ;
+    - place d'un espace entier, demandée par le RÉSERVANT : tout le lot part,
+      car libérer une seule place d'une table retenue la rendait réservable par
+      n'importe qui alors que la table reste bloquée ;
+    - place d'un espace entier, demandée par son OCCUPANT : il se retire, la
+      place redevient « gardée libre » et l'espace reste au réservant.
+    """
     reservation = db.get(m.Reservation, reservation_id)
     if reservation is None or reservation.status != m.ReservationStatus.BOOKED:
         raise ReservationNotFound("Réservation introuvable ou déjà annulée.")
+
+    if reservation.is_group_booking and reservation.user_id != user_id:
+        if reservation.occupant_user_id != user_id:
+            raise NotOwner("Tu ne peux annuler que tes propres réservations.")
+        _retirer_occupant(db, reservation)
+        return
+
     # Contrôle d'ownership : sécurité (on n'annule pas la résa d'un collègue).
     if reservation.user_id != user_id:
         raise NotOwner("Tu ne peux annuler que tes propres réservations.")
 
-    # Anti-farming : on retire les points gagnés à la réservation — sauf les créneaux
-    # "bulle calme" (timeslot), qui n'en rapportent jamais (voir book_timeslot).
-    #
-    # Une réservation de groupe crée une ligne PAR PLACE mais n'a crédité qu'une
-    # fois par créneau (voir book_group) : on ne débite donc qu'une fois, à la
-    # première ligne libérée. Débiter chaque ligne faisait perdre 50 points sur
-    # une table de six réservée puis annulée dans la foulée.
-    rembourse = reservation.slot != m.ReservationSlot.TIMESLOT
-    if rembourse and reservation.is_group_booking:
-        rembourse = _derniere_place_du_lot(db, reservation)
+    if reservation.is_group_booking:
+        _annuler_le_lot(db, reservation)
+        return
 
     reservation.status = m.ReservationStatus.CANCELLED
-    if rembourse:
+    # Anti-farming : on retire les points gagnés à la réservation — sauf les créneaux
+    # "bulle calme" (timeslot), qui n'en rapportent jamais (voir book_timeslot).
+    if reservation.slot != m.ReservationSlot.TIMESLOT:
         award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
     db.commit()
 
 
-def _derniere_place_du_lot(db: Session, reservation: m.Reservation) -> bool:
-    """Reste-t-il d'autres places réservées dans le même lot ?
+def _lignes_du_lot(db: Session, reservation: m.Reservation) -> list[m.Reservation]:
+    """Toutes les places encore réservées du même lot.
 
-    On ne regarde que les lignes ENCORE réservées : une personne ne peut avoir
-    qu'une seule réservation de groupe vivante sur un créneau donné, donc le
-    triplet (utilisateur, date, créneau) les identifie sans ambiguïté. Se fonder
-    sur les lignes déjà annulées ferait retomber la recherche sur les lots des
-    jours précédents et sauterait le débit.
+    Le lot est identifié par (réservant, date, créneau) : une personne ne peut
+    avoir qu'une seule réservation d'espace vivante sur un créneau donné.
     """
-    reste = db.scalar(
+    return list(db.scalars(
         select(m.Reservation).where(
             m.Reservation.user_id == reservation.user_id,
             m.Reservation.reservation_date == reservation.reservation_date,
             m.Reservation.slot == reservation.slot,
             m.Reservation.is_group_booking.is_(True),
             m.Reservation.status == m.ReservationStatus.BOOKED,
-            m.Reservation.id != reservation.id,
         )
-    )
-    return reste is None
+    ))
+
+
+def _annuler_le_lot(db: Session, reservation: m.Reservation) -> None:
+    """Libère tout l'espace et reprend les points de chaque bénéficiaire, une fois."""
+    lignes = _lignes_du_lot(db, reservation)
+    beneficiaires = [reservation.user_id]
+    for ligne in lignes:
+        if ligne.occupant_user_id and ligne.occupant_user_id not in beneficiaires:
+            beneficiaires.append(ligne.occupant_user_id)
+
+    for ligne in lignes:
+        ligne.status = m.ReservationStatus.CANCELLED
+    if reservation.slot != m.ReservationSlot.TIMESLOT:
+        for beneficiaire in beneficiaires:
+            award_points(db, beneficiaire, -POINTS_PER_BOOKING, "reservation_cancelled")
+    db.commit()
+
+
+def _retirer_occupant(db: Session, reservation: m.Reservation) -> None:
+    """L'occupant se retire : la place redevient gardée libre, l'espace reste pris."""
+    beneficiaire = reservation.occupant_user_id
+    reservation.occupant_user_id = None
+    reservation.occupant_name = None
+    reservation.occupant_company = None
+    if beneficiaire and reservation.slot != m.ReservationSlot.TIMESLOT:
+        award_points(db, beneficiaire, -POINTS_PER_BOOKING, "reservation_cancelled")
+    db.commit()
 
 
 # --------------------------------------------------------------------------
@@ -594,13 +649,115 @@ def set_booking_toggle(db: Session, mode: str, enabled: bool) -> None:
     _set_flag(db, _TOGGLE_KEY.format(mode), enabled)
 
 
-def is_group_enabled(db: Session, ref: str) -> bool:
-    """Un espace grisé par l'admin reste visible sur le plan mais n'est plus réservable."""
-    return _flag(db, _GROUP_KEY.format(ref))
+# --------------------------------------------------------------------------
+#  Indisponibilités : une place ou un espace fermé, éventuellement daté
+# --------------------------------------------------------------------------
+#  Fermer « la place T1-3 parce que le bureau est cassé » et « le Bureau 2 la
+#  semaine du déménagement » sont la même opération à deux échelles. Une seule
+#  table les porte, et toute question de disponibilité se pose POUR UNE DATE.
+def list_unavailabilities(db: Session) -> list[dict]:
+    """Toutes les fermetures déclarées, les plus récentes d'abord."""
+    lignes = db.scalars(
+        select(m.Unavailability).order_by(m.Unavailability.created_at.desc(), m.Unavailability.id.desc())
+    )
+    return [
+        {
+            "id": u.id,
+            "scope": u.scope,
+            "target": u.target,
+            "since": u.since.isoformat() if u.since else None,
+            "until": u.until.isoformat() if u.until else None,
+            "reason": u.reason,
+            "active_today": u.couvre(local_today()),
+        }
+        for u in lignes
+    ]
+
+
+def add_unavailability(
+    db: Session, scope: str, target: str,
+    since: date | None = None, until: date | None = None, reason: str | None = None,
+) -> m.Unavailability:
+    """Ferme une place ou un espace. Sans dates, la fermeture vaut jusqu'à retrait."""
+    if scope not in ("desk", "space"):
+        raise ReservationError("Portée inconnue : attendu « desk » ou « space ».")
+    cible = (target or "").strip()
+    if not cible:
+        raise ReservationError("Indique la place ou l'espace à rendre indisponible.")
+    if since and until and until < since:
+        raise ReservationError("La date de fin est antérieure à la date de début.")
+
+    if scope == "desk" and not db.scalar(select(m.Desk).where(m.Desk.name == cible)):
+        raise DeskNotFound("Ce poste n'existe pas.")
+    if scope == "space" and cible not in {g["ref"] for g in bookable_groups(db)}:
+        raise DeskNotFound("Cet espace n'existe pas.")
+
+    ligne = m.Unavailability(
+        scope=scope, target=cible, since=since, until=until,
+        reason=((reason or "").strip() or None),
+    )
+    db.add(ligne)
+    db.commit()
+    db.refresh(ligne)
+    return ligne
+
+
+def remove_unavailability(db: Session, unavailability_id: int) -> None:
+    ligne = db.get(m.Unavailability, unavailability_id)
+    if ligne is None:
+        raise ReservationNotFound("Cette indisponibilité n'existe plus.")
+    db.delete(ligne)
+    db.commit()
+
+
+def _fermetures(db: Session, jour: date) -> tuple[set[str], set[str]]:
+    """Places et espaces fermés ce jour-là, en une seule lecture.
+
+    Renvoyer les deux ensembles d'un coup évite de rejouer la requête pour
+    chacun des trente-quatre postes d'une page de réservation.
+    """
+    postes: set[str] = set()
+    espaces: set[str] = set()
+    for u in db.scalars(select(m.Unavailability)):
+        if not u.couvre(jour):
+            continue
+        (postes if u.scope == "desk" else espaces).add(u.target)
+    return postes, espaces
+
+
+def is_group_enabled(db: Session, ref: str, jour: date | None = None) -> bool:
+    """Un espace fermé reste visible sur le plan mais n'est plus réservable."""
+    _, espaces = _fermetures(db, jour or local_today())
+    return ref not in espaces
+
+
+def is_desk_bookable(db: Session, desk: m.Desk, jour: date | None = None) -> bool:
+    """Une place est réservable si ni elle ni son espace ne sont fermés ce jour-là."""
+    postes, espaces = _fermetures(db, jour or local_today())
+    if desk.name in postes:
+        return False
+    groupe = _group_of(desk) or (desk.name if desk.zone == POD_ZONE else None)
+    return not (groupe and groupe in espaces)
 
 
 def set_group_enabled(db: Session, ref: str, enabled: bool) -> None:
-    _set_flag(db, _GROUP_KEY.format(ref), enabled)
+    """Ouvre ou ferme un espace sans date. Raccourci de l'interrupteur d'administration.
+
+    Fermer ajoute une indisponibilité sans bornes ; rouvrir retire TOUTES les
+    fermetures de cet espace, y compris datées : décocher la case doit rendre
+    l'espace réservable, sans quoi le geste ne fait pas ce qu'il annonce.
+    """
+    existantes = list(db.scalars(
+        select(m.Unavailability).where(
+            m.Unavailability.scope == "space", m.Unavailability.target == ref
+        )
+    ))
+    if enabled:
+        for u in existantes:
+            db.delete(u)
+    elif not any(u.since is None and u.until is None for u in existantes):
+        db.add(m.Unavailability(scope="space", target=ref))
+    db.commit()
 
 
 def _require_mode(db: Session, mode: str) -> None:
@@ -645,6 +802,7 @@ def bookable_groups(db: Session) -> list[dict]:
             groupes.setdefault(ref, []).append(d)
 
     labels = get_room_labels(db)
+    _, espaces_fermes = _fermetures(db, local_today())
     out = []
 
     # Une bulle calme ne se réserve pas « en entier » (elle n'a qu'une place, prise
@@ -658,7 +816,7 @@ def bookable_groups(db: Session) -> list[dict]:
             "zone": d.zone,
             "seats": 1,
             "kind": "pod",
-            "enabled": is_group_enabled(db, d.name),
+            "enabled": d.name not in espaces_fermes,
         })
 
     for ref, desks in groupes.items():
@@ -671,7 +829,7 @@ def bookable_groups(db: Session) -> list[dict]:
             "zone": desks[0].zone,
             "seats": len(desks),
             "kind": "room" if ref in ROOM_ZONES else "table",
-            "enabled": is_group_enabled(db, ref),
+            "enabled": ref not in espaces_fermes,
         })
     rang = {"room": 0, "table": 1, "pod": 2}
     return sorted(out, key=lambda g: (rang.get(g["kind"], 9), g["ref"]))
@@ -707,6 +865,20 @@ def _validate_occupants(occupants: list[dict] | None, desks: list[m.Desk]) -> di
     return par_poste
 
 
+def _beneficiaires(user_id: int, par_poste: dict[int, dict]) -> list[int]:
+    """Qui touche les points d'une réservation d'espace : le réservant et les occupants.
+
+    Dédoublonné et ordonné pour que le journal de points reste lisible. Les
+    personnes extérieures n'ont pas de compte, elles n'apparaissent pas ici.
+    """
+    gens = [user_id]
+    for occupant in par_poste.values():
+        identifiant = occupant.get("user_id")
+        if identifiant and identifiant not in gens:
+            gens.append(identifiant)
+    return gens
+
+
 def book_group(
     db: Session,
     user_id: int,
@@ -726,8 +898,14 @@ def book_group(
 
     desks = _group_desks(db, ref)
     _require_mode(db, "room" if ref in ROOM_ZONES else "table")
-    if not is_group_enabled(db, ref):
-        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
+    if not is_group_enabled(db, ref, reservation_date):
+        raise ReservationError("Cet espace n'est pas disponible à cette date.")
+    fermees = [d.name for d in desks if not is_desk_bookable(db, d, reservation_date)]
+    if fermees:
+        raise ReservationError(
+            "Impossible de réserver tout l'espace : %s indisponible à cette date."
+            % (", ".join(fermees) if len(fermees) > 1 else fermees[0])
+        )
     par_poste = _validate_occupants(occupants, desks)
     desk_ids = [d.id for d in desks]
     slots = slots_for(slot_str)
@@ -772,10 +950,13 @@ def book_group(
         db.rollback()
         raise SlotConflict("Cet espace vient d'être réservé par quelqu'un d'autre.")
 
-    # Points comme une réservation de poste normale (par créneau, pas multiplié par le
-    # nombre de places — sinon bloquer une table entière rapporterait bien plus qu'une place.)
-    for _ in slots:
-        award_points(db, user_id, POINTS_PER_BOOKING, "reservation_created")
+    # Une place réservée vaut ses points à celui qui l'occupe, comme s'il l'avait
+    # prise lui-même : installer un collègue sur une table ne doit pas le priver.
+    # Le réservant est crédité qu'il s'y installe ou non — il tient l'espace — mais
+    # une seule fois, sinon réserver pour soi rapporterait le double.
+    for beneficiaire in _beneficiaires(user_id, par_poste):
+        for _ in slots:
+            award_points(db, beneficiaire, POINTS_PER_BOOKING, "reservation_created")
     db.commit()
     for r in created:
         db.refresh(r)
@@ -896,8 +1077,8 @@ def book_timeslot(
     desk = db.get(m.Desk, desk_id)
     if desk is None or not desk.is_active or desk.zone != POD_ZONE:
         raise DeskNotFound("Cette bulle calme n'existe pas ou n'est pas disponible.")
-    if not is_group_enabled(db, desk.name):
-        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
+    if not is_desk_bookable(db, desk, reservation_date):
+        raise ReservationError("Cette bulle n'est pas disponible à cette date.")
 
     if end_time <= start_time:
         raise ReservationError("L'heure de fin doit être après l'heure de début.")
@@ -995,16 +1176,27 @@ def apply_noshow_penalties(db: Session, user_id: int) -> int:
     for r in rows:
         r.status = m.ReservationStatus.NO_SHOW
         if not r.is_group_booking:
-            award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
+            _sanctionner(db, user_id, r)
             continue
         lot = (r.reservation_date, r.slot)
         if lot in lots_penalises or _lot_honore(db, user_id, r):
             continue
         lots_penalises.add(lot)
-        award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
+        _sanctionner(db, user_id, r)
 
     db.commit()
     return len(rows)
+
+
+def _sanctionner(db: Session, user_id: int, reservation: m.Reservation) -> None:
+    """Reprend les points de la réservation ET applique la pénalité d'absence.
+
+    Réserver puis ne pas venir doit coûter plus que d'annuler à temps : sinon
+    autant garder sa place au chaud. On retire donc d'abord ce que la
+    réservation avait rapporté, puis la pénalité par-dessus.
+    """
+    award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
+    award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
 
 
 def _lot_honore(db: Session, user_id: int, reservation: m.Reservation) -> bool:

@@ -684,8 +684,11 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .dash-card .list { gap: 0; }
 .dash-card .event-item { border: none; border-radius: 0; padding: 13px 0; border-top: 1px solid var(--line); background: none; }
 .dash-card .event-item:first-child { border-top: none; padding-top: 0; }
-.res-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; }
-.res-item .info { min-width: 0; }
+/* La rangée passe à la ligne plutôt que d'écraser le texte : dans la colonne
+   étroite de la page Réserver, les boutons ne rétrécissent pas et le nom des
+   occupants se coupait mot par mot. */
+.res-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; background: #F9FAFC; }
+.res-item .info { min-width: 0; flex: 1 1 190px; }
 /* Bloc plutôt qu'inline : sinon le nom du poste et la date se collent l'un à l'autre. */
 .res-item .info b { display: block; font-size: .88rem; }
 .res-item .info small { display: block; color: var(--muted); margin-top: 2px; }
@@ -694,7 +697,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .res-item .feature-tags { margin: 6px 0 0; }
 .res-item .feature-tag { font-size: .7rem; padding: 3px 7px; }
 .res-item .cancel { border: none; background: var(--red-050); color: var(--red); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; flex-shrink: 0; }
-.res-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.res-item-actions { display: flex; gap: 6px; flex-shrink: 0; margin-left: auto; }
 .checkin { border: none; background: var(--green-050); color: var(--green); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; }
 .res-checked { color: var(--green); font-weight: 700; font-size: .78rem; align-self: center; }
 .pres-item { display: flex; align-items: center; gap: 10px; border: none; padding: 4px 0; }
@@ -777,7 +780,10 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .sheet-actions .btn { margin: 0; }
 .sheet-cancel { background: #F1F5F9; color: var(--ink); }
 .sheet-confirm.danger { background: var(--red); }
-.toast { position: fixed; bottom: calc(var(--tabbar-h) + 70px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 11px 18px; border-radius: var(--radius-sm); font-weight: 500; font-size: .88rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); opacity: 0; transition: opacity .25s ease, transform .25s ease; z-index: 50; max-width: 90vw; text-align: center; }
+/* z-index au-dessus des feuilles modales (90) : un refus de réservation est
+   émis pendant qu'une feuille est ouverte, et passait sous elle — le clic
+   semblait alors ne rien faire. */
+.toast { position: fixed; bottom: calc(var(--tabbar-h) + 70px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 11px 18px; border-radius: var(--radius-sm); font-weight: 500; font-size: .88rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); opacity: 0; transition: opacity .25s ease, transform .25s ease; z-index: 120; max-width: 90vw; text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.error { background: var(--red); } .toast.success { background: var(--green); }
 .toast.toast-with-action { display: flex; align-items: center; gap: 12px; text-align: left; max-width: min(92vw, 420px); }
@@ -995,6 +1001,18 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   cursor: not-allowed;
 }
 .plan-pin.off:hover { transform: translate(-50%, -50%); }
+
+/* Les deux valeurs d'une règle d'icône sont éditables sur place : supprimer et
+   recréer pour corriger une faute de frappe était pénible. */
+.icon-rule input.icon-rule-emoji,
+.icon-rule input.icon-rule-keyword {
+  font: inherit; color: inherit;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 8px; min-width: 0;
+}
+.icon-rule input.icon-rule-emoji { width: 3.4rem; text-align: center; }
+.icon-rule input.icon-rule-keyword { flex: 1 1 auto; }
+.icon-rule input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 /* Bulle calme rendue indisponible par l'admin : visible, mais visiblement fermée. */
 .pod-card-off { opacity: .55; }

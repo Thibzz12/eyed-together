@@ -49,14 +49,24 @@ def test_reserver_une_table_rapporte_autant_qu_une_place(db, table, employee):
 
 
 def test_annuler_une_table_rend_exactement_ce_qu_elle_avait_rapporte(db, table, employee):
+    """Une seule annulation suffit : elle libère tout le lot."""
     depart = employee.total_points
     reservations = svc.book_group(db, employee.id, "T7", _jour_ouvre(), "AM", _occupants(table))
 
-    for r in reservations:
-        svc.cancel_reservation(db, employee.id, r.id)
+    svc.cancel_reservation(db, employee.id, reservations[0].id)
     db.refresh(employee)
 
     assert employee.total_points == depart
+
+
+def test_annuler_une_place_libere_toute_la_table(db, table, employee):
+    """Libérer une place d'une table retenue la rendait réservable par n'importe qui."""
+    reservations = svc.book_group(db, employee.id, "T7", _jour_ouvre(), "AM", _occupants(table))
+    svc.cancel_reservation(db, employee.id, reservations[0].id)
+
+    for r in reservations:
+        db.refresh(r)
+        assert r.status == m.ReservationStatus.CANCELLED
 
 
 def test_le_solde_ne_derive_pas_sur_plusieurs_cycles(db, table, employee):
@@ -64,21 +74,29 @@ def test_le_solde_ne_derive_pas_sur_plusieurs_cycles(db, table, employee):
     depart = employee.total_points
     for _ in range(5):
         reservations = svc.book_group(db, employee.id, "T7", _jour_ouvre(), "AM", _occupants(table))
-        for r in reservations:
-            svc.cancel_reservation(db, employee.id, r.id)
+        svc.cancel_reservation(db, employee.id, reservations[0].id)
     db.refresh(employee)
 
     assert employee.total_points == depart
 
 
 def test_une_journee_entiere_compte_pour_deux_demi_journees(db, table, employee):
+    """Une journée fait deux lots, matin et après-midi, annulables séparément.
+
+    C'est ce que montre « Mes réservations » : deux entrées, deux boutons.
+    """
     depart = employee.total_points
     reservations = svc.book_group(db, employee.id, "T7", _jour_ouvre(), "DAY", _occupants(table))
     db.refresh(employee)
     assert employee.total_points == depart + 2 * POINTS_PER_BOOKING
 
-    for r in reservations:
-        svc.cancel_reservation(db, employee.id, r.id)
+    matin = next(r for r in reservations if r.slot == m.ReservationSlot.AM)
+    svc.cancel_reservation(db, employee.id, matin.id)
+    db.refresh(employee)
+    assert employee.total_points == depart + POINTS_PER_BOOKING
+
+    apres_midi = next(r for r in reservations if r.slot == m.ReservationSlot.PM)
+    svc.cancel_reservation(db, employee.id, apres_midi.id)
     db.refresh(employee)
     assert employee.total_points == depart
 
@@ -105,8 +123,7 @@ def test_une_place_seule_reste_debitee_normalement(db, employee):
 def test_le_journal_de_points_reste_la_source_de_verite(db, table, employee):
     """`total_points` n'est qu'un cumul : il doit coller au journal, qui fait foi."""
     reservations = svc.book_group(db, employee.id, "T7", _jour_ouvre(), "AM", _occupants(table))
-    for r in reservations:
-        svc.cancel_reservation(db, employee.id, r.id)
+    svc.cancel_reservation(db, employee.id, reservations[0].id)
 
     db.refresh(employee)
     journal = sum(

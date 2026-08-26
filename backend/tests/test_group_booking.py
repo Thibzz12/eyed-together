@@ -231,7 +231,7 @@ def test_une_place_gardee_vide_n_est_pas_attribuee_au_reservant(db, employee, de
     svc.book_group(db, employee.id, "T1", demain, "AM",
                    _occupants(desks, [("T1-1", employee.id)]))
 
-    par_poste = {d.name: (b, o) for d, b, o in svc.get_availability(db, demain, "AM")}
+    par_poste = {d.name: (b, o) for d, b, o, _ferme in svc.get_availability(db, demain, "AM")}
     assert par_poste["T1-1"] == ("Camille Dupont", "Camille Dupont")
     assert par_poste["T1-4"] == ("Camille Dupont", None)   # bloquée, mais personne dessus
 
@@ -242,5 +242,5 @@ def test_une_reservation_individuelle_designe_bien_son_auteur(db, employee, desk
     svc.create_reservation(db, employee.id, ReservationCreate(
         desk_id=desks["T2-1"].id, reservation_date=demain, slot="AM"))
 
-    par_poste = {d.name: (b, o) for d, b, o in svc.get_availability(db, demain, "AM")}
+    par_poste = {d.name: (b, o) for d, b, o, _ferme in svc.get_availability(db, demain, "AM")}
     assert par_poste["T2-1"] == ("Camille Dupont", "Camille Dupont")

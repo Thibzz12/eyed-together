@@ -14,7 +14,12 @@ import pytest
 from app.db import models as m
 from app.schemas import ReservationCreate
 from app.services import reservations as svc
+from app.services.gamification import POINTS_PER_BOOKING
 from app.services.reservations import NOSHOW_PENALTY
+
+# Ne pas venir coûte les points de la réservation ET la pénalité : sinon
+# oublier sa place reviendrait moins cher que de l'annuler à temps.
+COUT_ABSENCE = POINTS_PER_BOOKING + NOSHOW_PENALTY
 
 
 @pytest.fixture
@@ -50,14 +55,14 @@ def _reserver_hier(db, employee, table, confirmee=False):
     return lignes
 
 
-def test_une_table_non_honoree_coute_une_seule_penalite(db, employee, table):
+def test_une_table_non_honoree_coute_une_seule_absence(db, employee, table):
     _reserver_hier(db, employee, table)
     depart = employee.total_points
 
     svc.apply_noshow_penalties(db, employee.id)
     db.refresh(employee)
 
-    assert employee.total_points == depart - NOSHOW_PENALTY
+    assert employee.total_points == depart - COUT_ABSENCE
 
 
 def test_confirmer_une_seule_place_epargne_tout_le_lot(db, employee, table):
@@ -81,7 +86,7 @@ def test_toutes_les_places_du_lot_passent_en_no_show(db, employee, table):
         assert r.status == m.ReservationStatus.NO_SHOW
 
 
-def test_deux_lots_de_jours_differents_comptent_deux_penalites(db, employee, table):
+def test_deux_lots_de_jours_differents_comptent_deux_absences(db, employee, table):
     _reserver_hier(db, employee, table)
     avant_hier = date.today() - timedelta(days=2)
     db.add_all([
@@ -96,10 +101,10 @@ def test_deux_lots_de_jours_differents_comptent_deux_penalites(db, employee, tab
     svc.apply_noshow_penalties(db, employee.id)
     db.refresh(employee)
 
-    assert employee.total_points == depart - 2 * NOSHOW_PENALTY
+    assert employee.total_points == depart - 2 * COUT_ABSENCE
 
 
-def test_une_place_seule_reste_penalisee_normalement(db, employee):
+def test_une_place_seule_reste_sanctionnee_normalement(db, employee):
     poste = m.Desk(name="T9-9", zone="Open Space", floor="Rez", is_active=True)
     db.add(poste)
     db.commit()   # sans quoi poste.id vaut encore None
@@ -111,7 +116,7 @@ def test_une_place_seule_reste_penalisee_normalement(db, employee):
     svc.apply_noshow_penalties(db, employee.id)
     db.refresh(employee)
 
-    assert employee.total_points == depart - NOSHOW_PENALTY
+    assert employee.total_points == depart - COUT_ABSENCE
 
 
 def test_une_reservation_du_jour_n_est_pas_encore_un_no_show(db, employee, table):

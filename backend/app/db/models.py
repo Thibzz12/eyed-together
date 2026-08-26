@@ -588,6 +588,40 @@ class Visitor(Base):
     host: Mapped["User"] = relationship()
 
 
+class Unavailability(Base):
+    """Une place ou un espace rendu non réservable, éventuellement sur une période.
+
+    `scope` vaut "desk" (la cible est un nom de poste, « T1-3 ») ou "space" (la
+    cible est une référence de groupe : « Bureau 2 », « T1 », « BC-1 »).
+
+    Les deux dates sont optionnelles et bornent la période :
+      - les deux à NULL  : indisponible jusqu'à nouvel ordre ;
+      - `until` seul     : indisponible jusqu'à cette date incluse ;
+      - `since` seul     : indisponible à partir de cette date ;
+      - les deux         : période fermée, bornes incluses.
+
+    Un bureau cassé se ferme sans date, un déménagement se programme.
+    """
+
+    __tablename__ = "unavailabilities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[str] = mapped_column(String(10), nullable=False)      # "desk" | "space"
+    target: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    since: Mapped[date | None] = mapped_column(Date, nullable=True)
+    until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def couvre(self, jour: date) -> bool:
+        """Cette indisponibilité s'applique-t-elle à ce jour ?"""
+        if self.since is not None and jour < self.since:
+            return False
+        if self.until is not None and jour > self.until:
+            return False
+        return True
+
+
 class StoredImage(Base):
     """Image envoyée depuis l'administration, conservée en base et non sur le disque.
 

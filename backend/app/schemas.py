@@ -78,6 +78,9 @@ class DeskAvailability(BaseModel):
     # Qui s'installe réellement : diffère du réservant sur une table réservée d'un
     # bloc, où chaque place peut revenir à quelqu'un d'autre. None = place gardée libre.
     occupied_by: str | None = None
+    # Fermée par l'administration à CETTE date (bureau cassé, salle en travaux).
+    # Différent de `is_available` : personne ne l'occupe, elle n'est pas proposable.
+    unavailable: bool = False
 
 
 # ---------------------------------------------------------------- Réservation de salle entière
@@ -105,6 +108,20 @@ class TimeslotRead(BaseModel):
     start_time: time
     end_time: time
     user_name: str
+
+
+# ---------------------------------------------------------------- Indisponibilités
+class UnavailabilityCreate(BaseModel):
+    """Ferme une place (« T1-3 ») ou un espace (« Bureau 2 », « T1 », « BC-1 »).
+
+    Sans dates, la fermeture vaut jusqu'à ce qu'on la retire. Les deux bornes
+    sont incluses.
+    """
+    scope: Literal["desk", "space"]
+    target: str
+    since: date | None = None
+    until: date | None = None
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------- Postes (administration)

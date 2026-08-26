@@ -110,9 +110,10 @@ def availability(
     """Disponibilité de chaque poste pour une date + un créneau."""
     return [
         schemas.DeskAvailability(
-            desk=desk, is_available=booker is None, booked_by=booker, occupied_by=occupant,
+            desk=desk, is_available=booker is None, booked_by=booker,
+            occupied_by=occupant, unavailable=fermee,
         )
-        for desk, booker, occupant in svc.get_availability(db, day, slot)
+        for desk, booker, occupant, fermee in svc.get_availability(db, day, slot)
     ]
 
 
@@ -1031,6 +1032,31 @@ def admin_space_enabled(
     """Rend un espace précis indisponible (grisé) sans le supprimer."""
     svc.set_group_enabled(db, data.ref, data.enabled)
     return {"ref": data.ref, "enabled": data.enabled}
+
+
+@router.get("/admin/unavailabilities")
+def admin_list_unavailabilities(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Places et espaces fermés, avec leur période éventuelle."""
+    return {"items": svc.list_unavailabilities(db)}
+
+
+@router.post("/admin/unavailabilities", status_code=status.HTTP_201_CREATED)
+def admin_add_unavailability(
+    data: schemas.UnavailabilityCreate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Ferme une place ou un espace, éventuellement sur une plage de dates."""
+    ligne = svc.add_unavailability(
+        db, data.scope, data.target, data.since, data.until, data.reason
+    )
+    return {"id": ligne.id}
+
+
+@router.delete("/admin/unavailabilities/{unavailability_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_remove_unavailability(
+    unavailability_id: int, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Rouvre une place ou un espace."""
+    svc.remove_unavailability(db, unavailability_id)
 
 
 @router.get("/feature-icons")

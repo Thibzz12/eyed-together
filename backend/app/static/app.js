@@ -1763,13 +1763,30 @@ async function renderAdminEspaces() {
     box.innerHTML = regles.length
       ? regles.map((r, i) => `
           <div class="icon-rule">
-            <span class="icon-rule-emoji">${escapeHtml(r.icon)}</span>
-            <span class="icon-rule-keyword">${escapeHtml(r.keyword)}</span>
+            <input class="icon-rule-emoji" data-icon-emoji="${i}" maxlength="8" aria-label="Icône"
+                   value="${escapeHtml(r.icon).replace(/"/g, "&quot;")}">
+            <input class="icon-rule-keyword" data-icon-keyword="${i}" maxlength="60" aria-label="Mot-clé"
+                   value="${escapeHtml(r.keyword).replace(/"/g, "&quot;")}">
             <button class="presence-out" data-icon-up="${i}"${i === 0 ? " disabled" : ""} title="Monter la priorité">↑</button>
             <button class="presence-out" data-icon-del="${i}" title="Supprimer">✕</button>
           </div>`).join("")
       : `<div class="empty-inline">Aucune règle : toutes les places afficheront l'icône par défaut.</div>`;
 
+    // Enregistrement à la sortie du champ, comme les autres réglages d'administration.
+    box.querySelectorAll("[data-icon-emoji], [data-icon-keyword]").forEach(inp => {
+      inp.addEventListener("change", () => {
+        const i = +(inp.dataset.iconEmoji ?? inp.dataset.iconKeyword);
+        const champ = inp.dataset.iconEmoji !== undefined ? "icon" : "keyword";
+        const valeur = inp.value.trim();
+        if (!valeur) { toast("Une règle a besoin d'un mot-clé et d'une icône.", "error"); renderIconRules(); return; }
+        if (champ === "keyword" && regles.some((r, j) => j !== i && r.keyword.toLowerCase() === valeur.toLowerCase())) {
+          toast("Ce mot-clé a déjà une icône.", "error"); renderIconRules(); return;
+        }
+        if (regles[i][champ] === valeur) return;
+        regles[i][champ] = valeur;
+        saveIconRules();
+      });
+    });
     box.querySelectorAll("[data-icon-del]").forEach(b => b.addEventListener("click", () => {
       regles.splice(+b.dataset.iconDel, 1); saveIconRules();
     }));
