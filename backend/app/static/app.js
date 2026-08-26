@@ -1650,7 +1650,7 @@ async function renderAdminEspaces() {
         ${espaces.map(g => `
           <label class="toggle-row">
             <input type="checkbox" data-space-ref="${escapeHtml(g.ref)}"${g.enabled !== false ? " checked" : ""}>
-            <span>${escapeHtml(g.label)} <small class="muted">${g.seats} places</small></span>
+            <span>${escapeHtml(g.label)} <small class="muted">${g.seats} place${g.seats > 1 ? "s" : ""}</small></span>
           </label>`).join("")}
       </div>
     </div>
@@ -1997,7 +1997,7 @@ async function loadReserve() {
 
   // Pour chaque espace réservable d'un bloc (salles fermées ET tables de l'open space),
   // sait-on si je l'ai pris en entier ? Sert à proposer « Annuler » plutôt que « Réserver ».
-  const refs = state.spaces.map(g => g.ref);
+  const refs = state.spaces.filter(g => g.kind !== "pod").map(g => g.ref);
   const groupResults = await Promise.all(
     refs.map(r => api(`/api/reservations/group?ref=${encodeURIComponent(r)}&date=${state.date}`))
   );
@@ -2342,9 +2342,13 @@ function renderPodsSection() {
         ${mine ? `<button class="pod-slot-cancel" data-cancel-pod="${b.id}" title="Annuler">✕</button>` : ""}
       </div>`;
     }).join("") || `<div class="empty" style="padding:2px 0">Aucun créneau réservé.</div>`;
-    return `<div class="card pod-card">
-      <div class="card-head"><h3>${podLabel(d.name)}</h3>
-        <button class="link-more" data-open-pod="${d.id}">+ Réserver un créneau</button></div>
+    const espace = (state.spaces || []).find(g => g.ref === d.name);
+    const grisee = espace && espace.enabled === false;
+    const action = grisee
+      ? `<span class="muted" title="Bulle rendue indisponible par l'administration">Indisponible</span>`
+      : `<button class="link-more" data-open-pod="${d.id}">+ Réserver un créneau</button>`;
+    return `<div class="card pod-card${grisee ? " pod-card-off" : ""}">
+      <div class="card-head"><h3>${podLabel(d.name)}</h3>${action}</div>
       <div class="pod-slots">${rows}</div>
     </div>`;
   }).join("");

@@ -120,7 +120,11 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   individuelle : sans ce drapeau, les deux ont les mêmes colonnes à NULL.
 - **Interrupteurs** : chaque mode de réservation (place, table, salle, bulle) et
   chaque espace peuvent être fermés depuis l'administration. Tout est ouvert par
-  défaut, un réglage absent ne doit jamais fermer une fonction en service.
+  défaut, un réglage absent ne doit jamais fermer une fonction en service. Une
+  bulle calme figure parmi les espaces (`kind="pod"`, une place) bien qu'elle ne
+  se réserve jamais en entier : Olivier demande de pouvoir la rendre indisponible
+  comme une salle. `bookable_groups` la renvoie donc, et le front s'appuie sur
+  `kind` pour ne pas lui proposer de bouton « réserver tout ».
 - **Icônes d'équipement** : les règles mot-clé vers icône sont en base, plus dans
   `app.js`. Ajouter un type de poste ne demande plus de toucher au code.
 - **Nom d'une table et équipement d'un poste sont séparés** : le nom vit dans

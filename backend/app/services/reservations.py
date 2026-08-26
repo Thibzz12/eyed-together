@@ -612,6 +612,21 @@ def bookable_groups(db: Session) -> list[dict]:
 
     labels = get_room_labels(db)
     out = []
+
+    # Une bulle calme ne se réserve pas « en entier » (elle n'a qu'une place, prise
+    # par créneau de 15 min), mais Olivier veut pouvoir la rendre indisponible comme
+    # une salle : elle figure donc parmi les espaces, avec kind="pod" pour que le
+    # front n'aille pas lui proposer un bouton « réserver toute la bulle ».
+    for d in db.scalars(select(m.Desk).where(m.Desk.zone == POD_ZONE).order_by(m.Desk.name)):
+        out.append({
+            "ref": d.name,
+            "label": labels.get(d.name) or d.name,
+            "zone": d.zone,
+            "seats": 1,
+            "kind": "pod",
+            "enabled": is_group_enabled(db, d.name),
+        })
+
     for ref, desks in groupes.items():
         # Libellé : ce que l'admin a saisi, sinon « Table 3 » pour une table et le
         # nom de zone pour une salle. Jamais `features`, qui décrit l'équipement.
@@ -624,7 +639,8 @@ def bookable_groups(db: Session) -> list[dict]:
             "kind": "room" if ref in ROOM_ZONES else "table",
             "enabled": is_group_enabled(db, ref),
         })
-    return sorted(out, key=lambda g: (g["kind"] != "room", g["ref"]))
+    rang = {"room": 0, "table": 1, "pod": 2}
+    return sorted(out, key=lambda g: (rang.get(g["kind"], 9), g["ref"]))
 
 
 def _validate_occupants(occupants: list[dict] | None, desks: list[m.Desk]) -> dict[int, dict]:
@@ -840,6 +856,8 @@ def book_timeslot(
     desk = db.get(m.Desk, desk_id)
     if desk is None or not desk.is_active or desk.zone != POD_ZONE:
         raise DeskNotFound("Cette bulle calme n'existe pas ou n'est pas disponible.")
+    if not is_group_enabled(db, desk.name):
+        raise ReservationError("Cet espace n'est pas disponible en ce moment.")
 
     if end_time <= start_time:
         raise ReservationError("L'heure de fin doit être après l'heure de début.")

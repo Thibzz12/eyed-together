@@ -978,6 +978,10 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
 .plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
 .plan-pin.held { background: #EEF2F6; border-color: #CBD5E1; color: var(--muted); cursor: not-allowed; }
+/* Bulle calme rendue indisponible par l'admin : visible, mais visiblement fermée. */
+.pod-card-off { opacity: .55; }
+.pod-card-off h3 { text-decoration: line-through; }
+
 .plan-note { font-size: .75rem; color: var(--muted); margin-top: 8px; line-height: 1.4; }
 
 /* --- Éditeur de plan (administration) --- */
