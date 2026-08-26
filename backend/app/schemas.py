@@ -58,7 +58,15 @@ class ReservationRead(BaseModel):
     status: ReservationStatus
     checked_in_at: datetime | None = None
     desk: DeskRead
-    model_config = ConfigDict(from_attributes=True)
+    # Réservation prise d'un bloc (table ou salle entière) : la liste « Mes
+    # réservations » regroupe alors les places en une seule entrée au lieu d'en
+    # afficher une par siège.
+    is_group_booking: bool = False
+    # Nom affichable de l'occupant, quelle que soit sa nature : un collègue est
+    # stocké par son identifiant, une personne extérieure par son nom libre.
+    occupant: str | None = Field(default=None, validation_alias="occupant_display")
+    occupant_company: str | None = None
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # ---------------------------------------------------------------- Disponibilités

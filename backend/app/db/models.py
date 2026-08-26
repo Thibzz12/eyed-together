@@ -213,6 +213,22 @@ class Reservation(Base):
 
     user: Mapped["User"] = relationship(back_populates="reservations", foreign_keys=[user_id])
     occupant: Mapped["User | None"] = relationship(foreign_keys=[occupant_user_id])
+
+    @property
+    def occupant_display(self) -> str | None:
+        """Nom affichable de l'occupant, collègue ou personne extérieure.
+
+        None quand la place est bloquée mais volontairement laissée vide : c'est
+        `is_group_booking` qui distingue ce cas d'une réservation individuelle,
+        où l'occupant est le réservant lui-même.
+        """
+        if self.occupant is not None:
+            return self.occupant.display_name
+        if self.occupant_name:
+            return self.occupant_name
+        if self.is_group_booking:
+            return None
+        return self.user.display_name if self.user else None
     desk: Mapped["Desk"] = relationship(back_populates="reservations")
 
 

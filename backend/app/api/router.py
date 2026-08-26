@@ -904,27 +904,57 @@ def visitor_checkout(
     return {"ok": True}
 
 
+def _heure(iso):
+    """« 2026-08-26T12:53:00.077719 » -> « 12:53 ».
+
+    Une liste d'évacuation se lit debout dans un couloir : l'heure seule suffit,
+    la date est déjà dans le nom du fichier. Excel ne sait de toute façon pas
+    interpréter un ISO 8601 avec microsecondes, il l'affiche tel quel.
+    """
+    return iso[11:16] if iso else ""
+
+
+def _statut(ligne):
+    """Présent, parti de lui-même, ou clôturé d'office le soir.
+
+    Ces trois états étaient réduits à une colonne « Départ confirmé » qui
+    affichait « oui » pour quelqu'un encore dans le bâtiment : la pire réponse
+    possible sur un document d'évacuation.
+    """
+    if not ligne["left_at"]:
+        return "Dans les locaux"
+    return "Clôturé automatiquement" if ligne["auto_closed"] else "Parti"
+
+
+def _cellule(valeur):
+    """Échappe une cellule : un nom ou un service peut contenir le séparateur."""
+    texte = "" if valeur is None else str(valeur)
+    if any(c in texte for c in ';"\r\n'):
+        return '"' + texte.replace('"', '""') + '"'
+    return texte
+
+
 @router.get("/admin/attendance/export")
 def admin_attendance_export(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Relevé du jour au format CSV, imprimable pour l'évacuation."""
     data = attendance_svc.roster(db)
-    lignes = ["Type;Nom;Société ou service;Arrivée;Départ;Départ confirmé"]
+    lignes = ["Type;Nom;Société ou service;Arrivée;Départ;Statut"]
     for e in data["employees"]:
-        lignes.append(
-            f"Employé;{e['name']};{e['department'] or ''};{e['arrived_at']};"
-            f"{e['left_at'] or ''};{'non' if e['auto_closed'] else 'oui'}"
-        )
+        lignes.append(";".join(_cellule(v) for v in (
+            "Employé", e["name"], e["department"],
+            _heure(e["arrived_at"]), _heure(e["left_at"]), _statut(e),
+        )))
     for v in data["visitors"]:
-        lignes.append(
-            f"Visiteur (reçu par {v['host_name']});{v['full_name']};{v['company'] or ''};"
-            f"{v['arrived_at']};{v['left_at'] or ''};{'non' if v['auto_closed'] else 'oui'}"
-        )
+        lignes.append(";".join(_cellule(x) for x in (
+            "Visiteur (reçu par %s)" % v["host_name"], v["full_name"], v["company"],
+            _heure(v["arrived_at"]), _heure(v["left_at"]), _statut(v),
+        )))
     # BOM en tête : sans lui, Excel ouvre l'UTF-8 en ANSI et massacre les accents.
     contenu = "\ufeff" + "\r\n".join(lignes)
     return Response(
         content=contenu,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename=presence-{data['day']}.csv"},
+        headers={"Content-Disposition": "attachment; filename=presence-%s.csv" % data["day"]},
     )
 
 

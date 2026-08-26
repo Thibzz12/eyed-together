@@ -133,6 +133,22 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   ne décrit plus que le matériel (« Double écran », « Docking station »). Avant le
   26/08/2026 les deux notions partageaient `features`, ce qui rendait impossible de
   renseigner l'équipement d'une place d'open space sans renommer sa table.
+- **Points d'un espace entier** : `book_group` crédite une fois par créneau, pas
+  une fois par place — bloquer une table de six ne doit pas rapporter six fois une
+  place. L'annulation doit donc débiter symétriquement : elle ne le fait qu'à la
+  dernière place libérée du lot, repérée par les lignes ENCORE réservées du
+  triplet (utilisateur, date, créneau). Se fonder sur les lignes déjà annulées
+  ferait retomber la recherche sur les lots des jours précédents.
+- **Un occupant a trois natures** : un collègue (`occupant_user_id`), une personne
+  extérieure (`occupant_name`), ou personne (place bloquée volontairement vide).
+  `Reservation.occupant_display` résout les trois en un nom affichable ; s'en
+  remettre au seul `occupant_name` ne montre que les externes.
+- **De la réservation à la liste d'évacuation** : désigner une personne extérieure
+  sur une place l'inscrit comme visiteur — pas au moment de la réservation (une
+  place retenue pour dans trois jours est une annonce, pas une présence), mais
+  quand son hôte est effectivement là. Deux portes d'entrée : `attendance.check_in`
+  matérialise les invités du jour, et `book_group` appelle `refresh_guests` quand
+  l'hôte est déjà dans les locaux.
 - **Positions sur le plan** : `app/floorplan.py` ne fournit qu'un point de départ
   pour une base neuve. Les coordonnées font foi en base, en pourcentage de l'image,
   et se reposent au clic depuis Administration → Coworking → « Placer les postes

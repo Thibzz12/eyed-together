@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.timezone import local_today
 from app.db import models as m
 from app.schemas import ReservationCreate
 from app.services import attendance as attendance_svc
@@ -386,12 +387,43 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
     if reservation.user_id != user_id:
         raise NotOwner("Tu ne peux annuler que tes propres réservations.")
 
-    reservation.status = m.ReservationStatus.CANCELLED
     # Anti-farming : on retire les points gagnés à la réservation — sauf les créneaux
     # "bulle calme" (timeslot), qui n'en rapportent jamais (voir book_timeslot).
-    if reservation.slot != m.ReservationSlot.TIMESLOT:
+    #
+    # Une réservation de groupe crée une ligne PAR PLACE mais n'a crédité qu'une
+    # fois par créneau (voir book_group) : on ne débite donc qu'une fois, à la
+    # première ligne libérée. Débiter chaque ligne faisait perdre 50 points sur
+    # une table de six réservée puis annulée dans la foulée.
+    rembourse = reservation.slot != m.ReservationSlot.TIMESLOT
+    if rembourse and reservation.is_group_booking:
+        rembourse = _derniere_place_du_lot(db, reservation)
+
+    reservation.status = m.ReservationStatus.CANCELLED
+    if rembourse:
         award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
     db.commit()
+
+
+def _derniere_place_du_lot(db: Session, reservation: m.Reservation) -> bool:
+    """Reste-t-il d'autres places réservées dans le même lot ?
+
+    On ne regarde que les lignes ENCORE réservées : une personne ne peut avoir
+    qu'une seule réservation de groupe vivante sur un créneau donné, donc le
+    triplet (utilisateur, date, créneau) les identifie sans ambiguïté. Se fonder
+    sur les lignes déjà annulées ferait retomber la recherche sur les lots des
+    jours précédents et sauterait le débit.
+    """
+    reste = db.scalar(
+        select(m.Reservation).where(
+            m.Reservation.user_id == reservation.user_id,
+            m.Reservation.reservation_date == reservation.reservation_date,
+            m.Reservation.slot == reservation.slot,
+            m.Reservation.is_group_booking.is_(True),
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.id != reservation.id,
+        )
+    )
+    return reste is None
 
 
 # --------------------------------------------------------------------------
@@ -522,11 +554,13 @@ def set_feature_icons(db: Session, rules: list[dict]) -> None:
 # --------------------------------------------------------------------------
 #  Tout est ouvert par défaut : un réglage absent ne doit jamais fermer une
 #  fonction que les employés utilisaient la veille.
+# Libellés au format sujet de phrase : le message de refus les préfixe tels
+# quels (« La réservation d'une place est désactivée pour le moment. »).
 _TOGGLE_LABELS = {
-    "seat": "Réservation d'une place",
-    "table": "Réservation d'une table entière",
-    "room": "Réservation d'une salle entière",
-    "pod": "Réservation d'une bulle calme",
+    "seat": "La réservation d'une place",
+    "table": "La réservation d'une table entière",
+    "room": "La réservation d'une salle entière",
+    "pod": "La réservation d'une bulle calme",
 }
 _TOGGLE_KEY = "booking_enabled_{}"
 _GROUP_KEY = "space_enabled_{}"
@@ -745,6 +779,12 @@ def book_group(
     db.commit()
     for r in created:
         db.refresh(r)
+
+    # Désigner une personne extérieure sur une place, c'est annoncer un visiteur :
+    # si l'hôte est déjà dans les locaux, il apparaît aussitôt sur la liste
+    # d'évacuation. Sinon, sa propre arrivée s'en chargera (cf. attendance.check_in).
+    if reservation_date == local_today():
+        attendance_svc.refresh_guests(db, user_id, reservation_date)
     return created
 
 

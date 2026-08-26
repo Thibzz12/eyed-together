@@ -1796,7 +1796,16 @@ async function renderAdminEspaces() {
     const mot = document.getElementById("iconKeyword").value.trim();
     const icone = document.getElementById("iconEmoji").value.trim();
     if (!mot || !icone) { toast("Il faut un mot-clé et une icône.", "error"); return; }
-    regles.push({ keyword: mot, icon: icone });
+    if (regles.some(r => r.keyword.toLowerCase() === mot.toLowerCase())) {
+      toast("Ce mot-clé a déjà une icône. Supprime la règle existante d'abord.", "error");
+      return;
+    }
+    // La première règle qui matche gagne : une règle ajoutée à la fin serait
+    // battue par une règle plus générale déjà présente (« écran » l'emporterait
+    // sur « double écran »). On la place donc juste avant celle-ci.
+    const plusGenerale = regles.findIndex(r => mot.toLowerCase().includes(r.keyword.toLowerCase()));
+    if (plusGenerale === -1) regles.push({ keyword: mot, icon: icone });
+    else regles.splice(plusGenerale, 0, { keyword: mot, icon: icone });
     document.getElementById("iconKeyword").value = "";
     document.getElementById("iconEmoji").value = "";
     saveIconRules();
@@ -2052,15 +2061,19 @@ function renderPlanPins() {
     const occupant = item.occupied_by || null;
     const mineHere = !item.is_available && occupant === state.profile.name;
     const gardee = !item.is_available && !occupant;
-    const cls = item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
+    const ferme = item.is_available && espaceIndisponible(item.desk);
+    const cls = ferme ? "off"
+      : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
     const equipement = featureTags(item.desk.features)[0];
-    const label = mineHere ? "moi"
+    const label = ferme ? ""
+      : mineHere ? "moi"
       : occupant ? deskAcronym(occupant)
       : item.is_available && equipement ? featureIcon(equipement)
       : "";
 
     let etat;
-    if (item.is_available) etat = "disponible";
+    if (ferme) etat = "espace rendu indisponible";
+    else if (item.is_available) etat = "disponible";
     else if (mineHere) etat = "votre place";
     else if (occupant) etat = occupant;
     else etat = "place gardée libre";
@@ -2140,19 +2153,23 @@ function renderTables() {
     const mineHere = !item.is_available && occupant === state.profile.name;
     const isSel = state.selected && state.selected.deskId === item.desk.id;
     const gardee = !item.is_available && !occupant;   // place bloquée, volontairement vide
-    const cls = isSel ? "selected" : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
+    const ferme = item.is_available && espaceIndisponible(item.desk);
+    const cls = ferme ? "off"
+      : isSel ? "selected" : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
     // Une place libre montre son équipement (c'est ce qu'on cherche quand on choisit
     // où s'installer), une place prise montre qui l'occupe. Les deux ne tiennent pas
     // dans 32 pixels, et l'information utile n'est pas la même dans les deux cas.
     const equipement = featureTags(item.desk.features)[0];
-    const label = mineHere ? "moi"
+    const label = ferme ? ""
+      : mineHere ? "moi"
       : occupant ? deskAcronym(occupant)
       : item.is_available && equipement ? `<span class="tseat-ic">${featureIcon(equipement)}</span>`
       : "";
 
     const featTitle = item.desk.features ? ` (${item.desk.features})` : "";
     let etat;
-    if (item.is_available) etat = " — disponible";
+    if (ferme) etat = " — espace rendu indisponible par l'administration";
+    else if (item.is_available) etat = " — disponible";
     else if (mineHere) etat = " — votre place";
     else if (occupant) etat = ` — ${occupant}` + (item.booked_by !== occupant ? ` (réservé par ${item.booked_by})` : "");
     else etat = ` — place gardée libre par ${item.booked_by}`;
@@ -2166,6 +2183,7 @@ function renderTables() {
     // On ne peut annuler que ce qu'on a réservé soi-même, même si on y est installé
     // par un collègue : la place appartient à la réservation, pas à l'occupant.
     const mineHere = !item.is_available && item.booked_by === state.profile.name;
+    if (item.is_available && espaceIndisponible(item.desk)) return;
     if (item.is_available || mineHere) btn.addEventListener("click", () => selectSeat(item, mineHere));
   });
   box.querySelectorAll("[data-group-ref]").forEach(btn => {
@@ -2224,8 +2242,19 @@ function onGroupButtonClick(ref) {
 
 /* Même règle de regroupement que le serveur : une salle par sa zone, une table
    par le préfixe du nom de ses postes. */
+/* Un espace rendu indisponible par l'administration : salle, table ou bulle.
+   Le serveur refuse déjà la réservation ; ceci évite de proposer un clic qui
+   ne peut qu'échouer. */
+function espaceIndisponible(desk) {
+  const espace = (state.spaces || []).find(g => g.ref === groupRefOf(desk));
+  return !!espace && espace.enabled === false;
+}
+
 function groupRefOf(desk) {
   if (desk.zone && desk.zone.startsWith("Bureau")) return desk.zone;
+  // Une bulle calme est un espace à elle seule : sa référence est son nom entier,
+  // pas le préfixe « BC » que donnerait un découpage sur le tiret.
+  if (desk.zone === "Bulles calmes") return desk.name;
   return desk.name.split("-")[0];
 }
 
@@ -2445,17 +2474,50 @@ function closeReserveSheet() {
 }
 async function confirmSheet() {
   if (!state.selected) return;
-  if (state.selected.mine) { for (const id of state.selected.resIds) await cancelRes(id); }
+  if (state.selected.mine) { await cancelReservations(state.selected.resIds); }
   else if (state.selected.type === "room") await bookRoom(state.selected.zone, sheetSlot);
   else await book(state.selected.deskId, sheetSlot);
   clearSelection();
 }
+/* Regroupe les places prises d'un bloc : la Table 1 réservée entière est UNE
+   entrée, pas quatre lignes identiques. Clé : espace + date + créneau. */
+function groupMyReservations(reservations) {
+  const entrees = [];
+  const parLot = new Map();
+  for (const r of reservations) {
+    if (!r.is_group_booking) { entrees.push({ lot: null, res: r }); continue; }
+    const cle = `${groupRefOf(r.desk)}|${r.reservation_date}|${r.slot}`;
+    let lot = parLot.get(cle);
+    if (!lot) {
+      lot = { lot: cle, ref: groupRefOf(r.desk), res: r, places: [] };
+      parLot.set(cle, lot);
+      entrees.push(lot);
+    }
+    lot.places.push(r);
+  }
+  return entrees;
+}
+
+function occupantsHtml(places) {
+  const noms = places
+    .map(p => p.occupant ? escapeHtml(p.occupant === state.profile.name ? "Toi" : p.occupant) : null)
+    .filter(Boolean);
+  const libres = places.length - noms.length;
+  const bouts = [];
+  if (noms.length) bouts.push(noms.join(", "));
+  if (libres) bouts.push(`${libres} place${libres > 1 ? "s" : ""} gardée${libres > 1 ? "s" : ""} libre${libres > 1 ? "s" : ""}`);
+  return bouts.length ? `<small class="res-occupants">${bouts.join(" · ")}</small>` : "";
+}
+
 function renderMyReservations() {
   const box = document.getElementById("myReservations"); if (!box) return;
   if (!state.myReservations.length) { box.innerHTML = `<div class="empty">Aucune réservation à venir.</div>`; return; }
   box.innerHTML = "";
   const todayIso = toLocalISODate(new Date());
-  for (const r of state.myReservations) {
+
+  for (const entree of groupMyReservations(state.myReservations)) {
+    if (entree.lot) { box.appendChild(groupResItem(entree, todayIso)); continue; }
+    const r = entree.res;
     const isTimeslot = r.slot === "timeslot";
     const isToday = r.reservation_date === todayIso;
     const el = document.createElement("div"); el.className = "res-item";
@@ -2482,6 +2544,38 @@ function renderMyReservations() {
     box.appendChild(el);
   }
 }
+/* Une table ou une salle réservée d'un bloc : une seule carte, les occupants
+   dessous, et une annulation qui libère tout le lot d'un coup. */
+function groupResItem(entree, todayIso) {
+  const r = entree.res;
+  const espace = (state.spaces || []).find(g => g.ref === entree.ref) || {};
+  const label = espace.label || entree.ref;
+  const mot = espace.kind === "room" ? "salle" : "table";
+  const el = document.createElement("div");
+  el.className = "res-item";
+
+  const moi = entree.places.find(p => p.occupant === state.profile.name);
+  const checkinBtn = r.reservation_date === todayIso && moi
+    ? (moi.checked_in_at ? `<span class="res-checked">✓ Présent</span>` : `<button class="checkin" data-checkin="${moi.id}">Je suis arrivé</button>`)
+    : "";
+
+  el.innerHTML = `<div class="info">
+      <b>${escapeHtml(label)} <span class="res-whole">${mot} entière</span></b>
+      <small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotLabel(r.slot)}</small>
+      ${occupantsHtml(entree.places)}
+    </div>
+    <div class="res-item-actions">${checkinBtn}<button class="cancel">Annuler</button></div>`;
+
+  el.querySelector(".cancel").addEventListener("click", () => cancelReservations(entree.places.map(p => p.id)));
+  const cb = el.querySelector("[data-checkin]");
+  if (cb) cb.addEventListener("click", async () => {
+    const { ok, data } = await api(`/api/reservations/${moi.id}/checkin`, { method: "POST" });
+    if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
+    toast("Présence confirmée ✓", "success"); loadReserve();
+  });
+  return el;
+}
+
 async function book(deskId, slot) {
   const { ok, data } = await api("/api/reservations", { method: "POST", body: JSON.stringify({ desk_id: deskId, reservation_date: state.date, slot }) });
   if (!ok) return toast(data?.detail || "Réservation impossible.", "error");
@@ -2494,10 +2588,29 @@ async function bookRoom(zone, slot) {
   const pts = slot === "DAY" ? 20 : 10;
   refreshPoints(+pts); floatPoint(); toast(`Salle réservée ! +${pts} points ⭐`, "success"); loadReserve();
 }
-async function cancelRes(id) {
+async function cancelRes(id, options) {
   const { ok, data } = await api(`/api/reservations/${id}`, { method: "DELETE" });
-  if (!ok) return toast(data?.detail || "Annulation impossible.", "error");
-  refreshPoints(-10); toast("Réservation annulée."); loadReserve();
+  if (!ok) { toast(data?.detail || "Annulation impossible.", "error"); return false; }
+  // Annuler une table entière, c'est annuler plusieurs lignes mais ne perdre les
+  // points qu'une fois : on relit le solde au lieu de retrancher 10 par ligne.
+  if (options && options.silencieux) return true;
+  await resyncPoints();
+  toast("Réservation annulée.");
+  loadReserve();
+  return true;
+}
+
+/* Annulation d'un lot (table ou salle entière) : une seule relecture du solde
+   et un seul rechargement de la page à la fin. */
+async function cancelReservations(ids) {
+  let annulees = 0;
+  for (const id of ids) {
+    if (await cancelRes(id, { silencieux: true })) annulees++;
+  }
+  if (!annulees) return;
+  await resyncPoints();
+  toast(annulees > 1 ? "Réservations annulées." : "Réservation annulée.");
+  loadReserve();
 }
 
 /* ============================================================

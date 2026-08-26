@@ -118,6 +118,7 @@ def check_in(db: Session, user_id: int, source: str = "popup", day: date | None 
         row = m.Attendance(user_id=user_id, day=day, arrived_at=local_now(), source=source)
         db.add(row)
         award_points(db, user_id, POINTS_PER_CHECKIN, "checkin")
+        _accueillir_les_invites(db, user_id, day)
         db.commit()
         db.refresh(row)
         return row
@@ -125,9 +126,86 @@ def check_in(db: Session, user_id: int, source: str = "popup", day: date | None 
     if row.left_at is not None:
         row.left_at = None
         row.auto_closed = False
-        db.commit()
-        db.refresh(row)
+    # Les invités peuvent avoir été désignés APRÈS l'arrivée de leur hôte : on
+    # repasse à chaque confirmation, sans quoi une table réservée à midi
+    # n'inscrirait personne.
+    _accueillir_les_invites(db, user_id, day)
+    db.commit()
+    db.refresh(row)
     return row
+
+
+def guests_expected(db: Session, user_id: int, day: date | None = None) -> list[dict]:
+    """Personnes extérieures que cet employé a désignées sur ses réservations du jour.
+
+    Une réservation d'espace entier oblige à dire qui occupe chaque place ; celles
+    qui ne correspondent à aucun collègue sont des visiteurs à annoncer. On lit le
+    modèle `Reservation` directement plutôt que le service `reservations`, qui
+    importe déjà celui-ci : l'inverse créerait un cycle.
+    """
+    day = day or local_today()
+    lignes = db.scalars(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == day,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.occupant_user_id.is_(None),
+            m.Reservation.occupant_name.is_not(None),
+        )
+    )
+    # Une même personne occupe souvent la place matin ET après-midi : deux lignes,
+    # un seul visiteur.
+    vus: dict[str, dict] = {}
+    for r in lignes:
+        nom = (r.occupant_name or "").strip()
+        if not nom:
+            continue
+        vus.setdefault(nom.casefold(), {"full_name": nom, "company": r.occupant_company})
+    return list(vus.values())
+
+
+def refresh_guests(db: Session, user_id: int, day: date | None = None) -> int:
+    """Réaligne les visiteurs annoncés d'un hôte DÉJÀ présent dans les locaux.
+
+    Appelée après une réservation d'espace entier : si l'hôte est arrivé, ses
+    invités du jour doivent apparaître tout de suite sur la liste d'évacuation.
+    S'il n'est pas encore là, on ne fait rien — son arrivée s'en chargera.
+    """
+    day = day or local_today()
+    row = _row_for(db, user_id, day)
+    if row is None or row.left_at is not None:
+        return 0
+
+    avant = len(_visitors_of(db, user_id, day))
+    _accueillir_les_invites(db, user_id, day)
+    db.commit()
+    return len(_visitors_of(db, user_id, day)) - avant
+
+
+def _accueillir_les_invites(db: Session, user_id: int, day: date) -> None:
+    """Inscrit comme visiteurs les personnes extérieures attendues par cet hôte.
+
+    Idempotent : réarriver après un départ ne recrée pas de doublon. Ne valide
+    pas la transaction, c'est l'appelant qui le fait.
+    """
+    deja = {
+        (v.full_name or "").casefold()
+        for v in db.scalars(
+            select(m.Visitor).where(
+                m.Visitor.host_user_id == user_id, m.Visitor.day == day
+            )
+        )
+    }
+    for invite in guests_expected(db, user_id, day):
+        if invite["full_name"].casefold() in deja:
+            continue
+        db.add(m.Visitor(
+            host_user_id=user_id,
+            day=day,
+            full_name=invite["full_name"][:120],
+            company=(invite["company"] or None),
+            arrived_at=local_now(),
+        ))
 
 
 def check_out(db: Session, user_id: int, day: date | None = None) -> m.Attendance:

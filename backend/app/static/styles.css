@@ -978,6 +978,24 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
 .plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
 .plan-pin.held { background: #EEF2F6; border-color: #CBD5E1; color: var(--muted); cursor: not-allowed; }
+/* Entrée « espace entier » dans Mes réservations. */
+.res-whole {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); margin-left: 4px;
+}
+.res-occupants { color: var(--muted); font-size: .78rem; line-height: 1.35; }
+
+/* Place d'un espace rendu indisponible : grisée et non cliquable, comme le
+   demande Olivier (« grisé et non recevable »). Distincte d'une place occupée,
+   qui est rouge : ici personne n'y est, elle est simplement fermée. */
+.tseat.off, .plan-pin.off {
+  background: repeating-linear-gradient(45deg, #EFF2F5, #EFF2F5 4px, #E4E9EE 4px, #E4E9EE 8px);
+  border-color: #CBD5E1;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.plan-pin.off:hover { transform: translate(-50%, -50%); }
+
 /* Bulle calme rendue indisponible par l'admin : visible, mais visiblement fermée. */
 .pod-card-off { opacity: .55; }
 .pod-card-off h3 { text-decoration: line-through; }
