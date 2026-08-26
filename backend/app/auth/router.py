@@ -6,8 +6,9 @@ Parcours :
   /auth/logout   -> vide la session
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.msal_client import SCOPES, build_msal_app
@@ -112,14 +113,31 @@ def callback(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/dev-login")
-def dev_login(request: Request, db: Session = Depends(get_db)):
+def dev_login(request: Request, db: Session = Depends(get_db), en_tant_que: str | None = Query(None, alias="as")):
     """[DÉVELOPPEMENT UNIQUEMENT] Simule une connexion Microsoft, sans Azure.
 
     Permet de construire et tester toute l'application avant d'avoir l'App Registration.
     🔒 Automatiquement désactivé en production (renvoie 404).
+
+    `?as=` ouvre la session d'un compte existant, par son nom ou son adresse :
+    `/auth/dev-login?as=Olivier`. Sert à voir ce qu'un collègue voit — la place
+    qu'on lui a attribuée sur une table apparaît chez lui, pas chez le réservant.
+    Sans dépasser le compte de démo, c'est invérifiable.
     """
     if settings.is_production:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Introuvable.")
+
+    if en_tant_que:
+        recherche = f"%{en_tant_que.strip()}%"
+        user = db.scalar(
+            select(m.User).where(
+                or_(m.User.display_name.ilike(recherche), m.User.email.ilike(recherche))
+            ).order_by(m.User.id)
+        )
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Aucun compte ne correspond à « {en_tant_que} ».")
+        _open_session(request, user)
+        return RedirectResponse("/")
 
     # Faux employé de test (mêmes champs que ceux fournis par Microsoft).
     fake_claims = {

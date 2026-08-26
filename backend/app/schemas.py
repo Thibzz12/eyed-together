@@ -66,6 +66,9 @@ class ReservationRead(BaseModel):
     # stocké par son identifiant, une personne extérieure par son nom libre.
     occupant: str | None = Field(default=None, validation_alias="occupant_display")
     occupant_company: str | None = None
+    # Qui a fait la réservation. Sur un espace réservé d'un bloc, l'occupant d'une
+    # place n'est pas le réservant : lui seul peut libérer l'espace entier.
+    booked_by: str | None = Field(default=None, validation_alias="booker_display")
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 

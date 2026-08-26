@@ -215,6 +215,16 @@ class Reservation(Base):
     occupant: Mapped["User | None"] = relationship(foreign_keys=[occupant_user_id])
 
     @property
+    def booker_display(self) -> str | None:
+        """Nom de la personne qui a fait la réservation.
+
+        Distinct de l'occupant sur un espace réservé d'un bloc : c'est ce qui
+        permet à un occupant de voir « réservé par Démo » et de comprendre qu'il
+        peut se retirer, mais pas libérer la table.
+        """
+        return self.user.display_name if self.user else None
+
+    @property
     def occupant_display(self) -> str | None:
         """Nom affichable de l'occupant, collègue ou personne extérieure.
 

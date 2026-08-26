@@ -2585,7 +2585,7 @@ function closeReserveSheet() {
 }
 async function confirmSheet() {
   if (!state.selected) return;
-  if (state.selected.mine) { await cancelReservations(state.selected.resIds); }
+  if (state.selected.mine) { await cancelRes(state.selected.resIds[0], "Espace libéré."); }
   else if (state.selected.type === "room") await bookRoom(state.selected.zone, sheetSlot);
   else await book(state.selected.deskId, sheetSlot);
   clearSelection();
@@ -2596,7 +2596,10 @@ function groupMyReservations(reservations) {
   const entrees = [];
   const parLot = new Map();
   for (const r of reservations) {
-    if (!r.is_group_booking) { entrees.push({ lot: null, res: r }); continue; }
+    // On ne regroupe que ce qu'on a réservé soi-même : la place qu'un collègue
+    // nous a attribuée est une entrée à elle seule, on ne possède pas l'espace.
+    const jeSuisLeReservant = !r.booked_by || r.booked_by === state.profile.name;
+    if (!r.is_group_booking || !jeSuisLeReservant) { entrees.push({ lot: null, res: r }); continue; }
     const cle = `${groupRefOf(r.desk)}|${r.reservation_date}|${r.slot}`;
     let lot = parLot.get(cle);
     if (!lot) {
@@ -2639,13 +2642,19 @@ function renderMyReservations() {
     // Nom du poste, date et équipements sur trois lignes distinctes : collés sur une seule
     // ligne, le nom de la table et le jour se lisaient mal (retour d'Olivier, 25/08/2026).
     const zone = r.desk.zone ? ` · ${escapeHtml(r.desk.zone)}` : "";
+    // Place attribuée par quelqu'un d'autre : on s'en retire, on ne l'annule pas.
+    const attribuee = r.is_group_booking && r.booked_by && r.booked_by !== state.profile.name;
+    const parQui = attribuee ? `<small>Réservé par ${escapeHtml(r.booked_by)}</small>` : "";
     el.innerHTML = `<div class="info">
         <b>${escapeHtml(r.desk.name)}${zone}</b>
         <small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotText}</small>
+        ${parQui}
         ${featureTagsHtml(r.desk.features)}
       </div>
-      <div class="res-item-actions">${checkinBtn}<button class="cancel">Annuler</button></div>`;
-    el.querySelector(".cancel").addEventListener("click", () => isTimeslot ? cancelPodBooking(r.id) : cancelRes(r.id));
+      <div class="res-item-actions">${checkinBtn}<button class="cancel">${attribuee ? "Me retirer" : "Annuler"}</button></div>`;
+    el.querySelector(".cancel").addEventListener("click", () => isTimeslot
+      ? cancelPodBooking(r.id)
+      : cancelRes(r.id, attribuee ? "Tu t'es retiré de cette place." : "Réservation annulée."));
     const cb = el.querySelector("[data-checkin]");
     if (cb) cb.addEventListener("click", async () => {
       const { ok, data } = await api(`/api/reservations/${r.id}/checkin`, { method: "POST" });
@@ -2677,7 +2686,7 @@ function groupResItem(entree, todayIso) {
     </div>
     <div class="res-item-actions">${checkinBtn}<button class="cancel">Annuler</button></div>`;
 
-  el.querySelector(".cancel").addEventListener("click", () => cancelReservations(entree.places.map(p => p.id)));
+  el.querySelector(".cancel").addEventListener("click", () => releaseGroup(entree));
   const cb = el.querySelector("[data-checkin]");
   if (cb) cb.addEventListener("click", async () => {
     const { ok, data } = await api(`/api/reservations/${moi.id}/checkin`, { method: "POST" });
@@ -2699,29 +2708,24 @@ async function bookRoom(zone, slot) {
   const pts = slot === "DAY" ? 20 : 10;
   refreshPoints(+pts); floatPoint(); toast(`Salle réservée ! +${pts} points ⭐`, "success"); loadReserve();
 }
-async function cancelRes(id, options) {
+/* Une même route sert trois gestes, le serveur décide lequel selon qui demande :
+   annuler sa réservation, libérer tout un espace qu'on a réservé, ou se retirer
+   d'une place qu'un collègue nous a attribuée. Le message doit suivre. */
+async function cancelRes(id, message = "Réservation annulée.") {
   const { ok, data } = await api(`/api/reservations/${id}`, { method: "DELETE" });
   if (!ok) { toast(data?.detail || "Annulation impossible.", "error"); return false; }
-  // Annuler une table entière, c'est annuler plusieurs lignes mais ne perdre les
-  // points qu'une fois : on relit le solde au lieu de retrancher 10 par ligne.
-  if (options && options.silencieux) return true;
   await resyncPoints();
-  toast("Réservation annulée.");
+  toast(message);
   loadReserve();
   return true;
 }
 
-/* Annulation d'un lot (table ou salle entière) : une seule relecture du solde
-   et un seul rechargement de la page à la fin. */
-async function cancelReservations(ids) {
-  let annulees = 0;
-  for (const id of ids) {
-    if (await cancelRes(id, { silencieux: true })) annulees++;
-  }
-  if (!annulees) return;
-  await resyncPoints();
-  toast(annulees > 1 ? "Réservations annulées." : "Réservation annulée.");
-  loadReserve();
+/* Libère un espace réservé d'un bloc. Une seule demande suffit : le serveur
+   annule tout le lot, les autres places n'auraient plus rien à annuler. */
+async function releaseGroup(entree) {
+  const espace = (state.spaces || []).find(g => g.ref === entree.ref) || {};
+  const mot = espace.kind === "room" ? "Salle libérée." : "Table libérée.";
+  await cancelRes(entree.places[0].id, mot);
 }
 
 /* ============================================================
