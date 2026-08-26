@@ -123,6 +123,16 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   défaut, un réglage absent ne doit jamais fermer une fonction en service.
 - **Icônes d'équipement** : les règles mot-clé vers icône sont en base, plus dans
   `app.js`. Ajouter un type de poste ne demande plus de toucher au code.
+- **Nom d'une table et équipement d'un poste sont séparés** : le nom vit dans
+  `app_settings` sous `table_label_t1`, `table_label_t2`, … à côté de ceux des
+  bureaux et des bulles, et se personnalise depuis l'administration. `desks.features`
+  ne décrit plus que le matériel (« Double écran », « Docking station »). Avant le
+  26/08/2026 les deux notions partageaient `features`, ce qui rendait impossible de
+  renseigner l'équipement d'une place d'open space sans renommer sa table.
+- **Positions sur le plan** : `app/floorplan.py` ne fournit qu'un point de départ
+  pour une base neuve. Les coordonnées font foi en base, en pourcentage de l'image,
+  et se reposent au clic depuis Administration → Coworking → « Placer les postes
+  sur le plan ». À refaire après chaque remplacement de l'image si le cadrage change.
 
 ### Le modèle de données
 

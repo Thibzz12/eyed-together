@@ -350,10 +350,7 @@ function initAttendanceUi() {
     document.getElementById("leaveBtn").classList.remove("hidden");
     closeArrivalSheet();
     toast("Arrivée confirmée ✓", "success");
-    // Les points viennent d'être crédités côté serveur : on resynchronise le compteur.
-    api("/api/profile").then(({ ok: pok, data: p }) => {
-      if (pok && p) { state.profile.total_points = p.total_points; refreshPoints(0); }
-    });
+    resyncPoints();
   });
 
   document.getElementById("arrivalDismissBtn").addEventListener("click", () => {
@@ -500,6 +497,14 @@ function router() {
 function goTo(route) {
   if (location.hash.replace("#", "") === route) router();
   else location.hash = route;
+}
+
+/* Le serveur vient de créditer ou de retirer des points sans qu'on sache combien :
+   on relit le profil plutôt que de deviner un delta qui finirait par diverger. */
+function resyncPoints() {
+  return api("/api/profile").then(({ ok, data }) => {
+    if (ok && data) { state.profile.total_points = data.total_points; refreshPoints(0); }
+  });
 }
 
 function refreshPoints(delta) {
@@ -1690,6 +1695,8 @@ async function renderAdminEspaces() {
         <label>Bureau 2 <input class="room-label-input" data-ref="Bureau 2" value="${(labels["Bureau 2"] || "Bureau 2").replace(/"/g, "&quot;")}"></label>
         <label>Bulle calme 1 <input class="room-label-input" data-ref="BC-1" value="${(labels["BC-1"] || "Bulle calme 1").replace(/"/g, "&quot;")}"></label>
         <label>Bulle calme 2 <input class="room-label-input" data-ref="BC-2" value="${(labels["BC-2"] || "Bulle calme 2").replace(/"/g, "&quot;")}"></label>
+        ${Object.keys(labels).filter(k => /^T\d+$/.test(k)).sort().map(ref => `
+        <label>${escapeHtml(ref)} <input class="room-label-input" data-ref="${ref}" value="${(labels[ref] || "").replace(/"/g, "&quot;")}"></label>`).join("")}
       </div>
     </div>
     <div class="card">
@@ -2017,7 +2024,10 @@ function groupIntoTables(items) {
   }
   return Object.values(groups).map(g => {
     g.items.sort((a, b) => a.desk.name.localeCompare(b.desk.name));
-    const label = g.zone.startsWith("Bureau") ? ((state.roomLabels && state.roomLabels[g.zone]) || g.zone) : `Table ${g.key.replace(/^T/, "")}`;
+    // Salles et tables se renomment toutes deux depuis l'administration ; à défaut,
+    // « Bureau 2 » pour une salle et « Table 3 » pour la table T3.
+    const defaut = g.zone.startsWith("Bureau") ? g.zone : `Table ${g.key.replace(/^T/, "")}`;
+    const label = (state.roomLabels && state.roomLabels[g.key]) || defaut;
     const half = Math.ceil(g.items.length / 2);
     return { ...g, label, cap: g.items.length, topSeats: g.items.slice(0, half), botSeats: g.items.slice(half) };
   });
@@ -2751,6 +2761,7 @@ async function viewLocaux() {
     attendanceState = res;
     document.getElementById("leaveBtn").classList.remove("hidden");
     toast("Arrivée confirmée ✓", "success");
+    resyncPoints();
     viewLocaux();
   });
 

@@ -13,6 +13,12 @@ from app.db import models as m
 from app.db.session import SessionLocal
 
 # (nom, zone/bureau, étage, équipements)
+# `équipements` ne décrit QUE le matériel du poste (« Double écran », « Docking
+# station »…). Le nom d'une table d'open space n'y figure pas : il se déduit de
+# la référence (« T3 » -> « Table 3 ») et se personnalise depuis l'administration,
+# comme celui des bureaux et des bulles. Avant le 26/08/2026 les deux notions
+# partageaient ce champ, ce qui empêchait de renseigner l'équipement d'une place
+# d'open space.
 # 2 bureaux fermés de 6 places (déjà existants) + open space (plan réel fourni par Thibaud) :
 #   Table 1 (4 places) et Table 2 (4 places) réservables,
 #   Table 3 (6 places) réservable — la 2e table de 6 barrée sur le plan n'est PAS créée,
@@ -30,26 +36,26 @@ _DEMO_DESKS = [
     ("B2-4", "Bureau 2", "Rez-de-chaussée", None),
     ("B2-5", "Bureau 2", "Rez-de-chaussée", "Près de la fenêtre"),
     ("B2-6", "Bureau 2", "Rez-de-chaussée", None),
-    ("T1-1", "Open Space", "Rez-de-chaussée", "Table 1"),
-    ("T1-2", "Open Space", "Rez-de-chaussée", "Table 1"),
-    ("T1-3", "Open Space", "Rez-de-chaussée", "Table 1"),
-    ("T1-4", "Open Space", "Rez-de-chaussée", "Table 1"),
-    ("T2-1", "Open Space", "Rez-de-chaussée", "Table 2"),
-    ("T2-2", "Open Space", "Rez-de-chaussée", "Table 2"),
-    ("T2-3", "Open Space", "Rez-de-chaussée", "Table 2"),
-    ("T2-4", "Open Space", "Rez-de-chaussée", "Table 2"),
-    ("T3-1", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T3-2", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T3-3", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T3-4", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T3-5", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T3-6", "Open Space", "Rez-de-chaussée", "Table 3"),
-    ("T4-1", "Open Space", "Rez-de-chaussée", "Table 4"),
-    ("T4-2", "Open Space", "Rez-de-chaussée", "Table 4"),
-    ("T4-3", "Open Space", "Rez-de-chaussée", "Table 4"),
-    ("T4-4", "Open Space", "Rez-de-chaussée", "Table 4"),
-    ("T4-5", "Open Space", "Rez-de-chaussée", "Table 4"),
-    ("T4-6", "Open Space", "Rez-de-chaussée", "Table 4"),
+    ("T1-1", "Open Space", "Rez-de-chaussée", None),
+    ("T1-2", "Open Space", "Rez-de-chaussée", None),
+    ("T1-3", "Open Space", "Rez-de-chaussée", None),
+    ("T1-4", "Open Space", "Rez-de-chaussée", None),
+    ("T2-1", "Open Space", "Rez-de-chaussée", None),
+    ("T2-2", "Open Space", "Rez-de-chaussée", None),
+    ("T2-3", "Open Space", "Rez-de-chaussée", None),
+    ("T2-4", "Open Space", "Rez-de-chaussée", None),
+    ("T3-1", "Open Space", "Rez-de-chaussée", None),
+    ("T3-2", "Open Space", "Rez-de-chaussée", None),
+    ("T3-3", "Open Space", "Rez-de-chaussée", None),
+    ("T3-4", "Open Space", "Rez-de-chaussée", None),
+    ("T3-5", "Open Space", "Rez-de-chaussée", None),
+    ("T3-6", "Open Space", "Rez-de-chaussée", None),
+    ("T4-1", "Open Space", "Rez-de-chaussée", None),
+    ("T4-2", "Open Space", "Rez-de-chaussée", None),
+    ("T4-3", "Open Space", "Rez-de-chaussée", None),
+    ("T4-4", "Open Space", "Rez-de-chaussée", None),
+    ("T4-5", "Open Space", "Rez-de-chaussée", None),
+    ("T4-6", "Open Space", "Rez-de-chaussée", None),
     ("BC-1", "Bulles calmes", "Rez-de-chaussée", "Cabine individuelle"),
     ("BC-2", "Bulles calmes", "Rez-de-chaussée", "Cabine individuelle"),
 ]

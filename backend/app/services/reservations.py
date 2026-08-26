@@ -13,6 +13,7 @@ Règles appliquées :
 """
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as time_type
 
@@ -66,6 +67,23 @@ _ROOM_LABEL_KEYS = {"Bureau 1": "room_label_bureau1", "Bureau 2": "room_label_bu
 _POD_LABEL_KEYS = {"BC-1": "pod_label_bc1", "BC-2": "pod_label_bc2"}
 _POD_LABEL_DEFAULTS = {"BC-1": "Bulle calme 1", "BC-2": "Bulle calme 2"}
 
+# Les tables de l'open space ("T1", "T2", …) ne sont pas énumérées : leur nombre
+# change quand l'admin ajoute ou retire des postes. Leur clé se déduit donc de la
+# référence. Avant le 26/08/2026, le nom d'une table était lu dans le champ
+# `features` de son premier poste, ce qui interdisait d'y noter un équipement
+# (« Double écran ») sans renommer la table du même coup. Les deux notions sont
+# désormais séparées : `features` décrit le poste, le libellé vit ici.
+_TABLE_REF = re.compile(r"^T\d+$")
+
+
+def _table_label_key(ref: str) -> str | None:
+    return f"table_label_{ref.lower()}" if _TABLE_REF.match(ref) else None
+
+
+def default_table_label(ref: str) -> str:
+    """« T3 » -> « Table 3 »."""
+    return f"Table {ref[1:]}"
+
 
 def get_room_labels(db: Session) -> dict[str, str]:
     """Noms affichés actuels des 2 bureaux et des 2 bulles calmes (valeur par défaut si
@@ -77,15 +95,28 @@ def get_room_labels(db: Session) -> dict[str, str]:
     for desk_name, key in _POD_LABEL_KEYS.items():
         row = db.get(m.AppSetting, key)
         labels[desk_name] = row.value if row else _POD_LABEL_DEFAULTS[desk_name]
+    for ref in table_refs(db):
+        row = db.get(m.AppSetting, _table_label_key(ref))
+        labels[ref] = row.value if row else default_table_label(ref)
     return labels
 
 
+def table_refs(db: Session) -> list[str]:
+    """Références des tables d'open space existantes, triées ("T1", "T2", …)."""
+    refs = {
+        d.name.split("-")[0]
+        for d in db.scalars(select(m.Desk).where(m.Desk.zone.notin_(ROOM_ZONES | {POD_ZONE})))
+        if "-" in d.name
+    }
+    return sorted(r for r in refs if _TABLE_REF.match(r))
+
+
 def set_room_label(db: Session, ref: str, label: str) -> None:
-    """Renomme un bureau (ref = "Bureau 1"/"Bureau 2") ou une bulle calme (ref = "BC-1"/"BC-2")."""
-    key = _ROOM_LABEL_KEYS.get(ref) or _POD_LABEL_KEYS.get(ref)
+    """Renomme un bureau ("Bureau 1"), une bulle calme ("BC-1") ou une table ("T1")."""
+    key = _ROOM_LABEL_KEYS.get(ref) or _POD_LABEL_KEYS.get(ref) or _table_label_key(ref)
     if not key:
-        raise ReservationError("Référence de salle ou de bulle inconnue.")
-    label = label.strip() or ref
+        raise ReservationError("Référence de salle, de bulle ou de table inconnue.")
+    label = label.strip() or (default_table_label(ref) if _TABLE_REF.match(ref) else ref)
     row = db.get(m.AppSetting, key)
     if row is None:
         db.add(m.AppSetting(key=key, value=label))
@@ -582,8 +613,9 @@ def bookable_groups(db: Session) -> list[dict]:
     labels = get_room_labels(db)
     out = []
     for ref, desks in groupes.items():
-        # Libellé d'une table : celui que porte le poste (« Table 1 »), à défaut la référence.
-        label = labels.get(ref) or (desks[0].features if ref not in ROOM_ZONES else None) or ref
+        # Libellé : ce que l'admin a saisi, sinon « Table 3 » pour une table et le
+        # nom de zone pour une salle. Jamais `features`, qui décrit l'équipement.
+        label = labels.get(ref) or (default_table_label(ref) if _TABLE_REF.match(ref) else ref)
         out.append({
             "ref": ref,
             "label": label,
