@@ -995,8 +995,16 @@ def rewards(db: Session = Depends(get_db), user: dict = Depends(get_current_user
 # ---------------------------------------------------------------- Espaces réservables d'un bloc
 @router.get("/spaces")
 def spaces(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Salles fermées et tables de l'open space réservables d'un bloc, avec leur état."""
-    return {"groups": svc.bookable_groups(db), "modes": svc.get_booking_toggles(db)}
+    """Salles fermées et tables de l'open space réservables d'un bloc, avec leur état.
+
+    Porte aussi la version du plan : la page Réserver charge déjà cette route,
+    et l'image du plan en a besoin pour construire son URL versionnée.
+    """
+    return {
+        "groups": svc.bookable_groups(db),
+        "modes": svc.get_booking_toggles(db),
+        "floorplan_version": floorplan_version(db),
+    }
 
 
 @router.post("/reservations/group", response_model=list[schemas.ReservationRead], status_code=status.HTTP_201_CREATED)
@@ -1114,11 +1122,25 @@ def floorplan(db: Session = Depends(get_db), _=Depends(get_current_user)):
         return Response(
             content=row.data,
             media_type=row.content_type,
-            # Revalidation à chaque fois : un plan remplacé doit se voir tout de suite,
-            # et l'image ne pèse que quelques centaines de kilooctets.
-            headers={"Cache-Control": "no-cache"},
+            # Revalidation à chaque fois, doublée d'un validateur : sans ETag, le
+            # navigateur peut resservir l'image qu'il a déjà en mémoire pour cette
+            # URL, et le plan remplacé ne se voyait qu'après un F5.
+            headers={
+                "Cache-Control": "no-cache",
+                "ETag": f'"{floorplan_version(db)}"',
+            },
         )
     return FileResponse(_STATIC_FLOORPLAN, media_type="image/jpeg")
+
+
+def floorplan_version(db: Session) -> str:
+    """Jeton de version du plan, mis dans l'URL de l'image par le front.
+
+    Une nouvelle image donne une nouvelle URL : il n'y a plus de cache à
+    invalider, ce qui est plus sûr que de compter sur les en-têtes.
+    """
+    row = db.get(m.StoredImage, _FLOORPLAN_KEY)
+    return str(int(row.updated_at.timestamp())) if row is not None else "0"
 
 
 @router.post("/admin/floorplan")
@@ -1149,4 +1171,9 @@ async def admin_floorplan_upload(
         row.data = contenu
         row.updated_at = datetime.now(timezone.utc)
     db.commit()
-    return {"ok": True, "bytes": len(contenu), "content_type": file.content_type}
+    return {
+        "ok": True, "bytes": len(contenu), "content_type": file.content_type,
+        # Le front s'en sert pour reconstruire l'URL de l'image aussitôt,
+        # sans attendre un rechargement de la page.
+        "version": floorplan_version(db),
+    }

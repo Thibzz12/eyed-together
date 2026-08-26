@@ -133,6 +133,18 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   ne décrit plus que le matériel (« Double écran », « Docking station »). Avant le
   26/08/2026 les deux notions partageaient `features`, ce qui rendait impossible de
   renseigner l'équipement d'une place d'open space sans renommer sa table.
+- **Indisponibilités** : fermer une place (« T1-3, bureau cassé ») et fermer un
+  espace (« Bureau 2, semaine du déménagement ») sont la même opération à deux
+  échelles ; la table `unavailabilities` porte les deux, avec une plage de dates
+  optionnelle. Toute question de disponibilité se pose POUR UNE DATE : sans cela
+  une fermeture programmée n'aurait aucun effet le jour venu. C'est le serveur
+  qui calcule le champ `unavailable` de chaque place, le client ne saurait pas
+  croiser place, espace et date.
+- **Le plan est la surface de réservation** : depuis le 26/08/2026 il est en tête
+  de la page Réserver et la grille schématique a disparu. Elle doublonnait le
+  plan avec une géométrie qui ne ressemblait pas aux locaux. Restent en dessous
+  ce que le plan ne porte pas : la réservation d'un espace entier, et les bulles
+  calmes qui se prennent par créneau.
 - **Points d'un espace entier** : `book_group` crédite une fois par créneau, pas
   une fois par place — bloquer une table de six ne doit pas rapporter six fois une
   place. L'annulation doit donc débiter symétriquement : elle ne le fait qu'à la

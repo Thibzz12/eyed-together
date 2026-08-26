@@ -24,6 +24,7 @@ const state = {
   statusCatalog: [], // rempli au démarrage depuis /api/statuses : [{key,label,color,enabled}] (admin-géré)
   advanceDays: 7,     // rempli au démarrage depuis /api/reservation-policy (admin-géré)
   featureIcons: [],   // règles mot-clé -> icône, administrables (/api/feature-icons)
+  floorplanVersion: 0,  // date du dernier remplacement du plan, mise dans l'URL de l'image
   spaces: [],         // salles et tables réservables d'un bloc (/api/spaces)
   bookingModes: { seat: true, table: true, room: true, pod: true },
 };
@@ -59,6 +60,12 @@ function deskAcronym(n) {
   if (mots.length === 1) return mots[0].slice(0, 4).toUpperCase();
   // Prénom + dernier mot du nom : « Jean Paul Dupont » donne JEDU, pas JEPA.
   return (mots[0].slice(0, 2) + mots[mots.length - 1].slice(0, 2)).toUpperCase();
+}
+/* URL de l'image du plan, versionnée par la date de son dernier remplacement.
+   Une nouvelle image donne une nouvelle URL : rien à invalider, là où les
+   en-têtes de cache seuls laissaient réapparaître l'ancien plan jusqu'au F5. */
+function floorplanUrl() {
+  return `/api/floorplan?v=${state.floorplanVersion || 0}`;
 }
 function firstName(n) { return (n || "").split(/\s+/)[0]; }
 function slotLabel(s) { return s === "AM" ? "Matin" : s === "PM" ? "Après-midi" : s === "timeslot" ? "Créneau" : "Journée"; }
@@ -1613,9 +1620,9 @@ async function renderAdminStats() {
 async function renderAdminEspaces() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const [{ ok, data }, labelsRes, policyRes, spacesRes, iconsRes] = await Promise.all([
+  const [{ ok, data }, labelsRes, policyRes, spacesRes, iconsRes, indispoRes] = await Promise.all([
     api("/api/admin/desks"), api("/api/room-labels"), api("/api/reservation-policy"),
-    api("/api/spaces"), api("/api/feature-icons"),
+    api("/api/spaces"), api("/api/feature-icons"), api("/api/admin/unavailabilities"),
   ]);
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   const labels = labelsRes.data || {};
@@ -1656,6 +1663,27 @@ async function renderAdminEspaces() {
     </div>
 
     <div class="card" style="margin-top:14px">
+      <h3>Hors service</h3>
+      <div class="card-note">Ferme une place précise (bureau cassé, écran en panne) ou tout un espace, avec ou sans date de fin. Une place hors service reste visible sur le plan, hachurée, et n'est plus réservable. Laisse les dates vides pour fermer jusqu'à nouvel ordre.</div>
+      <div class="indispo-form">
+        <select id="indispoTarget" aria-label="Place ou espace à fermer">
+          <optgroup label="Espaces">
+            ${espaces.map(g => `<option value="space:${escapeHtml(g.ref)}">${escapeHtml(g.label)}</option>`).join("")}
+          </optgroup>
+          <optgroup label="Places">
+            ${data.slice().sort((a, b) => a.name.localeCompare(b.name)).map(d =>
+              `<option value="desk:${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.zone ? " · " + escapeHtml(d.zone) : ""}</option>`).join("")}
+          </optgroup>
+        </select>
+        <label class="indispo-date">Du <input type="date" id="indispoSince"></label>
+        <label class="indispo-date">au <input type="date" id="indispoUntil"></label>
+        <input id="indispoReason" maxlength="200" placeholder="Motif (facultatif)">
+        <button class="btn btn-ghost" id="indispoAddBtn" type="button">Mettre hors service</button>
+      </div>
+      <div id="indispoList" class="indispo-list"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
       <h3>Icônes des types de poste</h3>
       <div class="card-note">Une place affiche l'icône de la première ligne dont le mot-clé apparaît dans ses équipements. Mets « double écran » avant « écran », sinon la règle la plus générale gagne.</div>
       <div id="iconRules"></div>
@@ -1681,7 +1709,7 @@ async function renderAdminEspaces() {
       <div class="plan-editor">
         <select id="planEditorDesk" class="group-seat-mode"></select>
         <div class="plan-wrap" id="planEditorWrap">
-          <img src="/api/floorplan" alt="Plan des locaux" class="plan-image">
+          <img src="${floorplanUrl()}" alt="Plan des locaux" class="plan-image">
           <div class="plan-pins" id="planEditorPins"></div>
         </div>
         <div class="plan-note" id="planEditorNote"></div>
@@ -1754,6 +1782,61 @@ async function renderAdminEspaces() {
     if (!ok) { cb.checked = !cb.checked; toast((data && data.detail) || "Erreur", "error"); return; }
     toast(cb.checked ? "Espace disponible ✓" : "Espace grisé ✓", "success");
   }));
+
+  // --- Hors service : places et espaces fermés ---
+  let indispos = (indispoRes.data && indispoRes.data.items) || [];
+
+  function renderIndispos() {
+    const box = document.getElementById("indispoList");
+    if (!box) return;
+    if (!indispos.length) {
+      box.innerHTML = `<div class="empty-inline">Rien n'est hors service.</div>`;
+      return;
+    }
+    box.innerHTML = indispos.map(u => {
+      const quoi = u.scope === "desk" ? "Place" : "Espace";
+      const periode = u.since || u.until
+        ? `du ${u.since ? fdate(u.since, { day: "numeric", month: "short" }) : "…"} au ${u.until ? fdate(u.until, { day: "numeric", month: "short" }) : "…"}`
+        : "jusqu'à nouvel ordre";
+      return `<div class="indispo-row${u.active_today ? " en-cours" : ""}">
+        <div class="indispo-row-info">
+          <b>${quoi} ${escapeHtml(u.target)}</b>
+          <small>${periode}${u.reason ? " · " + escapeHtml(u.reason) : ""}${u.active_today ? " · en cours" : ""}</small>
+        </div>
+        <button class="presence-out" data-indispo-del="${u.id}" title="Remettre en service">✕</button>
+      </div>`;
+    }).join("");
+    box.querySelectorAll("[data-indispo-del]").forEach(b => b.addEventListener("click", async () => {
+      const { ok: parti } = await api(`/api/admin/unavailabilities/${b.dataset.indispoDel}`, { method: "DELETE" });
+      if (!parti) { toast("Suppression impossible.", "error"); return; }
+      indispos = indispos.filter(u => String(u.id) !== b.dataset.indispoDel);
+      renderIndispos();
+      toast("Remis en service ✓", "success");
+    }));
+  }
+
+  renderIndispos();
+  document.getElementById("indispoAddBtn").addEventListener("click", async () => {
+    const [scope, target] = document.getElementById("indispoTarget").value.split(":");
+    const since = document.getElementById("indispoSince").value || null;
+    const until = document.getElementById("indispoUntil").value || null;
+    const reason = document.getElementById("indispoReason").value.trim() || null;
+
+    const { ok: pose, data: reponse } = await api("/api/admin/unavailabilities", {
+      method: "POST", body: JSON.stringify({ scope, target, since, until, reason }),
+    });
+    if (!pose) { toast((reponse && reponse.detail) || "Impossible.", "error"); return; }
+
+    indispos.unshift({
+      id: reponse.id, scope, target, since, until, reason,
+      // Vrai si aucune borne, ou si aujourd'hui tombe dans la période.
+      active_today: (!since || since <= toLocalISODate(new Date()))
+        && (!until || until >= toLocalISODate(new Date())),
+    });
+    document.getElementById("indispoReason").value = "";
+    renderIndispos();
+    toast("Mis hors service ✓", "success");
+  });
 
   // --- Règles d'icônes ---
   let regles = iconRules.slice();
@@ -1844,10 +1927,11 @@ async function renderAdminEspaces() {
 
     toast(`Plan mis à jour (${Math.round(data.bytes / 1024)} Ko) ✓`, "success");
     input.value = "";
-    // Recharge les deux images du plan en contournant le cache du navigateur.
-    const jeton = Date.now();
+    // La version change : toute image du plan rendue ensuite pointe sur la
+    // nouvelle URL, y compris sur la page Réserver, sans rechargement manuel.
+    state.floorplanVersion = data.version || Date.now();
     document.querySelectorAll('img[src^="/api/floorplan"]').forEach(img => {
-      img.src = `/api/floorplan?v=${jeton}`;
+      img.src = floorplanUrl();
     });
   });
 
@@ -1873,11 +1957,15 @@ async function renderAdminEspaces() {
           style="left:${d.pos_x}%; top:${d.pos_y}%" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</button>`)
       .join("");
 
-    pins.querySelectorAll("[data-editor-desk]").forEach(b => b.addEventListener("click", (e) => {
-      e.stopPropagation();   // sinon le clic pose aussi le poste à cet endroit
-      posteChoisi = +b.dataset.editorDesk;
-      renderPlanEditor();
-    }));
+    pins.querySelectorAll("[data-editor-desk]").forEach(b => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();   // sinon le clic pose aussi le poste à cet endroit
+        if (b.dataset.vientDeGlisser) { delete b.dataset.vientDeGlisser; return; }
+        posteChoisi = +b.dataset.editorDesk;
+        renderPlanEditor();
+      });
+      b.addEventListener("pointerdown", (e) => demarrerGlisse(e, b));
+    });
 
     const restants = postes.filter(d => d.pos_x == null || d.pos_y == null).length;
     document.getElementById("planEditorNote").textContent = restants
@@ -1885,23 +1973,74 @@ async function renderAdminEspaces() {
       : "Tous les postes sont placés.";
   }
 
+  /* Coordonnées d'un événement en pourcentage de l'image, bornées au cadre :
+     relâcher hors du plan doit coller la pastille au bord, pas l'envoyer à -12 %. */
+  function pourcentages(e, img) {
+    const r = img.getBoundingClientRect();
+    const borne = (v) => Math.min(100, Math.max(0, v));
+    return {
+      x: +borne(((e.clientX - r.left) / r.width) * 100).toFixed(2),
+      y: +borne(((e.clientY - r.top) / r.height) * 100).toFixed(2),
+    };
+  }
+
+  async function enregistrerPosition(deskId, x, y) {
+    const { ok, data: maj } = await api(`/api/admin/desks/${deskId}`, {
+      method: "PATCH", body: JSON.stringify({ pos_x: x, pos_y: y }),
+    });
+    if (!ok) { toast((maj && maj.detail) || "Placement impossible.", "error"); return false; }
+    const i = postes.findIndex(d => d.id === deskId);
+    if (i !== -1) postes[i] = { ...postes[i], pos_x: x, pos_y: y };
+    return true;
+  }
+
+  /* Glisser-déposer d'une pastille déjà placée. Elle suit le curseur pendant
+     tout le mouvement : sans ce retour visuel on lâche à l'aveugle. */
+  function demarrerGlisse(depart, pastille) {
+    const img = document.querySelector("#planEditorWrap .plan-image");
+    if (!img) return;
+    depart.preventDefault();
+    const deskId = +pastille.dataset.editorDesk;
+    posteChoisi = deskId;
+    pastille.classList.add("dragging");
+    pastille.setPointerCapture(depart.pointerId);
+
+    let bouge = false;
+    let dernier = pourcentages(depart, img);
+
+    const suivre = (e) => {
+      dernier = pourcentages(e, img);
+      // Seuil de quelques pixels : un clic tremblé ne doit pas compter comme
+      // un déplacement, sinon on repositionne un poste en voulant le choisir.
+      if (!bouge && Math.abs(e.clientX - depart.clientX) + Math.abs(e.clientY - depart.clientY) < 4) return;
+      bouge = true;
+      pastille.style.left = dernier.x + "%";
+      pastille.style.top = dernier.y + "%";
+    };
+
+    const lacher = async () => {
+      pastille.removeEventListener("pointermove", suivre);
+      pastille.removeEventListener("pointerup", lacher);
+      pastille.removeEventListener("pointercancel", lacher);
+      pastille.classList.remove("dragging");
+      if (!bouge) { renderPlanEditor(); return; }
+      pastille.dataset.vientDeGlisser = "1";   // le clic qui suit ne resélectionne pas
+      if (await enregistrerPosition(deskId, dernier.x, dernier.y)) toast("Poste déplacé ✓", "success");
+      renderPlanEditor();
+    };
+
+    pastille.addEventListener("pointermove", suivre);
+    pastille.addEventListener("pointerup", lacher);
+    pastille.addEventListener("pointercancel", lacher);
+  }
+
   const wrap = document.getElementById("planEditorWrap");
   if (wrap) {
     wrap.addEventListener("click", async (e) => {
       if (!posteChoisi) return;
       const img = wrap.querySelector(".plan-image");
-      const r = img.getBoundingClientRect();
-      const x = +(((e.clientX - r.left) / r.width) * 100).toFixed(2);
-      const y = +(((e.clientY - r.top) / r.height) * 100).toFixed(2);
-      if (x < 0 || x > 100 || y < 0 || y > 100) return;
-
-      const { ok, data: maj } = await api(`/api/admin/desks/${posteChoisi}`, {
-        method: "PATCH", body: JSON.stringify({ pos_x: x, pos_y: y }),
-      });
-      if (!ok) { toast((maj && maj.detail) || "Placement impossible.", "error"); return; }
-
-      const i = postes.findIndex(d => d.id === posteChoisi);
-      if (i !== -1) postes[i] = { ...postes[i], pos_x: x, pos_y: y };
+      const { x, y } = pourcentages(e, img);
+      if (!(await enregistrerPosition(posteChoisi, x, y))) return;
       renderPlanEditor();
 
       // Enchaîner : on passe au poste suivant non placé, pour dérouler tout le plan
@@ -1982,15 +2121,15 @@ function viewReserver() {
     </div>
     <div class="reserve-layout">
       <div>
-        <div id="tableSections"><div class="empty">Chargement…</div></div>
-        <div class="section-eyebrow">Plan de l'espace</div>
+        <div class="section-eyebrow">Plan de l'espace · clique une place pour la réserver</div>
         <div class="card plan-panel">
           <div class="plan-wrap" id="planWrap">
-            <img src="/api/floorplan" alt="Plan réel des locaux : tables 1 à 4 de l'open space, bureaux fermés, bulles calmes et entrées" class="plan-image">
+            <img src="${floorplanUrl()}" alt="Plan réel des locaux : tables 1 à 4 de l'open space, bureaux fermés, bulles calmes et entrées" class="plan-image">
             <div class="plan-pins" id="planPins"></div>
           </div>
           <div class="plan-note" id="planNote"></div>
         </div>
+        <div id="tableSections"><div class="empty">Chargement…</div></div>
       </div>
       <div class="side-cards">
         <div class="card"><h3>Mes réservations</h3><div id="myReservations" class="list"></div></div>
@@ -2020,6 +2159,7 @@ async function loadReserve() {
   state.roomLabels = labels.data || {};
   state.spaces = (spaces.data && spaces.data.groups) || [];
   state.bookingModes = (spaces.data && spaces.data.modes) || state.bookingModes;
+  state.floorplanVersion = (spaces.data && spaces.data.floorplan_version) || 0;
 
   // Pour chaque espace réservable d'un bloc (salles fermées ET tables de l'open space),
   // sait-on si je l'ai pris en entier ? Sert à proposer « Annuler » plutôt que « Réserver ».
@@ -2078,7 +2218,9 @@ function renderPlanPins() {
     const occupant = item.occupied_by || null;
     const mineHere = !item.is_available && occupant === state.profile.name;
     const gardee = !item.is_available && !occupant;
-    const ferme = item.is_available && espaceIndisponible(item.desk);
+    // `unavailable` vient du serveur : il tient compte de la place ELLE-MÊME,
+    // de son espace, et de la date consultée.
+    const ferme = item.is_available && item.unavailable === true;
     const cls = ferme ? "off"
       : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
     const equipement = featureTags(item.desk.features)[0];
@@ -2089,7 +2231,7 @@ function renderPlanPins() {
       : "";
 
     let etat;
-    if (ferme) etat = "espace rendu indisponible";
+    if (ferme) etat = "hors service";
     else if (item.is_available) etat = "disponible";
     else if (mineHere) etat = "votre place";
     else if (occupant) etat = occupant;
@@ -2124,8 +2266,9 @@ function renderTables() {
   /* Bouton « réserver d'un bloc », pour une salle fermée comme pour une table de
      l'open space. Trois choses peuvent le fermer : l'admin a coupé le mode, l'admin
      a grisé cet espace précis, ou une place y est déjà prise. */
-  function groupButtonHtml(t, isRoom) {
+  function groupButtonHtml(t, _isRoom) {
     const espace = state.spaces.find(g => g.ref === t.key);
+    const isRoom = espace ? espace.kind === "room" : (t.zone || "").startsWith("Bureau");
     const mot = isRoom ? "salle" : "table";
     const Mot = isRoom ? "Salle" : "Table";
 
@@ -2140,69 +2283,28 @@ function renderTables() {
     return `<button class="room-book-btn" disabled title="Une place de cette ${mot} est déjà réservée">${Mot} indisponible</button>`;
   }
 
+  /* Une ligne par espace : son nom, ce qu'il reste de libre, et le bouton de
+     réservation en bloc. La grille schématique qui vivait ici doublonnait le
+     plan, avec une géométrie qui ne ressemblait pas aux locaux. */
   function section(title, tables, isRoom) {
     if (!tables.length) return "";
-    // Groupées par paires (colle au plan réel : les tables voisines restent côte à côte
-    // sur la même ligne, plutôt qu'un enchaînement qui coupe les paires au retour à la ligne).
-    const rows = [];
-    for (let i = 0; i < tables.length; i += 2) rows.push(tables.slice(i, i + 2));
-    const rowsHtml = rows.map(row => {
-      const widgets = row.map(t => `
-        <div class="table-widget-wrap">
-          <div class="table-widget">
-            <div class="ts-row">${t.topSeats.map(seatHtml).join("")}</div>
-            <div class="ts-surface">${t.cap} pl.</div>
-            <div class="ts-row">${t.botSeats.map(seatHtml).join("")}</div>
-          </div>
-          <div class="ts-label">${t.label}</div>
-          ${groupButtonHtml(t, isRoom)}
-        </div>`).join("");
-      return `<div class="table-scroll-row">${widgets}</div>`;
+    const lignes = tables.map(t => {
+      // Une place hors service n'est pas « libre » : la compter promettrait
+      // une place que personne ne peut prendre.
+      const libres = t.items.filter(x => x.is_available && !x.unavailable).length;
+      const bouton = groupButtonHtml(t, isRoom);
+      return `<div class="space-row">
+        <div class="space-row-info">
+          <b>${escapeHtml(t.label)}</b>
+          <small>${libres} place${libres > 1 ? "s" : ""} libre${libres > 1 ? "s" : ""} sur ${t.cap}</small>
+        </div>
+        ${bouton || '<span class="space-row-off">Réservation en bloc fermée</span>'}
+      </div>`;
     }).join("");
     return `<div class="section-eyebrow">${title}</div>
-      <div class="card table-card"><div class="table-scroll scroll">${rowsHtml}</div></div>`;
+      <div class="card space-list">${lignes}</div>`;
   }
-  function seatHtml(item) {
-    // Qui s'installe ici, pas qui a fait la réservation : sur une table réservée d'un
-    // bloc, le réservant désigne quelqu'un d'autre sur chaque place. Afficher son nom
-    // sur les six sièges serait faux.
-    const occupant = item.occupied_by || null;
-    const mineHere = !item.is_available && occupant === state.profile.name;
-    const isSel = state.selected && state.selected.deskId === item.desk.id;
-    const gardee = !item.is_available && !occupant;   // place bloquée, volontairement vide
-    const ferme = item.is_available && espaceIndisponible(item.desk);
-    const cls = ferme ? "off"
-      : isSel ? "selected" : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
-    // Une place libre montre son équipement (c'est ce qu'on cherche quand on choisit
-    // où s'installer), une place prise montre qui l'occupe. Les deux ne tiennent pas
-    // dans 32 pixels, et l'information utile n'est pas la même dans les deux cas.
-    const equipement = featureTags(item.desk.features)[0];
-    const label = ferme ? ""
-      : mineHere ? "moi"
-      : occupant ? deskAcronym(occupant)
-      : item.is_available && equipement ? `<span class="tseat-ic">${featureIcon(equipement)}</span>`
-      : "";
-
-    const featTitle = item.desk.features ? ` (${item.desk.features})` : "";
-    let etat;
-    if (ferme) etat = " — espace rendu indisponible par l'administration";
-    else if (item.is_available) etat = " — disponible";
-    else if (mineHere) etat = " — votre place";
-    else if (occupant) etat = ` — ${occupant}` + (item.booked_by !== occupant ? ` (réservé par ${item.booked_by})` : "");
-    else etat = ` — place gardée libre par ${item.booked_by}`;
-
-    return `<button class="tseat ${cls}" data-desk="${item.desk.id}" title="${escapeHtml(item.desk.name + featTitle + etat)}">${label}</button>`;
-  }
-  box.innerHTML = section("Bureaux fermés", bureaux, true) + section("Open space · postes individuels", openspace, false) + renderPodsSection();
-  box.querySelectorAll(".tseat").forEach(btn => {
-    const id = +btn.dataset.desk;
-    const item = state.availability.find(a => a.desk.id === id);
-    // On ne peut annuler que ce qu'on a réservé soi-même, même si on y est installé
-    // par un collègue : la place appartient à la réservation, pas à l'occupant.
-    const mineHere = !item.is_available && item.booked_by === state.profile.name;
-    if (item.is_available && espaceIndisponible(item.desk)) return;
-    if (item.is_available || mineHere) btn.addEventListener("click", () => selectSeat(item, mineHere));
-  });
+  box.innerHTML = section("Réserver un espace entier", [...bureaux, ...openspace], false) + renderPodsSection();
   box.querySelectorAll("[data-group-ref]").forEach(btn => {
     if (!btn.disabled) btn.addEventListener("click", () => onGroupButtonClick(btn.dataset.groupRef));
   });
@@ -2259,14 +2361,6 @@ function onGroupButtonClick(ref) {
 
 /* Même règle de regroupement que le serveur : une salle par sa zone, une table
    par le préfixe du nom de ses postes. */
-/* Un espace rendu indisponible par l'administration : salle, table ou bulle.
-   Le serveur refuse déjà la réservation ; ceci évite de proposer un clic qui
-   ne peut qu'échouer. */
-function espaceIndisponible(desk) {
-  const espace = (state.spaces || []).find(g => g.ref === groupRefOf(desk));
-  return !!espace && espace.enabled === false;
-}
-
 function groupRefOf(desk) {
   if (desk.zone && desk.zone.startsWith("Bureau")) return desk.zone;
   // Une bulle calme est un espace à elle seule : sa référence est son nom entier,
