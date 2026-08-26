@@ -655,61 +655,6 @@ def set_booking_toggle(db: Session, mode: str, enabled: bool) -> None:
 #  Fermer « la place T1-3 parce que le bureau est cassé » et « le Bureau 2 la
 #  semaine du déménagement » sont la même opération à deux échelles. Une seule
 #  table les porte, et toute question de disponibilité se pose POUR UNE DATE.
-def list_unavailabilities(db: Session) -> list[dict]:
-    """Toutes les fermetures déclarées, les plus récentes d'abord."""
-    lignes = db.scalars(
-        select(m.Unavailability).order_by(m.Unavailability.created_at.desc(), m.Unavailability.id.desc())
-    )
-    return [
-        {
-            "id": u.id,
-            "scope": u.scope,
-            "target": u.target,
-            "since": u.since.isoformat() if u.since else None,
-            "until": u.until.isoformat() if u.until else None,
-            "reason": u.reason,
-            "active_today": u.couvre(local_today()),
-        }
-        for u in lignes
-    ]
-
-
-def add_unavailability(
-    db: Session, scope: str, target: str,
-    since: date | None = None, until: date | None = None, reason: str | None = None,
-) -> m.Unavailability:
-    """Ferme une place ou un espace. Sans dates, la fermeture vaut jusqu'à retrait."""
-    if scope not in ("desk", "space"):
-        raise ReservationError("Portée inconnue : attendu « desk » ou « space ».")
-    cible = (target or "").strip()
-    if not cible:
-        raise ReservationError("Indique la place ou l'espace à rendre indisponible.")
-    if since and until and until < since:
-        raise ReservationError("La date de fin est antérieure à la date de début.")
-
-    if scope == "desk" and not db.scalar(select(m.Desk).where(m.Desk.name == cible)):
-        raise DeskNotFound("Ce poste n'existe pas.")
-    if scope == "space" and cible not in {g["ref"] for g in bookable_groups(db)}:
-        raise DeskNotFound("Cet espace n'existe pas.")
-
-    ligne = m.Unavailability(
-        scope=scope, target=cible, since=since, until=until,
-        reason=((reason or "").strip() or None),
-    )
-    db.add(ligne)
-    db.commit()
-    db.refresh(ligne)
-    return ligne
-
-
-def remove_unavailability(db: Session, unavailability_id: int) -> None:
-    ligne = db.get(m.Unavailability, unavailability_id)
-    if ligne is None:
-        raise ReservationNotFound("Cette indisponibilité n'existe plus.")
-    db.delete(ligne)
-    db.commit()
-
-
 def _fermetures(db: Session, jour: date) -> tuple[set[str], set[str]]:
     """Places et espaces fermés ce jour-là, en une seule lecture.
 
@@ -740,24 +685,63 @@ def is_desk_bookable(db: Session, desk: m.Desk, jour: date | None = None) -> boo
     return not (groupe and groupe in espaces)
 
 
-def set_group_enabled(db: Session, ref: str, enabled: bool) -> None:
-    """Ouvre ou ferme un espace sans date. Raccourci de l'interrupteur d'administration.
+def set_availability(
+    db: Session, scope: str, target: str, enabled: bool,
+    since: date | None = None, until: date | None = None,
+) -> None:
+    """Ouvre ou ferme une place ou un espace, éventuellement sur une période.
 
-    Fermer ajoute une indisponibilité sans bornes ; rouvrir retire TOUTES les
-    fermetures de cet espace, y compris datées : décocher la case doit rendre
-    l'espace réservable, sans quoi le geste ne fait pas ce qu'il annonce.
+    Un seul geste pour les deux échelles : fermer la place T1-3 et fermer le
+    Bureau 2 sont la même opération. Rouvrir retire TOUTES les fermetures de la
+    cible, y compris datées : cocher la case doit rendre la cible réservable,
+    sans quoi le geste ne fait pas ce qu'il annonce.
     """
+    if scope not in ("desk", "space"):
+        raise ReservationError("Portée inconnue : attendu « desk » ou « space ».")
+    if since and until and until < since:
+        raise ReservationError("La date de fin est antérieure à la date de début.")
+
     existantes = list(db.scalars(
         select(m.Unavailability).where(
-            m.Unavailability.scope == "space", m.Unavailability.target == ref
+            m.Unavailability.scope == scope, m.Unavailability.target == target
         )
     ))
-    if enabled:
-        for u in existantes:
-            db.delete(u)
-    elif not any(u.since is None and u.until is None for u in existantes):
-        db.add(m.Unavailability(scope="space", target=ref))
+    for u in existantes:
+        db.delete(u)
+    if not enabled:
+        db.add(m.Unavailability(scope=scope, target=target, since=since, until=until))
     db.commit()
+
+
+def set_group_enabled(db: Session, ref: str, enabled: bool) -> None:
+    """Ouvre ou ferme un espace sans date. Conservé : c'est le cas le plus courant."""
+    set_availability(db, "space", ref, enabled)
+
+
+def availability_state(db: Session) -> dict:
+    """État de disponibilité de chaque espace et de chaque place, pour l'administration.
+
+    Renvoie les deux listes d'un coup : l'écran de réglage les affiche côte à
+    côte, et les recalculer séparément relirait deux fois les mêmes fermetures.
+    """
+    fermetures: dict[tuple[str, str], m.Unavailability] = {}
+    for u in db.scalars(select(m.Unavailability)):
+        fermetures[(u.scope, u.target)] = u
+
+    def etat(scope: str, cible: str) -> dict:
+        u = fermetures.get((scope, cible))
+        return {
+            "enabled": u is None,
+            "since": u.since.isoformat() if u and u.since else None,
+            "until": u.until.isoformat() if u and u.until else None,
+        }
+
+    espaces = [{**g, **etat("space", g["ref"])} for g in bookable_groups(db)]
+    postes = [
+        {"name": d.name, "zone": d.zone, "is_active": d.is_active, **etat("desk", d.name)}
+        for d in db.scalars(select(m.Desk).order_by(m.Desk.name))
+    ]
+    return {"spaces": espaces, "desks": postes}
 
 
 def _require_mode(db: Session, mode: str) -> None:

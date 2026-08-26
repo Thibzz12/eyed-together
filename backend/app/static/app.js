@@ -1620,9 +1620,9 @@ async function renderAdminStats() {
 async function renderAdminEspaces() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const [{ ok, data }, labelsRes, policyRes, spacesRes, iconsRes, indispoRes] = await Promise.all([
+  const [{ ok, data }, labelsRes, policyRes, spacesRes, iconsRes, dispoRes] = await Promise.all([
     api("/api/admin/desks"), api("/api/room-labels"), api("/api/reservation-policy"),
-    api("/api/spaces"), api("/api/feature-icons"), api("/api/admin/unavailabilities"),
+    api("/api/spaces"), api("/api/feature-icons"), api("/api/admin/availability"),
   ]);
   if (!ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   const labels = labelsRes.data || {};
@@ -1651,36 +1651,11 @@ async function renderAdminEspaces() {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <h3>Disponibilité des espaces</h3>
-      <div class="card-note">Un espace décoché reste visible sur le plan, grisé, et n'est plus réservable, ni en entier ni place par place.</div>
-      <div class="toggle-list">
-        ${espaces.map(g => `
-          <label class="toggle-row">
-            <input type="checkbox" data-space-ref="${escapeHtml(g.ref)}"${g.enabled !== false ? " checked" : ""}>
-            <span>${escapeHtml(g.label)} <small class="muted">${g.seats} place${g.seats > 1 ? "s" : ""}</small></span>
-          </label>`).join("")}
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-      <h3>Hors service</h3>
-      <div class="card-note">Ferme une place précise (bureau cassé, écran en panne) ou tout un espace, avec ou sans date de fin. Une place hors service reste visible sur le plan, hachurée, et n'est plus réservable. Laisse les dates vides pour fermer jusqu'à nouvel ordre.</div>
-      <div class="indispo-form">
-        <select id="indispoTarget" aria-label="Place ou espace à fermer">
-          <optgroup label="Espaces">
-            ${espaces.map(g => `<option value="space:${escapeHtml(g.ref)}">${escapeHtml(g.label)}</option>`).join("")}
-          </optgroup>
-          <optgroup label="Places">
-            ${data.slice().sort((a, b) => a.name.localeCompare(b.name)).map(d =>
-              `<option value="desk:${escapeHtml(d.name)}">${escapeHtml(d.name)}${d.zone ? " · " + escapeHtml(d.zone) : ""}</option>`).join("")}
-          </optgroup>
-        </select>
-        <label class="indispo-date">Du <input type="date" id="indispoSince"></label>
-        <label class="indispo-date">au <input type="date" id="indispoUntil"></label>
-        <input id="indispoReason" maxlength="200" placeholder="Motif (facultatif)">
-        <button class="btn btn-ghost" id="indispoAddBtn" type="button">Mettre hors service</button>
-      </div>
-      <div id="indispoList" class="indispo-list"></div>
+      <h3>Disponibilité</h3>
+      <div class="card-note">Décoche ce qui n'est pas réservable : un espace entier, ou une place précise. Ce qui est décoché reste visible sur le plan, hachuré, et n'est plus proposé. Les dates sont facultatives : sans elles la fermeture vaut jusqu'à ce que tu recoches.</div>
+      <div id="dispoSpaces" class="dispo-group"></div>
+      <div class="dispo-eyebrow">Places</div>
+      <div id="dispoDesks" class="dispo-group"></div>
     </div>
 
     <div class="card" style="margin-top:14px">
@@ -1774,69 +1749,74 @@ async function renderAdminEspaces() {
     toast(cb.checked ? "Mode ouvert ✓" : "Mode fermé ✓", "success");
   }));
 
-  // --- Disponibilité d'un espace précis ---
-  body.querySelectorAll("[data-space-ref]").forEach(cb => cb.addEventListener("change", async () => {
-    const { ok, data } = await api("/api/admin/spaces", {
-      method: "PATCH", body: JSON.stringify({ ref: cb.dataset.spaceRef, enabled: cb.checked }),
-    });
-    if (!ok) { cb.checked = !cb.checked; toast((data && data.detail) || "Erreur", "error"); return; }
-    toast(cb.checked ? "Espace disponible ✓" : "Espace grisé ✓", "success");
-  }));
 
-  // --- Hors service : places et espaces fermés ---
-  let indispos = (indispoRes.data && indispoRes.data.items) || [];
+  // --- Disponibilité : un espace ou une place, avec ou sans dates ---
+  let dispo = dispoRes.data || { spaces: [], desks: [] };
 
-  function renderIndispos() {
-    const box = document.getElementById("indispoList");
-    if (!box) return;
-    if (!indispos.length) {
-      box.innerHTML = `<div class="empty-inline">Rien n'est hors service.</div>`;
-      return;
-    }
-    box.innerHTML = indispos.map(u => {
-      const quoi = u.scope === "desk" ? "Place" : "Espace";
-      const periode = u.since || u.until
-        ? `du ${u.since ? fdate(u.since, { day: "numeric", month: "short" }) : "…"} au ${u.until ? fdate(u.until, { day: "numeric", month: "short" }) : "…"}`
-        : "jusqu'à nouvel ordre";
-      return `<div class="indispo-row${u.active_today ? " en-cours" : ""}">
-        <div class="indispo-row-info">
-          <b>${quoi} ${escapeHtml(u.target)}</b>
-          <small>${periode}${u.reason ? " · " + escapeHtml(u.reason) : ""}${u.active_today ? " · en cours" : ""}</small>
-        </div>
-        <button class="presence-out" data-indispo-del="${u.id}" title="Remettre en service">✕</button>
+  /* Une ligne = une case, un libellé, et deux dates qui n'apparaissent que si la
+     case est décochée : proposer des dates sur ce qui est ouvert n'aurait pas de
+     sens, et alourdirait une liste de quarante lignes. */
+  function ligneDispo(scope, cible, libelle, detail, etat) {
+    const dates = etat.enabled ? "" : `
+      <div class="dispo-dates">
+        <label>du <input type="date" data-dispo-since="${scope}:${cible}" value="${etat.since || ""}"></label>
+        <label>au <input type="date" data-dispo-until="${scope}:${cible}" value="${etat.until || ""}"></label>
+        <small>${etat.since || etat.until ? "" : "vide = jusqu'à nouvel ordre"}</small>
       </div>`;
-    }).join("");
-    box.querySelectorAll("[data-indispo-del]").forEach(b => b.addEventListener("click", async () => {
-      const { ok: parti } = await api(`/api/admin/unavailabilities/${b.dataset.indispoDel}`, { method: "DELETE" });
-      if (!parti) { toast("Suppression impossible.", "error"); return; }
-      indispos = indispos.filter(u => String(u.id) !== b.dataset.indispoDel);
-      renderIndispos();
-      toast("Remis en service ✓", "success");
-    }));
+    return `<div class="dispo-row${etat.enabled ? "" : " fermee"}">
+      <label class="toggle-row">
+        <input type="checkbox" data-dispo="${scope}:${cible}"${etat.enabled ? " checked" : ""}>
+        <span>${escapeHtml(libelle)}${detail ? ` <small class="muted">${escapeHtml(detail)}</small>` : ""}</span>
+      </label>
+      ${dates}
+    </div>`;
   }
 
-  renderIndispos();
-  document.getElementById("indispoAddBtn").addEventListener("click", async () => {
-    const [scope, target] = document.getElementById("indispoTarget").value.split(":");
-    const since = document.getElementById("indispoSince").value || null;
-    const until = document.getElementById("indispoUntil").value || null;
-    const reason = document.getElementById("indispoReason").value.trim() || null;
+  function renderDispo() {
+    const boxE = document.getElementById("dispoSpaces");
+    const boxP = document.getElementById("dispoDesks");
+    if (!boxE || !boxP) return;
 
-    const { ok: pose, data: reponse } = await api("/api/admin/unavailabilities", {
-      method: "POST", body: JSON.stringify({ scope, target, since, until, reason }),
-    });
-    if (!pose) { toast((reponse && reponse.detail) || "Impossible.", "error"); return; }
+    boxE.innerHTML = dispo.spaces.map(g =>
+      ligneDispo("space", g.ref, g.label, `${g.seats} place${g.seats > 1 ? "s" : ""}`, g)).join("");
+    boxP.innerHTML = dispo.desks.map(d =>
+      ligneDispo("desk", d.name, d.name, d.zone || "", d)).join("");
 
-    indispos.unshift({
-      id: reponse.id, scope, target, since, until, reason,
-      // Vrai si aucune borne, ou si aujourd'hui tombe dans la période.
-      active_today: (!since || since <= toLocalISODate(new Date()))
-        && (!until || until >= toLocalISODate(new Date())),
+    [boxE, boxP].forEach(box => {
+      box.querySelectorAll("[data-dispo]").forEach(cb => cb.addEventListener("change", () => {
+        const [scope, cible] = cb.dataset.dispo.split(":");
+        enregistrerDispo(scope, cible, { enabled: cb.checked, since: null, until: null });
+      }));
+      box.querySelectorAll("[data-dispo-since], [data-dispo-until]").forEach(inp => {
+        inp.addEventListener("change", () => {
+          const cle = inp.dataset.dispoSince || inp.dataset.dispoUntil;
+          const [scope, cible] = cle.split(":");
+          const ligne = inp.closest(".dispo-row");
+          enregistrerDispo(scope, cible, {
+            enabled: false,
+            since: ligne.querySelector("[data-dispo-since]").value || null,
+            until: ligne.querySelector("[data-dispo-until]").value || null,
+          });
+        });
+      });
     });
-    document.getElementById("indispoReason").value = "";
-    renderIndispos();
-    toast("Mis hors service ✓", "success");
-  });
+  }
+
+  async function enregistrerDispo(scope, target, etat) {
+    const { ok: enregistre, data: reponse } = await api("/api/admin/availability", {
+      method: "PATCH", body: JSON.stringify({ scope, target, ...etat }),
+    });
+    if (!enregistre) { toast((reponse && reponse.detail) || "Erreur", "error"); renderDispo(); return; }
+
+    const liste = scope === "space" ? dispo.spaces : dispo.desks;
+    const cle = scope === "space" ? "ref" : "name";
+    const item = liste.find(x => x[cle] === target);
+    if (item) Object.assign(item, etat);
+    renderDispo();
+    toast(etat.enabled ? "Disponible ✓" : "Indisponible ✓", "success");
+  }
+
+  renderDispo();
 
   // --- Règles d'icônes ---
   let regles = iconRules.slice();

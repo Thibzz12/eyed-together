@@ -1033,38 +1033,23 @@ def admin_booking_mode(
     return svc.get_booking_toggles(db)
 
 
-@router.patch("/admin/spaces")
-def admin_space_enabled(
-    data: schemas.SpaceEnabledUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
+@router.get("/admin/availability")
+def admin_availability(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Ce qui est ouvert ou fermé, espace par espace et place par place."""
+    return svc.availability_state(db)
+
+
+@router.patch("/admin/availability")
+def admin_set_availability(
+    data: schemas.AvailabilityUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
 ):
-    """Rend un espace précis indisponible (grisé) sans le supprimer."""
-    svc.set_group_enabled(db, data.ref, data.enabled)
-    return {"ref": data.ref, "enabled": data.enabled}
+    """Ouvre ou ferme une place ou un espace, éventuellement sur une période.
 
-
-@router.get("/admin/unavailabilities")
-def admin_list_unavailabilities(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Places et espaces fermés, avec leur période éventuelle."""
-    return {"items": svc.list_unavailabilities(db)}
-
-
-@router.post("/admin/unavailabilities", status_code=status.HTTP_201_CREATED)
-def admin_add_unavailability(
-    data: schemas.UnavailabilityCreate, db: Session = Depends(get_db), _=Depends(require_admin),
-):
-    """Ferme une place ou un espace, éventuellement sur une plage de dates."""
-    ligne = svc.add_unavailability(
-        db, data.scope, data.target, data.since, data.until, data.reason
-    )
-    return {"id": ligne.id}
-
-
-@router.delete("/admin/unavailabilities/{unavailability_id}", status_code=status.HTTP_204_NO_CONTENT)
-def admin_remove_unavailability(
-    unavailability_id: int, db: Session = Depends(get_db), _=Depends(require_admin),
-):
-    """Rouvre une place ou un espace."""
-    svc.remove_unavailability(db, unavailability_id)
+    Un seul geste pour les deux échelles : fermer la place T1-3 et fermer le
+    Bureau 2 se demandent de la même façon.
+    """
+    svc.set_availability(db, data.scope, data.target, data.enabled, data.since, data.until)
+    return {"scope": data.scope, "target": data.target, "enabled": data.enabled}
 
 
 @router.get("/feature-icons")

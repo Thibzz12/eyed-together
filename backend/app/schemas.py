@@ -113,18 +113,18 @@ class TimeslotRead(BaseModel):
     user_name: str
 
 
-# ---------------------------------------------------------------- Indisponibilités
-class UnavailabilityCreate(BaseModel):
-    """Ferme une place (« T1-3 ») ou un espace (« Bureau 2 », « T1 », « BC-1 »).
+# ---------------------------------------------------------------- Disponibilité
+class AvailabilityUpdate(BaseModel):
+    """Ouvre ou ferme une place (« T1-3 ») ou un espace (« Bureau 2 », « BC-1 »).
 
-    Sans dates, la fermeture vaut jusqu'à ce qu'on la retire. Les deux bornes
-    sont incluses.
+    Les dates sont facultatives et bornent la fermeture, bornes incluses. Sans
+    elles, la fermeture vaut jusqu'à ce qu'on rouvre.
     """
     scope: Literal["desk", "space"]
     target: str
+    enabled: bool
     since: date | None = None
     until: date | None = None
-    reason: str | None = None
 
 
 # ---------------------------------------------------------------- Postes (administration)
@@ -391,11 +391,6 @@ class GroupBookingCreate(BaseModel):
 
 class BookingToggleUpdate(BaseModel):
     mode: Literal["seat", "table", "room", "pod"]
-    enabled: bool
-
-
-class SpaceEnabledUpdate(BaseModel):
-    ref: str = Field(min_length=1, max_length=60)
     enabled: bool
 
 

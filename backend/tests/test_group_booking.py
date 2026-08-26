@@ -188,11 +188,13 @@ def test_seul_un_admin_ferme_un_mode(client, employee, admin, db):
 
 
 def test_seul_un_admin_grise_un_espace(client, employee, admin, db, desks):
+    corps = {"scope": "space", "target": "T1", "enabled": False}
+
     client.login_as(employee)
-    assert client.patch("/api/admin/spaces", json={"ref": "T1", "enabled": False}).status_code == 403
+    assert client.patch("/api/admin/availability", json=corps).status_code == 403
 
     client.login_as(admin)
-    assert client.patch("/api/admin/spaces", json={"ref": "T1", "enabled": False}).status_code == 200
+    assert client.patch("/api/admin/availability", json=corps).status_code == 200
     assert svc.is_group_enabled(db, "T1") is False
 
 

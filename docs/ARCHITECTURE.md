@@ -133,10 +133,13 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   ne décrit plus que le matériel (« Double écran », « Docking station »). Avant le
   26/08/2026 les deux notions partageaient `features`, ce qui rendait impossible de
   renseigner l'équipement d'une place d'open space sans renommer sa table.
-- **Indisponibilités** : fermer une place (« T1-3, bureau cassé ») et fermer un
+- **Disponibilité** : fermer une place (« T1-3, bureau cassé ») et fermer un
   espace (« Bureau 2, semaine du déménagement ») sont la même opération à deux
-  échelles ; la table `unavailabilities` porte les deux, avec une plage de dates
-  optionnelle. Toute question de disponibilité se pose POUR UNE DATE : sans cela
+  échelles, et un seul geste la commande — `set_availability`. La table
+  `unavailabilities` porte les deux, avec une plage de dates optionnelle. Une
+  première version avait fait de la fermeture d'une place un concept séparé
+  (« hors service », avec son écran et son motif) : le motif n'est qu'une raison
+  parmi d'autres, pas une notion. L'interface est une seule liste de cases. Toute question de disponibilité se pose POUR UNE DATE : sans cela
   une fermeture programmée n'aurait aucun effet le jour venu. C'est le serveur
   qui calcule le champ `unavailable` de chaque place, le client ne saurait pas
   croiser place, espace et date.

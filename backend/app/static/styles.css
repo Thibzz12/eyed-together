@@ -984,26 +984,27 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
 .plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
 .plan-pin.held { background: #EEF2F6; border-color: #CBD5E1; color: var(--muted); cursor: not-allowed; }
-/* Mise hors service d'une place ou d'un espace. */
-.indispo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
-.indispo-form select, .indispo-form input {
-  font: inherit; color: inherit; background: var(--card);
-  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0;
+/* Disponibilité : espaces et places, mêmes cases. La liste des places est
+   longue (une quarantaine) : deux colonnes sur écran large, et les dates ne
+   s'affichent que sur ce qui est fermé. */
+.dispo-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 2px 18px; }
+.dispo-eyebrow {
+  font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin: 16px 0 6px;
 }
-.indispo-form select { flex: 1 1 200px; }
-.indispo-form #indispoReason { flex: 1 1 160px; }
-.indispo-date { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .82rem; }
-.indispo-list { margin-top: 12px; }
-.indispo-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; margin-top: 6px;
-  border: 1px solid var(--line); border-radius: 10px; background: #F9FAFC;
+.dispo-row { padding: 3px 0; }
+/* Ce qui est fermé se lit d'un coup d'œil dans une liste de quarante lignes. */
+.dispo-row.fermee > .toggle-row span { color: var(--muted); text-decoration: line-through; }
+.dispo-dates {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 2px 0 8px 26px;
 }
-/* Une fermeture qui court aujourd'hui se distingue d'une fermeture programmée. */
-.indispo-row.en-cours { border-color: #E7C6B4; background: #FDF4EF; }
-.indispo-row-info { flex: 1; min-width: 0; }
-.indispo-row-info b { display: block; font-size: .85rem; }
-.indispo-row-info small { display: block; color: var(--muted); font-size: .76rem; }
+.dispo-dates label { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: .78rem; }
+.dispo-dates input {
+  font: inherit; font-size: .78rem; color: inherit; background: var(--card);
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px; min-width: 0;
+}
+.dispo-dates small { color: var(--muted); font-size: .72rem; }
 
 /* Liste des espaces réservables en bloc, sous le plan. Remplace la grille
    schématique : le plan porte désormais les places elles-mêmes. */
