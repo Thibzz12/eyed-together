@@ -1709,7 +1709,7 @@ async function renderAdminEspaces() {
   for (const [zone, desks] of Object.entries(groups)) {
     const active = desks.filter(d => d.is_active).length;
     html += `<div class="card"><div class="card-head">
-        <h3>${zone} <span class="muted" style="font-weight:400">· ${active} place(s) active(s)</span></h3>
+        <h3>${zone} <span class="muted" style="font-weight:400">· ${active} place${active > 1 ? "s" : ""} active${active > 1 ? "s" : ""}</span></h3>
         <button class="link-more" data-add="${zone}">+ Ajouter un poste</button></div>
       <div class="desk-admin-head"><span>Nom</span><span>Position (X / Y %)</span><span>Active</span><span></span></div>
       <div class="desk-admin-list">`;

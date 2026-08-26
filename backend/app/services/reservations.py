@@ -984,9 +984,41 @@ def apply_noshow_penalties(db: Session, user_id: int) -> int:
             m.Reservation.checked_in_at.is_(None),
         )
     ).all()
+    if not rows:
+        return 0
+
+    # Un espace entier compte pour UN no-show, pas un par place : il n'avait
+    # rapporté qu'une fois, et surtout le réservant ne peut confirmer que sa
+    # propre place — les autres n'ont jamais de check-in, si bien que réserver
+    # une table pour des collègues garantissait la pénalité même en étant venu.
+    lots_penalises: set[tuple] = set()
     for r in rows:
         r.status = m.ReservationStatus.NO_SHOW
+        if not r.is_group_booking:
+            award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
+            continue
+        lot = (r.reservation_date, r.slot)
+        if lot in lots_penalises or _lot_honore(db, user_id, r):
+            continue
+        lots_penalises.add(lot)
         award_points(db, user_id, -NOSHOW_PENALTY, "no_show")
-    if rows:
-        db.commit()
+
+    db.commit()
     return len(rows)
+
+
+def _lot_honore(db: Session, user_id: int, reservation: m.Reservation) -> bool:
+    """Quelqu'un a-t-il confirmé sa présence sur une place de ce lot ?
+
+    Une seule confirmation suffit : l'espace a bien été occupé, il n'y a pas de
+    place perdue à sanctionner.
+    """
+    return db.scalar(
+        select(m.Reservation).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == reservation.reservation_date,
+            m.Reservation.slot == reservation.slot,
+            m.Reservation.is_group_booking.is_(True),
+            m.Reservation.checked_in_at.is_not(None),
+        )
+    ) is not None

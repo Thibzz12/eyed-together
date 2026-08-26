@@ -139,6 +139,12 @@ Ajouts d'août 2026 dans `reservations.py`, en réponse au retour d'Olivier Vanb
   dernière place libérée du lot, repérée par les lignes ENCORE réservées du
   triplet (utilisateur, date, créneau). Se fonder sur les lignes déjà annulées
   ferait retomber la recherche sur les lots des jours précédents.
+- **Pénalité de no-show sur un lot** : même règle que l'annulation, avec un piège
+  de plus. Le réservant ne peut confirmer sa présence que sur SA place ; les
+  autres n'ont jamais de `checked_in_at`, si bien qu'un décompte par ligne
+  sanctionnait à coup sûr quiconque réserve une table pour des collègues, même
+  venu. `apply_noshow_penalties` compte donc un no-show par (date, créneau), et
+  seulement si aucune place du lot n'a été confirmée.
 - **Un occupant a trois natures** : un collègue (`occupant_user_id`), une personne
   extérieure (`occupant_name`), ou personne (place bloquée volontairement vide).
   `Reservation.occupant_display` résout les trois en un nom affichable ; s'en
