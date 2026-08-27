@@ -2140,6 +2140,13 @@ async function loadReserve() {
   state.spaces = (spaces.data && spaces.data.groups) || [];
   state.bookingModes = (spaces.data && spaces.data.modes) || state.bookingModes;
   state.floorplanVersion = (spaces.data && spaces.data.floorplan_version) || 0;
+  // La page est dessinée AVANT que cette réponse n'arrive : l'image du plan porte
+  // donc encore `?v=0`. On la repointe maintenant qu'on connaît la version, sinon
+  // un navigateur qui a l'ancien plan en mémoire pour cette URL le garde.
+  document.querySelectorAll('img[src^="/api/floorplan"]').forEach(img => {
+    const voulue = floorplanUrl();
+    if (!img.getAttribute("src").endsWith(voulue)) img.src = voulue;
+  });
 
   // Pour chaque espace réservable d'un bloc (salles fermées ET tables de l'open space),
   // sait-on si je l'ai pris en entier ? Sert à proposer « Annuler » plutôt que « Réserver ».
