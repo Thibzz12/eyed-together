@@ -1125,7 +1125,13 @@ def floorplan_version(db: Session) -> str:
     invalider, ce qui est plus sûr que de compter sur les en-têtes.
     """
     row = db.get(m.StoredImage, _FLOORPLAN_KEY)
-    return str(int(row.updated_at.timestamp())) if row is not None else "0"
+    if row is not None:
+        return str(int(row.updated_at.timestamp()))
+    # Aucun plan envoyé depuis l'administration : c'est l'image livrée avec
+    # l'application qui s'affiche. Sa date de modification sert de version, sinon
+    # remplacer cette image dans le dépôt laisserait l'URL inchangée et les
+    # navigateurs continueraient d'afficher l'ancien plan.
+    return str(int(_STATIC_FLOORPLAN.stat().st_mtime))
 
 
 @router.post("/admin/floorplan")
