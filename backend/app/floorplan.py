@@ -9,8 +9,19 @@ Ces valeurs sont relevées sur le plan réel fourni par Olivier le 24/08/2026
 droite :
 
     Table 1 (4) · Table 2 (4) · Table 3 (6) · Table 4 (6)
-    Bureau 2 (6, salle fermée du milieu) · Bulle Maldives · Bulle Seychelles
-    Bureau 1 (6, salle fermée de droite, notée "RH / Finance / Legal / IT")
+    Bureau 1 (6, salle fermée du milieu, notée "Bureau 2" sur le plan)
+    Bulle Maldives · Bulle Seychelles
+    Bureau 2 (6, salle fermée de droite, notée "Bureau Réservé RH / Admin /
+    Finance / Legal / IT / EHS" sur le plan)
+
+Attention au décalage entre le nom interne d'une zone et son nom affiché : le
+plan ne connaît qu'un seul bureau ouvert à la réservation, qu'il appelle
+« Bureau 2 », et une salle réservée aux services support. Les clés `Bureau 1` /
+`Bureau 2` restent les identifiants techniques des deux salles fermées, leur
+libellé se règle depuis l'administration (Noms affichés). C'est l'inversion
+signalée par Olivier le 29/08/2026 : les pastilles de la salle du milieu se
+posaient dans la salle de droite et inversement, si bien que les collègues
+réservés dans le « Bureau 2 » apparaissaient dans le bureau réservé.
 
 Si l'image du plan est remplacée depuis l'administration et que le cadrage
 change, ces positions se décalent : l'écran « Placer les postes sur le plan »
@@ -35,15 +46,17 @@ DESK_POSITIONS: dict[str, tuple[float, float]] = {
     "T4-1": (38.5, 40.0), "T4-2": (44.0, 40.0),
     "T4-3": (38.5, 57.0), "T4-4": (44.0, 57.0),
     "T4-5": (38.5, 73.0), "T4-6": (44.0, 73.0),
-    # --- Bureau 2 : salle fermée du milieu, 3 places de chaque côté de la table ---
-    "B2-1": (56.5, 38.0), "B2-2": (56.5, 47.0), "B2-3": (56.5, 56.0),
-    "B2-4": (60.3, 38.0), "B2-5": (60.3, 47.0), "B2-6": (60.3, 56.0),
+    # --- Bureau 1 : salle fermée du milieu (« Bureau 2 » sur le plan),
+    #     3 places de chaque côté de la table ---
+    "B1-1": (56.5, 38.0), "B1-2": (56.5, 47.0), "B1-3": (56.5, 56.0),
+    "B1-4": (60.3, 38.0), "B1-5": (60.3, 47.0), "B1-6": (60.3, 56.0),
     # --- Bulles calmes : Maldives puis Seychelles, entre les deux salles ---
     "BC-1": (65.5, 31.5),
     "BC-2": (72.0, 57.0),
-    # --- Bureau 1 : salle fermée de droite (RH / Finance / Legal / IT) ---
-    "B1-1": (78.0, 38.0), "B1-2": (78.0, 47.0), "B1-3": (78.0, 56.0),
-    "B1-4": (81.8, 38.0), "B1-5": (81.8, 47.0), "B1-6": (81.8, 56.0),
+    # --- Bureau 2 : salle fermée de droite (bureau réservé RH / Admin /
+    #     Finance / Legal / IT / EHS) ---
+    "B2-1": (78.0, 38.0), "B2-2": (78.0, 47.0), "B2-3": (78.0, 56.0),
+    "B2-4": (81.8, 38.0), "B2-5": (81.8, 47.0), "B2-6": (81.8, 56.0),
 }
 
 # Positions livrées avant le plan réel du 24/08/2026 : une grille schématique qui
