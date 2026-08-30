@@ -1072,7 +1072,12 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .plan-editor .plan-pin { min-width: 26px; height: 20px; font-size: 8px; }
 /* Icône de type de poste envoyée en image (PNG/GIF) plutôt qu'en emoji. */
 .feature-icon-img { height: 1.1em; width: auto; max-width: 2.2em; vertical-align: -.18em; object-fit: contain; }
-.plan-pin .feature-icon-img { height: max(14px, 1.5cqw); max-width: max(22px, 2.4cqw); vertical-align: middle; }
+/* Sur les pastilles du plan, l'icône remplit la pastille au lieu d'hériter de la
+   petite taille du texte (les quadrigrammes, eux, gardent la leur : à cette
+   taille, quatre lettres déborderaient). Le plafond suit la hauteur de pastille,
+   elle-même bornée par l'écart entre deux rangées de chaises d'un bureau. */
+.plan-pin .feature-icon-img { height: max(17px, 1.8cqw); max-width: max(28px, 3cqw); vertical-align: middle; }
+.plan-pin .feature-icon-emoji { font-size: max(13px, 1.55cqw); line-height: 1; vertical-align: middle; }
 .plan-pin.free { background: var(--seat-free); border-color: var(--seat-free-b); }
 .plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
 .plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }

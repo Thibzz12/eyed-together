@@ -100,9 +100,11 @@ function isImageIcon(icon) {
   return typeof icon === "string" && icon.startsWith("img:");
 }
 function iconHtml(icon, alt) {
+  // L'emoji passe dans un span : sans lui, impossible de l'agrandir sur les
+  // pastilles du plan sans grossir aussi les quadrigrammes des occupants.
   return isImageIcon(icon)
     ? `<img class="feature-icon-img" src="${iconUrl(icon)}" alt="${escapeHtml(alt || "")}">`
-    : escapeHtml(icon);
+    : `<span class="feature-icon-emoji">${escapeHtml(icon)}</span>`;
 }
 function featureIconHtml(text) {
   return iconHtml(featureIcon(text), text);
