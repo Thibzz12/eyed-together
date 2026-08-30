@@ -447,7 +447,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .birthday-today b { color: #7A4A00; }
 
 /* ---------------- Recherche globale ---------------- */
-.search-btn { border: none; background: none; color: var(--muted); cursor: pointer; padding: 6px; display: flex; align-items: center; }
+.search-btn { border: none; background: none; color: var(--muted); cursor: pointer; padding: 6px; display: flex; align-items: center; position: relative; }
 .search-btn svg { width: 20px; height: 20px; }
 .search-bar { margin-bottom: 16px; }
 .search-bar input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: .95rem; font-family: inherit; }
@@ -556,11 +556,44 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .status-add-form input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .88rem; font-family: inherit; }
 .status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .status-add-form .btn-save { margin: 0; width: auto; padding: 10px 18px; flex-shrink: 0; }
-.collab-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
-.collab-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.collab-row { display: flex; align-items: center; gap: 14px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+/* Le nom prend toute la place restante : la case « Admin » et la date se calent
+   ainsi à droite, à la même position sur chaque ligne, au lieu de flotter au
+   milieu au gré de la longueur des noms. */
+.collab-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .collab-info b { font-size: .88rem; }
 .collab-info small { font-size: .76rem; }
 .collab-birthday { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; font-family: inherit; flex-shrink: 0; }
+/* Droits d'administrateur, accordés depuis l'app plutôt que par variable
+   d'environnement. Le nom porte l'étiquette, la case porte l'action. */
+.collab-info b .collab-admin-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  background: var(--blue); color: #fff; font-size: .62rem; font-weight: 800;
+  letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px;
+}
+.collab-admin-switch {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  font-size: .78rem; font-weight: 600; color: var(--muted); cursor: pointer;
+}
+.collab-admin-switch input { width: 16px; height: 16px; cursor: pointer; }
+.collab-admin-switch input:disabled { cursor: not-allowed; opacity: .5; }
+.collab-admin-switch:has(input:disabled) { cursor: not-allowed; }
+/* Ligne de réservation dans l'administration : la personne à gauche, la place et
+   la date modifiables au milieu, la suppression au bout. Les champs se replient
+   sous le nom quand l'écran est étroit. */
+.resa-admin-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin-top: 6px;
+}
+.resa-admin-row .collab-info { flex: 1 1 180px; }
+.resa-admin-row select, .resa-admin-row input[type="date"] {
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+  font-size: .82rem; font-family: inherit; background: var(--card); color: var(--ink);
+  max-width: 100%;
+}
+.resa-admin-row select { flex: 1 1 190px; min-width: 0; }
+.resa-admin-fixed { flex: 1 1 190px; font-size: .82rem; }
 .badge-admin-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 .badge-admin-row { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }
 .badge-admin-top { display: flex; align-items: center; gap: 8px; }
@@ -586,11 +619,9 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .content-subtabs button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 @media (max-width: 400px) { .admin-tabs button { font-size: .76rem; padding: 9px 4px; } }
 .desk-admin-head { display: none; }
-.desk-admin-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name del" "pos pos" "feat feat" "active active"; gap: 8px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
+.desk-admin-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name del" "feat feat" "active active"; gap: 8px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; }
 .desk-admin-row input.da-name { grid-area: name; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: .9rem; font-weight: 600; min-width: 0; }
 .desk-admin-row .da-del { grid-area: del; justify-self: end; }
-.desk-admin-row .da-pos-group { grid-area: pos; display: flex; gap: 8px; }
-.desk-admin-row input.da-pos { border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: .85rem; width: 100%; min-width: 0; }
 .desk-admin-row .admin-toggle { grid-area: active; }
 .desk-admin-row input.da-features { grid-area: feat; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; min-width: 0; }
 .desk-admin-row { grid-template-columns: 1fr auto; }
@@ -611,6 +642,10 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .day-pill .dp-d { font-size: .64rem; font-weight: 600; opacity: .7; text-transform: capitalize; }
 .day-pill .dp-n { font-size: 1rem; font-weight: 800; line-height: 1; }
 .day-pill.active { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.35); }
+/* Le week-end est réservable, mais reste visuellement à part : on ne le choisit
+   pas par erreur en balayant le bandeau. */
+.day-pill.weekend { background: #F3F4F6; color: var(--muted); }
+.day-pill.weekend.active { background: var(--blue); color: #fff; }
 
 /* ---------------- Contrôles (réserver) ---------------- */
 .controls { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -776,6 +811,15 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 #sheetSlotToggle { display: flex; width: 100%; }
 #sheetSlotToggle button { flex: 1; text-align: center; }
 .sheet-mine-notice { background: var(--amber-050); color: #92600A; border-radius: var(--radius-sm); padding: 10px 12px; font-size: .86rem; margin-bottom: 16px; }
+/* Avertissement dans une feuille de confirmation (week-end, notamment). Plus
+   marqué que sheet-mine-notice : il doit accrocher l'œil avant le bouton. */
+.sheet-warn {
+  background: var(--amber-050); color: #92600A; border-left: 3px solid #D97706;
+  border-radius: var(--radius-sm); padding: 10px 12px; font-size: .86rem;
+  font-weight: 600; margin: 4px 0 14px;
+}
+/* Où retrouver une feuille qu'on vient de fermer. */
+.sheet-hint { margin-top: 10px; font-size: .76rem; color: var(--muted); text-align: center; }
 .sheet-actions { display: flex; gap: 10px; margin-top: 18px; }
 .sheet-actions .btn { margin: 0; }
 .sheet-cancel { background: #F1F5F9; color: var(--ink); }
@@ -800,7 +844,6 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   .events-grid { grid-template-columns: repeat(2, 1fr); }
   .desk-admin-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .desk-admin-row .da-name { flex: 1; min-width: 0; }
-  .desk-admin-row .da-pos-group { width: 160px; flex-shrink: 0; }
   .desk-admin-row .admin-toggle { width: 90px; flex-shrink: 0; }
   .desk-admin-row input.da-features { flex: 1 0 100%; order: 5; }
   .admin-progress { flex-direction: row; gap: 30px; }
@@ -856,7 +899,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   .admin-row { grid-template-columns: 54px 1fr auto auto; }
   .desk-admin-head { display: flex; gap: 10px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; padding: 0 12px 6px; }
   .desk-admin-head span:first-child { flex: 1; }
-  .desk-admin-head span:nth-child(2) { width: 160px; flex-shrink: 0; }
+  .desk-admin-head span:nth-child(2) { width: 90px; flex-shrink: 0; }
   .desk-admin-head span:nth-child(3) { width: 90px; flex-shrink: 0; }
   .presence-status-tiles { grid-template-columns: repeat(4, 1fr); max-width: 640px; }
   .sheet { border-radius: 20px; margin-bottom: 40px; }
@@ -899,11 +942,31 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 }
 .visitor-form input:focus { outline: none; border-color: var(--blue); }
 .visitor-form .btn { flex: 1 1 100%; margin: 4px 0 0; }
+/* Les menus déroulants héritent du même habillage que les champs texte : un
+   select nu du navigateur détonne au milieu des cartes. */
+.visitor-form select {
+  flex: 1 1 9rem; min-width: 0; padding: 11px 14px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); font-family: inherit; font-size: .9rem;
+  background: var(--card); color: var(--ink); cursor: pointer;
+}
+.visitor-form select:focus { outline: none; border-color: var(--blue); }
+/* Variante « sur une ligne » : bouton à sa taille naturelle en bout de rangée
+   (pas en bloc pleine largeur) et champ date contenu. Utilisée par l'écran
+   d'administration des réservations. */
+.form-inline .btn { flex: 0 0 auto; margin: 0; padding-left: 20px; padding-right: 20px; }
+.form-inline input[type="date"] { flex: 0 1 11rem; }
 .visitor-chip {
-  display: inline-block; margin: .2rem .3rem .2rem 0; padding: .3rem .7rem;
-  border-radius: 999px; background: var(--blue-050); color: var(--blue);
+  display: inline-flex; align-items: center; gap: 8px; margin: .2rem .3rem .2rem 0;
+  padding: .3rem .4rem .3rem .7rem; border-radius: 999px;
+  background: var(--blue-050); color: var(--blue);
   font-size: .8rem; font-weight: 600;
 }
+.visitor-chip-out {
+  border: none; background: rgba(255, 255, 255, .8); color: var(--muted);
+  border-radius: 999px; padding: 2px 8px; font-family: inherit; font-weight: 700;
+  font-size: .68rem; cursor: pointer;
+}
+.visitor-chip-out:hover { color: var(--red, #B91C1C); }
 .empty-inline { font-size: .82rem; color: var(--muted); padding: .3rem 0; }
 
 /* ============================================================
@@ -980,6 +1043,36 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   cursor: pointer; transition: transform .12s ease; z-index: 1;
 }
 .plan-pin:hover:not(:disabled) { transform: translate(-50%, -50%) scale(1.35); z-index: 3; }
+/* Sur ordinateur, le plan s'affiche large : à 26x20 px les pastilles étaient
+   lisibles au doigt mais minuscules à l'écran, au point qu'on ne distinguait pas
+   l'icône du type de poste (retour d'Olivier du 29/08/2026). Une taille fixe plus
+   grande faisait par contre se chevaucher les places serrées des bureaux fermés
+   (chaises à ~3.8 % l'une de l'autre en largeur, ~9 % en hauteur) : la taille
+   suit donc la largeur AFFICHÉE du plan, comme les positions elles-mêmes, avec
+   un plancher tactile de 26x20 px. Le plafond de 2 cqw en hauteur reste sous les
+   2.1 cqw qui séparent deux rangées de chaises d'un bureau (image au ratio 4.2). */
+.plan-wrap { container-type: inline-size; }
+.plan-pin {
+  min-width: max(26px, 3.2cqw);
+  height: max(20px, 2cqw);
+  font-size: max(8px, 1cqw);
+}
+/* Sur téléphone, le plan est coupé en deux moitiés empilées (open space en haut,
+   salles fermées en bas — voir reservePlanMarkup dans app.js) : tout est visible
+   d'un coup, deux fois plus grand, sans défilement horizontal. Chaque bande est
+   une fenêtre (overflow hidden) sur la même image complète à 200 % : la seconde
+   est décalée d'une largeur d'écran pour montrer la moitié droite. Les pastilles
+   gardent leurs pourcentages de l'image entière, le cadrage fait le reste. */
+.plan-strip { overflow: hidden; border-radius: var(--radius-sm); }
+.plan-strip + .plan-strip { margin-top: 10px; }
+.plan-strip-inner { position: relative; width: 200%; line-height: 0; container-type: inline-size; }
+.plan-strip-inner.second { margin-left: -100%; }
+/* L'éditeur de placement garde des pastilles compactes : elles s'y chevauchent
+   pendant le glisser-déposer, et on y vise un point, pas une étiquette. */
+.plan-editor .plan-pin { min-width: 26px; height: 20px; font-size: 8px; }
+/* Icône de type de poste envoyée en image (PNG/GIF) plutôt qu'en emoji. */
+.feature-icon-img { height: 1.1em; width: auto; max-width: 2.2em; vertical-align: -.18em; object-fit: contain; }
+.plan-pin .feature-icon-img { height: max(14px, 1.5cqw); max-width: max(22px, 2.4cqw); vertical-align: middle; }
 .plan-pin.free { background: var(--seat-free); border-color: var(--seat-free-b); }
 .plan-pin.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); color: #9F1239; cursor: not-allowed; }
 .plan-pin.mine { background: var(--navy); border-color: var(--navy); color: #fff; }
@@ -1047,6 +1140,13 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   border-radius: 7px; padding: 5px 8px; min-width: 0;
 }
 .icon-rule input.icon-rule-emoji { width: 3.4rem; text-align: center; }
+/* Icône envoyée en image : elle s'affiche à la place du champ emoji, sur la même
+   largeur pour que les lignes restent alignées. */
+.icon-rule-preview {
+  flex: 0 0 3.4rem; display: flex; align-items: center; justify-content: center;
+  height: 2rem; font-size: 1.4rem;
+}
+.icon-rule-preview .feature-icon-img { height: 1.7rem; max-width: 3.2rem; }
 .icon-rule input.icon-rule-keyword { flex: 1 1 auto; }
 .icon-rule input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 
@@ -1068,3 +1168,72 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   box-shadow: 0 6px 18px rgba(15, 40, 54, .35);
 }
 .plan-pin.selected { background: var(--blue); border-color: var(--blue); color: #fff; z-index: 4; }
+
+/* ============================================================
+   Polish visuel de l'administration (demande de Thibaud, 29/08/2026).
+   Uniquement de la mise en forme : chaque écran garde tout son contenu.
+   ============================================================ */
+/* Onglets : l'actif porte la couleur de la marque, les autres réagissent au survol. */
+.admin-tabs { gap: 2px; }
+.admin-tabs button { transition: background .15s ease, color .15s ease; }
+.admin-tabs button:hover:not(.active) { background: rgba(255, 255, 255, .65); color: var(--navy); }
+.admin-tabs button.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(0, 96, 141, .3); }
+
+/* Titres de carte : un trait de marque à gauche, pour scander les blocs
+   sans ajouter ni retirer une ligne de contenu. */
+#adminBody .card > h3 {
+  font-size: .98rem; padding-left: 12px; border-left: 3px solid var(--blue);
+  line-height: 1.25; margin-bottom: 6px;
+}
+
+/* Lignes de liste (collaborateurs, réservations, règles d'icônes, postes) :
+   fond neutre au repos, la ligne se détache doucement au survol. */
+.collab-row, .resa-admin-row, .icon-rule {
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.collab-row:hover, .resa-admin-row:hover, .icon-rule:hover {
+  background: #fff; border-color: #C9D6E2; box-shadow: var(--shadow-1);
+}
+
+/* Petits boutons ronds (supprimer, monter, image) : taille régulière, la
+   couleur n'apparaît qu'au survol pour ne pas charger les lignes. */
+.presence-out { transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.presence-out:hover { background: #F0F6FA; }
+
+/* Les notes explicatives sous les titres respirent un peu plus. */
+#adminBody .card-note { margin-top: 6px; }
+#adminBody > .sub { line-height: 1.5; }
+
+/* Panneau de la réservation sélectionnée sur le plan admin : les actions
+   (déplacer, changer de jour, supprimer) apparaissent sous le plan. */
+.resa-sel-panel {
+  margin-top: 10px; border: 1.5px solid var(--blue); border-radius: var(--radius-sm);
+  padding: 10px 12px; background: #F0F6FA;
+}
+.resa-sel-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 4px 0; }
+.resa-sel-row .collab-info { flex: 1 1 200px; }
+.resa-sel-hint { font-size: .76rem; color: var(--muted); font-style: italic; flex: 1 1 200px; }
+.resa-sel-row input[type="date"] {
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  font-size: .8rem; font-family: inherit; background: var(--card); color: var(--ink);
+}
+.resa-sel-panel .btn-back { margin-top: 6px; }
+/* Cible de déplacement : les places libres pulsent légèrement pour montrer
+   qu'un clic y déposera la réservation en main. */
+.plan-pin.target { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0, 96, 141, .25); }
+
+/* Réglage rapide du poste sélectionné dans l'éditeur de placement. */
+.plan-quick {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: #F9FAFC;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.plan-quick b { font-size: .9rem; }
+.plan-quick .toggle-row small { font-weight: 400; }
+
+/* Suggestions de visiteurs déjà déclarés : chips cliquables qui remplissent
+   les champs, pour éviter le double encodage. */
+.guest-suggest-label { font-size: .74rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 10px 0 4px; }
+.guest-suggest { border: none; cursor: pointer; font-family: inherit; transition: box-shadow .15s ease; }
+.guest-suggest:hover { box-shadow: 0 0 0 2px rgba(0, 96, 141, .3); }
+.guest-suggest small { font-weight: 400; opacity: .75; }

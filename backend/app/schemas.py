@@ -43,10 +43,18 @@ class DeskRead(BaseModel):
 
 # ---------------------------------------------------------------- Réservations
 class ReservationCreate(BaseModel):
-    """Données envoyées par le frontend pour réserver (AM, PM ou DAY=journée)."""
+    """Données envoyées par le frontend pour réserver (AM, PM ou DAY=journée).
+
+    guest_name/guest_company : la place est prise pour un visiteur externe, par
+    l'employé qui le reçoit. Elle porte alors le nom du visiteur sur le plan,
+    ne rapporte aucun point et n'expose à aucune pénalité de no-show — c'est la
+    place de quelqu'un qui n'a pas de compte, pas un deuxième siège pour soi.
+    """
     desk_id: int
     reservation_date: date
     slot: Literal["AM", "PM", "DAY"]
+    guest_name: str | None = Field(default=None, max_length=120)
+    guest_company: str | None = Field(default=None, max_length=120)
 
 
 class ReservationRead(BaseModel):
@@ -227,6 +235,35 @@ class AdminBirthdayUpdate(BaseModel):
     birthday: date | None = None
 
 
+class AdminRoleUpdate(BaseModel):
+    is_admin: bool
+
+
+class AdminReservationCreate(BaseModel):
+    """Réservation prise par un administrateur au nom de quelqu'un d'autre.
+
+    guest_name : la place est pour un visiteur externe, user_id désigne alors le
+    collaborateur qui le reçoit (l'hôte).
+    """
+
+    user_id: int
+    desk_id: int
+    reservation_date: date
+    slot: Literal["AM", "PM", "DAY"] = "DAY"
+    guest_name: str | None = Field(default=None, max_length=120)
+    guest_company: str | None = Field(default=None, max_length=120)
+
+
+class AdminReservationMove(BaseModel):
+    """Déplacement d'une réservation : nouvelle place, nouveau jour, ou les deux.
+
+    Les deux champs sont facultatifs — ne fournir que celui qui change.
+    """
+
+    desk_id: int | None = None
+    reservation_date: date | None = None
+
+
 # ---------------------------------------------------------------- Événements (lus depuis WordPress)
 class EventRead(BaseModel):
     id: int
@@ -396,7 +433,9 @@ class BookingToggleUpdate(BaseModel):
 
 class FeatureIconRule(BaseModel):
     keyword: str = Field(min_length=1, max_length=60)
-    icon: str = Field(min_length=1, max_length=8)
+    # Un emoji (quelques caractères) ou la référence d'une image envoyée par
+    # l'admin, de la forme "img:<slug de 16 hex>" — d'où les 40 caractères.
+    icon: str = Field(min_length=1, max_length=40)
 
 
 class FeatureIconsUpdate(BaseModel):

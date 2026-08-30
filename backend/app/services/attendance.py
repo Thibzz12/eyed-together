@@ -70,6 +70,17 @@ def _closing_moment(row_day: date, now: datetime, limit_hour: int) -> datetime:
     return now
 
 
+def _en_heure_locale(dt: datetime) -> datetime:
+    """Ramène un horodatage stocké en heure locale, qu'il arrive aware ou naïf.
+
+    PostgreSQL renvoie de l'aware (UTC), SQLite peut rendre du naïf : la
+    comparaison avec un seuil local doit tenir dans les deux cas.
+    """
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(LOCAL_TZ).replace(tzinfo=None)
+
+
 def close_stale(db: Session, now: datetime | None = None) -> int:
     """Clôture les présences oubliées. Renvoie le nombre de lignes touchées.
 
@@ -78,14 +89,28 @@ def close_stale(db: Session, now: datetime | None = None) -> int:
     processus web, et un ordonnanceur pour cette seule tâche serait une pièce
     mobile de plus à surveiller. Vaut pour les employés comme pour les
     visiteurs, dont le départ dépend d'un clic que personne ne fera toujours.
+
+    Une arrivée confirmée APRÈS l'heure limite du jour n'est pas touchée :
+    la clôture vise les présences du matin jamais fermées, pas la personne qui
+    travaille tard et vient de dire qu'elle est là — la refermer dans la
+    seconde vidait la liste d'évacuation de son sens (constaté par Thibaud le
+    29/08/2026 à 20 h : son arrivée disparaissait aussitôt confirmée). Cette
+    présence tardive sera fermée au passage du lendemain, comme les autres.
     """
     now = now or local_now()
     limit_hour = get_auto_close_hour(db)
+    seuil_du_jour = datetime.combine(now.date(), time(hour=limit_hour))
     reached = now.hour >= limit_hour
     closed = 0
 
     for model in (m.Attendance, m.Visitor):
         for row in db.scalars(select(model).where(model.left_at.is_(None))):
+            arrivee_tardive = (
+                row.day == now.date()
+                and _en_heure_locale(row.arrived_at) >= seuil_du_jour
+            )
+            if arrivee_tardive:
+                continue
             if row.day < now.date() or (row.day == now.date() and reached):
                 row.left_at = _closing_moment(row.day, now, limit_hour)
                 row.auto_closed = True
@@ -126,6 +151,13 @@ def check_in(db: Session, user_id: int, source: str = "popup", day: date | None 
     if row.left_at is not None:
         row.left_at = None
         row.auto_closed = False
+        # Revenir après l'heure de clôture rouvre la ligne, mais son arrivée du
+        # matin la ferait refermer au prochain balayage (voir close_stale). La
+        # présence EN COURS prime sur l'heure d'arrivée initiale : la liste
+        # d'évacuation répond à « qui est là maintenant », pas à un relevé.
+        maintenant = local_now()
+        if maintenant.hour >= get_auto_close_hour(db):
+            row.arrived_at = maintenant
     # Les invités peuvent avoir été désignés APRÈS l'arrivée de leur hôte : on
     # repasse à chaque confirmation, sans quoi une table réservée à midi
     # n'inscrirait personne.

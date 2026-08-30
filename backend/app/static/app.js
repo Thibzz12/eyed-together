@@ -90,13 +90,31 @@ function featureIcon(text) {
   }
   return "✨";
 }
+/* Une icône vaut soit un emoji, soit "img:<slug>" quand l'admin a envoyé un PNG ou
+   un GIF (le jeu d'emoji ne connaît ni le double écran ni l'écran courbé). Cette
+   fonction rend l'un ou l'autre en HTML ; tout ce qui vient de l'admin est échappé. */
+function iconUrl(icon) {
+  return `/api/feature-icons/${encodeURIComponent(String(icon).slice(4))}/image`;
+}
+function isImageIcon(icon) {
+  return typeof icon === "string" && icon.startsWith("img:");
+}
+function iconHtml(icon, alt) {
+  return isImageIcon(icon)
+    ? `<img class="feature-icon-img" src="${iconUrl(icon)}" alt="${escapeHtml(alt || "")}">`
+    : escapeHtml(icon);
+}
+function featureIconHtml(text) {
+  return iconHtml(featureIcon(text), text);
+}
 function featureTags(featuresStr) {
   return (featuresStr || "").split(",").map(s => s.trim()).filter(Boolean);
 }
 function featureTagsHtml(featuresStr) {
   const tags = featureTags(featuresStr);
   if (!tags.length) return "";
-  return `<div class="feature-tags">${tags.map(t => `<span class="feature-tag">${featureIcon(t)} ${t}</span>`).join("")}</div>`;
+  return `<div class="feature-tags">${tags.map(t =>
+    `<span class="feature-tag">${featureIconHtml(t)} ${escapeHtml(t)}</span>`).join("")}</div>`;
 }
 function fdate(iso, opt) { return new Date(iso).toLocaleDateString("fr-FR", opt || { weekday: "long", day: "numeric", month: "long" }); }
 function levelOf(pts) {
@@ -308,6 +326,10 @@ async function refreshAttendance() {
   if (ok && data) attendanceState = data;
   const btn = document.getElementById("leaveBtn");
   if (btn) btn.classList.toggle("hidden", !attendanceState.present);
+  // Pastille sur l'icône de présence tant que l'arrivée n'est pas confirmée un
+  // jour ouvré : le pop-up ne se pose qu'une fois, le rappel doit rester visible.
+  const badge = document.getElementById("presenceBadge");
+  if (badge) badge.classList.toggle("hidden", attendanceState.arrived || !isWorkday(new Date()));
   return attendanceState;
 }
 
@@ -316,6 +338,36 @@ async function maybeShowArrivalSheet() {
   if (attendanceState.arrived) return;
   if (!isWorkday(new Date())) return;
   if (arrivalDismissedToday()) return;
+  openArrivalSheet();
+}
+
+/* La feuille sert deux moments : confirmer son arrivée, et déclarer un visiteur.
+   Elle s'ouvrait uniquement d'elle-même, au chargement, une fois par jour — après
+   quoi Olivier signale ne plus trouver ni l'un ni l'autre. Elle est désormais
+   rappelable à tout moment depuis l'en-tête, et s'adapte à l'état du moment. */
+function openArrivalSheet() {
+  const present = attendanceState.present;
+  const arrive = attendanceState.arrived;
+  document.getElementById("arrivalTitle").textContent = present
+    ? "Tu es dans les locaux"
+    : arrive ? "Tu es reparti aujourd'hui" : "Tu es au bureau aujourd'hui ?";
+  document.getElementById("arrivalSub").textContent = present
+    ? "Ton arrivée est enregistrée. Tu peux déclarer une personne qui t'accompagne, ou enregistrer ton départ."
+    : arrive
+      ? "Ton départ est enregistré. Reconfirme ton arrivée si tu reviens dans les locaux."
+      : "Confirmer ton arrivée permet de savoir qui se trouve dans les locaux, notamment en cas d'évacuation.";
+
+  const confirmer = document.getElementById("arrivalConfirmBtn");
+  confirmer.textContent = present ? "J'enregistre mon départ" : "Je suis arrivé";
+  confirmer.classList.toggle("danger", present);
+  document.getElementById("arrivalDismissBtn").textContent = arrive ? "Fermer" : "Pas au bureau aujourd'hui";
+
+  // Quand la personne est déjà dans les locaux, la seule raison de rouvrir cette
+  // feuille est presque toujours le visiteur : on l'ouvre directement.
+  const bloc = document.getElementById("arrivalVisitorBlock");
+  bloc.classList.toggle("hidden", !present);
+  if (present) renderArrivalVisitors();
+
   document.getElementById("arrivalSheetBackdrop").classList.remove("hidden");
 }
 
@@ -326,9 +378,19 @@ function closeArrivalSheet() {
 function renderArrivalVisitors() {
   const box = document.getElementById("arrivalVisitorList");
   const presents = (attendanceState.visitors || []).filter(v => v.present);
+  // L'hôte marque lui-même le départ de son visiteur : lui seul sait quand son
+  // invité s'en va, l'admin ne peut pas courir après chaque accompagnant.
   box.innerHTML = presents.length
-    ? presents.map(v => `<span class="visitor-chip">${escapeHtml(v.full_name)}${v.company ? " · " + escapeHtml(v.company) : ""}</span>`).join("")
+    ? presents.map(v => `<span class="visitor-chip">${escapeHtml(v.full_name)}${v.company ? " · " + escapeHtml(v.company) : ""}
+        <button class="visitor-chip-out" data-visitor-chip-out="${v.id}" title="Enregistrer le départ de ce visiteur">✕ parti</button></span>`).join("")
     : `<div class="empty-inline">Aucun visiteur déclaré.</div>`;
+  box.querySelectorAll("[data-visitor-chip-out]").forEach(b => b.addEventListener("click", async () => {
+    const { ok, data } = await api(`/api/visitors/${b.dataset.visitorChipOut}/checkout`, { method: "POST" });
+    if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ce départ.", "error"); return; }
+    toast("Départ du visiteur enregistré ✓", "success");
+    await refreshAttendance();
+    renderArrivalVisitors();
+  }));
 }
 
 async function addVisitorFromSheet() {
@@ -350,18 +412,39 @@ async function addVisitorFromSheet() {
 }
 
 function initAttendanceUi() {
+  // Le bouton de l'en-tête rouvre la feuille à la demande, quel que soit l'état.
+  document.getElementById("presenceBtn").addEventListener("click", async () => {
+    await refreshAttendance();
+    openArrivalSheet();
+  });
+
   document.getElementById("arrivalConfirmBtn").addEventListener("click", async () => {
+    // Le même bouton confirme l'arrivée ou enregistre le départ, selon l'état :
+    // rouvrir la feuille alors qu'on est déjà présent ne doit pas proposer
+    // d'arriver une seconde fois.
+    if (attendanceState.present) {
+      const { ok, data } = await api("/api/attendance/checkout", { method: "POST" });
+      if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton départ.", "error"); return; }
+      attendanceState = data;
+      await refreshAttendance();
+      closeArrivalSheet();
+      toast("Départ enregistré. Bonne soirée !", "success");
+      return;
+    }
     const { ok, data } = await api("/api/attendance/checkin", { method: "POST" });
     if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton arrivée.", "error"); return; }
     attendanceState = data;
-    document.getElementById("leaveBtn").classList.remove("hidden");
+    await refreshAttendance();
     closeArrivalSheet();
     toast("Arrivée confirmée ✓", "success");
     resyncPoints();
   });
 
   document.getElementById("arrivalDismissBtn").addEventListener("click", () => {
-    dismissArrivalForToday();
+    // Ne masquer la question pour la journée que si elle a été posée d'elle-même
+    // et laissée sans réponse : fermer une feuille qu'on est venu ouvrir soi-même
+    // n'est pas un « je ne viens pas aujourd'hui ».
+    if (!attendanceState.arrived) dismissArrivalForToday();
     closeArrivalSheet();
   });
 
@@ -416,6 +499,14 @@ async function init() {
     a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
   document.getElementById("sheetCancelBtn").addEventListener("click", clearSelection);
   document.getElementById("sheetConfirmBtn").addEventListener("click", confirmSheet);
+  document.getElementById("sheetGuestToggleBtn").addEventListener("click", async () => {
+    const bloc = document.getElementById("sheetGuestBlock");
+    bloc.classList.toggle("hidden");
+    if (!bloc.classList.contains("hidden")) {
+      await refreshAttendance();
+      renderSheetGuestSuggestions();
+    }
+  });
   document.getElementById("reserveSheetBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "reserveSheetBackdrop") clearSelection();
   });
@@ -768,6 +859,7 @@ async function viewAdmin() {
     <div class="admin-tabs">
       <button data-tab="accueil" class="active">Accueil</button>
       <button data-tab="espaces">Coworking</button>
+      <button data-tab="reservations">Réservations</button>
       <button data-tab="presence">Présence</button>
       <button data-tab="evenements">Événements</button>
       <button data-tab="contenu">Contenu</button>
@@ -777,6 +869,7 @@ async function viewAdmin() {
     <div id="adminBody"></div>`;
   const RENDERERS = {
     accueil: renderAdminAccueil, espaces: renderAdminEspaces, presence: renderAdminPresence,
+    reservations: renderAdminReservations,
     evenements: renderAdminEvenements, contenu: renderAdminContenu,
     collaborateurs: renderAdminCollaborateurs, stats: renderAdminStats,
   };
@@ -850,7 +943,377 @@ async function renderAdminPresence() {
   }));
 }
 
-/* ---- Administration : collaborateurs (anniversaires) ---- */
+/* ---- Administration : réservations des collaborateurs ----
+   Créer, déplacer ou supprimer la réservation de quelqu'un d'autre. Jusqu'ici il
+   fallait passer par la personne concernée : impossible de replacer une équipe ou
+   de libérer la place de quelqu'un d'absent. Les règles d'horizon et de jours
+   consécutifs ne s'appliquent pas ici — un admin corrige un planning, il ne se
+   partage pas les places avec les autres. */
+const SLOT_LABELS = { AM: "Matin", PM: "Après-midi", DAY: "Journée", timeslot: "Créneau" };
+
+async function renderAdminReservations() {
+  const body = document.getElementById("adminBody");
+  body.innerHTML = `<div class="empty">Chargement…</div>`;
+
+  // UNE seule date pour tout l'écran : le formulaire, le plan et la liste
+  // regardent le même jour. Deux sélecteurs distincts embrouillaient.
+  let jour = state.adminResaDate || toLocalISODate(new Date());
+  state.adminResaDate = jour;
+
+  // Résa sélectionnée sur le plan : {id, nom, slot, group, timeslot} ou null.
+  // Tant qu'elle est posée, cliquer une place libre du plan la déplace dessus.
+  let selection = null;
+  let resasParDesk = new Map();   // desk_id -> [résas fusionnées du jour]
+
+  const [desksRes, usersRes, labelsRes, spacesRes] = await Promise.all([
+    api("/api/admin/desks"), api("/api/admin/users"), api("/api/room-labels"),
+    api("/api/spaces"),
+  ]);
+  if (!desksRes.ok || !usersRes.ok) {
+    body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return;
+  }
+  state.floorplanVersion = (spacesRes.data && spacesRes.data.floorplan_version) || state.floorplanVersion || 0;
+
+  // Les bulles calmes se réservent par créneau horaire, pas par demi-journée :
+  // le serveur les refuse de toute façon, autant ne pas les proposer.
+  const postes = (desksRes.data || []).filter(d => d.is_active && d.zone !== "Bulles calmes");
+  const gens = usersRes.data || [];
+  const labels = labelsRes.data || {};
+
+  // « B1-1 » seul ne dit rien à personne : on montre l'espace tel qu'il est nommé
+  // dans l'application, qui est aussi ce qui figure sur le plan.
+  function nomEspace(desk) {
+    const cle = (desk.zone || "").startsWith("Bureau") ? desk.zone : (desk.name.split("-")[0] || "");
+    return labels[cle] || desk.zone || "Open space";
+  }
+  function nomPoste(desk) {
+    return `${desk.name} · ${nomEspace(desk)}`;
+  }
+  const optionsPostes = (selected) => postes.map(d =>
+    `<option value="${d.id}"${d.id === selected ? " selected" : ""}>${escapeHtml(nomPoste(d))}</option>`
+  ).join("");
+
+  body.innerHTML = `
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Toutes les réservations du jour choisi, sur le plan et en liste. Clique une place occupée pour reprendre la main dessus : la déplacer (en cliquant ensuite sa nouvelle place), changer son jour ou la supprimer. Clique une place libre pour préparer une réservation. Les points suivent la personne concernée.</p>
+
+    <div class="card">
+      <h3>Réservations du <span id="resaJourTitre"></span></h3>
+      <div class="visitor-form form-inline">
+        <input type="date" id="resaDay" value="${jour}">
+      </div>
+      <div id="resaNewWeekend" class="sheet-warn hidden" style="margin-top:10px"></div>
+
+      <div class="plan-wrap" id="resaPlanWrap" style="margin-top:12px">
+        <img src="${floorplanUrl()}" alt="Plan des locaux" class="plan-image">
+        <div class="plan-pins" id="resaPlanPins"></div>
+      </div>
+
+      <!-- Panneau de la résa sélectionnée sur le plan : déplacer, changer de jour, supprimer. -->
+      <div id="resaSelPanel" class="resa-sel-panel hidden"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>Réserver pour un collaborateur ou son visiteur</h3>
+      <div class="card-note">Choisis un collaborateur, sa place (dans le menu ou en cliquant une place libre du plan) et le créneau. Pour un visiteur externe, indique en plus son nom : la place portera le nom du visiteur, et le collaborateur choisi est celui qui le reçoit.</div>
+      <div class="visitor-form form-inline">
+        <select id="resaNewUser"><option value="">Qui ?</option>${
+          gens.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("")
+        }</select>
+        <select id="resaNewDesk"><option value="">Quelle place ?</option>${optionsPostes(null)}</select>
+        <select id="resaNewSlot" style="flex:0 1 9rem">
+          <option value="DAY">Journée</option><option value="AM">Matin</option><option value="PM">Après-midi</option>
+        </select>
+        <button class="btn btn-primary" id="resaAddBtn" type="button">Réserver</button>
+      </div>
+      <div class="visitor-form form-inline">
+        <input id="resaGuestName" type="text" maxlength="120" placeholder="Visiteur externe : nom (facultatif)">
+        <input id="resaGuestCompany" type="text" maxlength="120" placeholder="Société (facultatif)">
+      </div>
+      <!-- Les visiteurs déjà déclarés dans les locaux se choisissent d'un clic :
+           nom, société et hôte remplis d'un coup, pas de double encodage. -->
+      <div id="resaGuestSuggestions"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>Liste du jour</h3>
+      <div id="resaList"><div class="empty">Chargement…</div></div>
+    </div>`;
+
+  function majTitreJour() {
+    document.getElementById("resaJourTitre").textContent =
+      fdate(jour, { weekday: "long", day: "numeric", month: "long" });
+    setWeekendNotice("resaNewWeekend", jour);
+  }
+
+  // Visiteurs actuellement dans les locaux : proposés en un clic pour leur
+  // réserver une place, avec leur hôte prérempli. Déclarer l'accompagnant PUIS
+  // retaper son nom pour la place serait du double encodage.
+  async function chargerSuggestionsVisiteurs() {
+    const boite = document.getElementById("resaGuestSuggestions");
+    if (!boite) return;
+    const { ok, data } = await api("/api/attendance/today");
+    const visiteurs = (ok && data && data.visitors) || [];
+    boite.innerHTML = visiteurs.length
+      ? `<div class="guest-suggest-label">Dans les locaux en ce moment :</div>` + visiteurs.map((v, i) =>
+          `<button type="button" class="visitor-chip guest-suggest" data-resa-guest="${i}">
+            ${escapeHtml(v.full_name)}${v.company ? " · " + escapeHtml(v.company) : ""} <small>(reçu par ${escapeHtml(v.host_name)})</small></button>`).join("")
+      : "";
+    boite.querySelectorAll("[data-resa-guest]").forEach(b => b.addEventListener("click", () => {
+      const v = visiteurs[+b.dataset.resaGuest];
+      document.getElementById("resaGuestName").value = v.full_name;
+      document.getElementById("resaGuestCompany").value = v.company || "";
+      if (v.host_user_id) document.getElementById("resaNewUser").value = v.host_user_id;
+    }));
+  }
+
+  function fermerSelection() {
+    selection = null;
+    document.getElementById("resaSelPanel").classList.add("hidden");
+  }
+
+  // ------------------------------------------------------------- rechargement
+  //  Un seul rafraîchissement pour le plan ET la liste : les deux montrent les
+  //  mêmes réservations, les charger séparément les ferait diverger.
+  async function recharger() {
+    majTitreJour();
+    const [resasRes, availRes] = await Promise.all([
+      api(`/api/admin/reservations?date=${jour}`),
+      api(`/api/availability?date=${jour}&slot=DAY`),
+    ]);
+    const brutes = resasRes.data || [];
+
+    // Une journée est stockée en deux lignes (matin + après-midi) : présentée en
+    // une seule, comme partout. Agir sur cette ligne agit sur les deux.
+    const paires = new Map();
+    for (const r of brutes) {
+      if (r.is_group_booking || r.slot === "timeslot") continue;
+      const cle = `${r.user.id}|${r.desk.id}|${r.occupant || ""}`;
+      (paires.get(cle) || paires.set(cle, []).get(cle)).push(r);
+    }
+    const absorbes = new Set();
+    for (const deux of paires.values()) {
+      const am = deux.find(r => r.slot === "AM");
+      const pm = deux.find(r => r.slot === "PM");
+      if (am && pm) { absorbes.add(pm.id); am.slot = "DAY"; am.checked_in = am.checked_in && pm.checked_in; }
+    }
+    const lignes = brutes.filter(r => !absorbes.has(r.id));
+
+    resasParDesk = new Map();
+    for (const r of lignes) {
+      (resasParDesk.get(r.desk.id) || resasParDesk.set(r.desk.id, []).get(r.desk.id)).push(r);
+    }
+    // La résa sélectionnée a pu disparaître entre-temps (supprimée, déplacée de jour).
+    if (selection && !lignes.some(r => r.id === selection.id)) fermerSelection();
+
+    rendrePlan(availRes.data || []);
+    rendreListe(lignes);
+    rendrePanneau();
+  }
+
+  // ------------------------------------------------------------- plan
+  function rendrePlan(avail) {
+    const boite = document.getElementById("resaPlanPins");
+    if (!boite) return;
+
+    boite.innerHTML = avail
+      .filter(x => x.desk.pos_x != null && x.desk.pos_y != null && x.desk.zone !== "Bulles calmes")
+      .map(x => {
+        const resas = resasParDesk.get(x.desk.id) || [];
+        const ferme = x.is_available && x.unavailable === true;
+        const libre = x.is_available && !ferme;
+        const enSelection = resas.some(r => selection && r.id === selection.id);
+        // Une place libre devient une cible de déplacement quand une résa est
+        // sélectionnée ; sinon elle prépare le formulaire de création.
+        const cls = ferme ? "off"
+          : enSelection ? "selected"
+          : !libre ? "occupied"
+          : selection ? "free target"
+          : x.desk.id === +document.getElementById("resaNewDesk").value ? "selected" : "free";
+        // Le quadrigramme de l'occupant, comme sur la page Réserver : l'admin voit
+        // qui est où d'un coup d'œil.
+        const occupant = x.occupied_by || x.booked_by || "";
+        const label = ferme ? "" : occupant ? escapeHtml(deskAcronym(occupant)) : "";
+        const etat = ferme ? "hors service" : libre ? "disponible" : (occupant || "occupée");
+        return `<button class="plan-pin ${cls}" data-resa-plan-desk="${x.desk.id}"
+          ${ferme ? "disabled" : ""} style="left:${x.desk.pos_x}%; top:${x.desk.pos_y}%"
+          title="${escapeHtml(x.desk.name + " — " + etat)}">${label}</button>`;
+      }).join("");
+
+    boite.querySelectorAll("[data-resa-plan-desk]:not([disabled])").forEach(p =>
+      p.addEventListener("click", () => clicPastille(+p.dataset.resaPlanDesk)));
+  }
+
+  async function clicPastille(deskId) {
+    const resas = resasParDesk.get(deskId) || [];
+
+    if (resas.length) {
+      // Place occupée : on prend la main sur sa (ou ses) réservation(s).
+      selection = { deskId, liste: resas, id: resas[0].id };
+      rendrePanneau();
+      await rechargerPlanSeul();
+      return;
+    }
+
+    if (selection) {
+      // Place libre + résa en main : c'est un déplacement.
+      const r = selection.liste[0];
+      if (r.is_group_booking || r.slot === "timeslot") {
+        toast("Cette réservation ne se déplace pas : supprime-la et refais-la.", "error");
+        return;
+      }
+      const { ok, data } = await api(`/api/admin/reservations/${r.id}`, {
+        method: "PATCH", body: JSON.stringify({ desk_id: deskId }),
+      });
+      if (!ok) { toast((data && data.detail) || "Déplacement impossible.", "error"); return; }
+      toast("Réservation déplacée ✓", "success");
+      fermerSelection();
+      recharger();
+      return;
+    }
+
+    // Place libre sans sélection : elle prépare le formulaire de création.
+    document.getElementById("resaNewDesk").value = deskId;
+    rechargerPlanSeul();
+  }
+
+  async function rechargerPlanSeul() {
+    const { data } = await api(`/api/availability?date=${jour}&slot=DAY`);
+    rendrePlan(data || []);
+  }
+
+  // ------------------------------------------------------------- panneau de sélection
+  function rendrePanneau() {
+    const panneau = document.getElementById("resaSelPanel");
+    if (!selection) { panneau.classList.add("hidden"); return; }
+
+    panneau.innerHTML = selection.liste.map(r => {
+      const deplacable = !r.is_group_booking && r.slot !== "timeslot";
+      const creneau = r.slot === "timeslot" && r.start_time
+        ? `${r.start_time.slice(0, 5)}–${(r.end_time || "").slice(0, 5)}`
+        : (SLOT_LABELS[r.slot] || r.slot);
+      return `<div class="resa-sel-row" data-sel-id="${r.id}">
+        <div class="collab-info">
+          <b>${escapeHtml(r.occupant && r.occupant !== r.user.name ? `${r.occupant} (visiteur de ${r.user.name})` : r.user.name)}</b>
+          <small class="muted">${escapeHtml(r.desk.name)} · ${escapeHtml(creneau)}${
+            r.is_group_booking ? " · espace réservé d'un bloc" : ""}${r.checked_in ? " · présent" : ""}</small>
+        </div>
+        ${deplacable
+          ? `<span class="resa-sel-hint">Clique une place libre du plan pour la déplacer</span>
+             <input type="date" data-sel-date value="${jour}" title="Déplacer vers un autre jour">`
+          : `<span class="resa-sel-hint">${r.is_group_booking
+              ? "Espace entier : suppression seulement (le lot ne se découpe pas)"
+              : "Créneau de bulle : suppression seulement"}</span>`}
+        <button class="presence-out" data-sel-del title="Supprimer cette réservation">✕ Supprimer</button>
+      </div>`;
+    }).join("") + `<button class="btn-back" id="resaSelClose">Fermer sans rien changer</button>`;
+    panneau.classList.remove("hidden");
+
+    panneau.querySelectorAll("[data-sel-date]").forEach(inp => inp.addEventListener("change", async () => {
+      const id = +inp.closest("[data-sel-id]").dataset.selId;
+      const { ok, data } = await api(`/api/admin/reservations/${id}`, {
+        method: "PATCH", body: JSON.stringify({ reservation_date: inp.value }),
+      });
+      if (!ok) { toast((data && data.detail) || "Déplacement impossible.", "error"); return; }
+      toast(`Réservation déplacée au ${fdate(inp.value, { weekday: "long", day: "numeric", month: "long" })} ✓`, "success");
+      fermerSelection();
+      recharger();
+    }));
+    panneau.querySelectorAll("[data-sel-del]").forEach(b => b.addEventListener("click", async () => {
+      const id = +b.closest("[data-sel-id]").dataset.selId;
+      if (!confirm("Supprimer cette réservation ?")) return;
+      const { ok, data } = await api(`/api/admin/reservations/${id}`, { method: "DELETE" });
+      if (!ok) { toast((data && data.detail) || "Suppression impossible.", "error"); return; }
+      toast("Réservation supprimée ✓", "success");
+      fermerSelection();
+      recharger();
+    }));
+    document.getElementById("resaSelClose").addEventListener("click", async () => {
+      fermerSelection();
+      rechargerPlanSeul();
+    });
+  }
+
+  // ------------------------------------------------------------- liste
+  function rendreListe(lignes) {
+    const box = document.getElementById("resaList");
+    if (!lignes.length) {
+      box.innerHTML = `<div class="empty">Aucune réservation ce jour-là.</div>`; return;
+    }
+    box.innerHTML = lignes.map(r => `
+      <div class="resa-admin-row" data-id="${r.id}">
+        <div class="collab-info">
+          <b>${escapeHtml(r.occupant && r.occupant !== r.user.name ? `${r.occupant} (visiteur de ${r.user.name})` : r.user.name)}${r.checked_in ? ` <span class="collab-admin-tag">présent</span>` : ""}</b>
+          <small class="muted">${escapeHtml(SLOT_LABELS[r.slot] || r.slot)}${
+            r.is_group_booking ? " · espace réservé d'un bloc" : ""}</small>
+        </div>
+        ${r.is_group_booking || r.slot === "timeslot"
+          ? `<span class="muted resa-admin-fixed">${escapeHtml(nomPoste(r.desk))}${
+              r.start_time ? ` · ${r.start_time.slice(0, 5)}-${(r.end_time || "").slice(0, 5)}` : ""
+            }</span>`
+          : `<select data-move-desk>${optionsPostes(r.desk.id)}</select>
+             <input type="date" data-move-date value="${jour}">`}
+        <button class="presence-out" data-del title="Supprimer cette réservation">✕</button>
+      </div>`).join("");
+
+    box.querySelectorAll("[data-move-desk], [data-move-date]").forEach(champ => {
+      champ.addEventListener("change", async () => {
+        const ligne = champ.closest(".resa-admin-row");
+        const corps = champ.hasAttribute("data-move-desk")
+          ? { desk_id: +champ.value }
+          : { reservation_date: champ.value };
+        const { ok, data } = await api(`/api/admin/reservations/${ligne.dataset.id}`, {
+          method: "PATCH", body: JSON.stringify(corps),
+        });
+        if (!ok) { toast((data && data.detail) || "Déplacement impossible.", "error"); recharger(); return; }
+        toast("Réservation déplacée ✓", "success");
+        recharger();
+      });
+    });
+
+    box.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+      const ligne = b.closest(".resa-admin-row");
+      if (!confirm("Supprimer cette réservation ? La personne perdra les points gagnés en la prenant.")) return;
+      const { ok, data } = await api(`/api/admin/reservations/${ligne.dataset.id}`, { method: "DELETE" });
+      if (!ok) { toast((data && data.detail) || "Suppression impossible.", "error"); return; }
+      toast("Réservation supprimée ✓", "success");
+      recharger();
+    }));
+  }
+
+  // ------------------------------------------------------------- événements
+  document.getElementById("resaDay").addEventListener("change", (e) => {
+    jour = e.target.value || jour;
+    state.adminResaDate = jour;
+    fermerSelection();
+    recharger();
+  });
+
+  document.getElementById("resaAddBtn").addEventListener("click", async () => {
+    const user_id = +document.getElementById("resaNewUser").value;
+    const desk_id = +document.getElementById("resaNewDesk").value;
+    const slot = document.getElementById("resaNewSlot").value;
+    const guest_name = document.getElementById("resaGuestName").value.trim() || null;
+    const guest_company = document.getElementById("resaGuestCompany").value.trim() || null;
+    if (!user_id || !desk_id) {
+      toast("Choisis un collaborateur et une place.", "error"); return;
+    }
+    const { ok, data } = await api("/api/admin/reservations", {
+      method: "POST", body: JSON.stringify({ user_id, desk_id, slot, reservation_date: jour, guest_name, guest_company }),
+    });
+    if (!ok) { toast((data && data.detail) || "Réservation impossible.", "error"); return; }
+    toast(guest_name ? `Place réservée pour ${guest_name} ✓` : "Réservation créée ✓", "success");
+    document.getElementById("resaNewUser").value = "";
+    document.getElementById("resaNewDesk").value = "";
+    document.getElementById("resaGuestName").value = "";
+    document.getElementById("resaGuestCompany").value = "";
+    recharger();
+  });
+
+  recharger();
+  chargerSuggestionsVisiteurs();
+}
+
+/* ---- Administration : collaborateurs (anniversaires et droits d'admin) ---- */
 async function renderAdminCollaborateurs() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
@@ -861,23 +1324,47 @@ async function renderAdminCollaborateurs() {
   function rowsHtml(list) {
     return list.map(u => `
       <div class="collab-row" data-id="${u.id}">
-        <div class="collab-info"><b>${u.name}</b><small class="muted">${u.department || u.email}</small></div>
+        <div class="collab-info">
+          <b>${escapeHtml(u.name)}${u.is_admin ? ` <span class="collab-admin-tag">admin</span>` : ""}</b>
+          <small class="muted">${escapeHtml(u.department || u.email)}</small>
+        </div>
+        <label class="collab-admin-switch" title="Donner ou retirer les droits d'administrateur">
+          <input type="checkbox" data-field="admin"${u.is_admin ? " checked" : ""}
+                 ${u.id === state.profile.id ? " disabled" : ""}>
+          <span>Admin</span>
+        </label>
         <input type="date" class="collab-birthday" data-field="birthday" value="${u.birthday || ""}">
       </div>`).join("") || `<div class="empty">Aucun collaborateur.</div>`;
   }
 
   body.innerHTML = `
-    <p class="sub" style="color:var(--muted);margin:0 0 16px">Anniversaire de chaque collaborateur (pas de source WordPress fiable identifiée pour le récupérer automatiquement — à renseigner manuellement). Seuls jour et mois sont affichés dans l'appli.</p>
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Anniversaire de chaque collaborateur (pas de source WordPress fiable identifiée pour le récupérer automatiquement — à renseigner manuellement). Seuls jour et mois sont affichés dans l'appli. La case « Admin » ouvre l'accès à cet écran d'administration : elle prend effet à la prochaine connexion de la personne, et tu ne peux pas décocher la tienne.</p>
     <div class="search-bar"><input type="text" id="collabSearch" placeholder="Rechercher un collaborateur…"></div>
     <div class="desk-admin-list" id="collabList">${rowsHtml(users)}</div>`;
 
   function wireRows() {
-    document.querySelectorAll(".collab-row [data-field]").forEach(inp => inp.addEventListener("change", async () => {
+    document.querySelectorAll('.collab-row [data-field="birthday"]').forEach(inp => inp.addEventListener("change", async () => {
       const id = +inp.closest(".collab-row").dataset.id;
       const { ok, data } = await api(`/api/admin/users/${id}/birthday`, {
         method: "PATCH", body: JSON.stringify({ birthday: inp.value || null }),
       });
       toast(ok ? "Anniversaire enregistré ✓" : (data?.detail || "Erreur"), ok ? "success" : "error");
+    }));
+
+    document.querySelectorAll('.collab-row [data-field="admin"]').forEach(box => box.addEventListener("change", async () => {
+      const ligne = box.closest(".collab-row");
+      const id = +ligne.dataset.id;
+      const { ok, data } = await api(`/api/admin/users/${id}/role`, {
+        method: "PATCH", body: JSON.stringify({ is_admin: box.checked }),
+      });
+      if (!ok) {
+        box.checked = !box.checked;   // rien n'a changé côté serveur, la case ne doit pas mentir
+        toast((data && data.detail) || "Erreur", "error");
+        return;
+      }
+      const u = users.find(x => x.id === id);
+      if (u) u.is_admin = box.checked;
+      toast(box.checked ? "Droits d'administrateur accordés ✓" : "Droits d'administrateur retirés ✓", "success");
     }));
   }
   wireRows();
@@ -1664,9 +2151,16 @@ async function renderAdminEspaces() {
       <div id="iconRules"></div>
       <div class="visitor-form">
         <input id="iconKeyword" maxlength="60" placeholder="Mot-clé (ex : écran courbé)">
-        <input id="iconEmoji" maxlength="8" placeholder="Icône" style="flex:0 0 5rem">
+        <input id="iconEmoji" maxlength="8" placeholder="Emoji" style="flex:0 0 5rem">
         <button class="btn btn-ghost" id="iconAddBtn" type="button">Ajouter la règle</button>
       </div>
+      <div class="card-note" style="margin-top:10px">Pas d'emoji qui convienne ? Choisis une image à la place : PNG, GIF, JPEG, WebP ou SVG, 300 Ko maximum. Elle est conservée en base, comme le plan. Le bouton 🖼 d'une règle existante remplace son icône par une image.</div>
+      <div class="visitor-form">
+        <input type="file" id="iconImageFile" accept="image/png,image/gif,image/jpeg,image/webp,image/svg+xml">
+        <input id="iconImageKeyword" maxlength="60" placeholder="Mot-clé (ex : double écran)">
+        <button class="btn btn-ghost" id="iconImageAddBtn" type="button">Ajouter avec cette image</button>
+      </div>
+      <input type="file" id="iconReplacePicker" accept="image/png,image/gif,image/jpeg,image/webp,image/svg+xml" class="hidden">
     </div>
 
     <div class="card" style="margin-top:14px">
@@ -1688,6 +2182,10 @@ async function renderAdminEspaces() {
           <div class="plan-pins" id="planEditorPins"></div>
         </div>
         <div class="plan-note" id="planEditorNote"></div>
+        <!-- Réglage rapide du poste sélectionné : cliquer une pastille du plan
+             suffit pour le rendre réservable ou non, actif ou non, sans chercher
+             sa ligne dans la liste (demande de Thibaud, 30/08/2026). -->
+        <div id="planEditorQuick" class="plan-quick hidden"></div>
       </div>
     </div>
 
@@ -1714,15 +2212,15 @@ async function renderAdminEspaces() {
     html += `<div class="card"><div class="card-head">
         <h3>${zone} <span class="muted" style="font-weight:400">· ${active} place${active > 1 ? "s" : ""} active${active > 1 ? "s" : ""}</span></h3>
         <button class="link-more" data-add="${zone}">+ Ajouter un poste</button></div>
-      <div class="desk-admin-head"><span>Nom</span><span>Position (X / Y %)</span><span>Active</span><span></span></div>
+      <div class="desk-admin-head"><span>Nom</span><span>Active</span><span></span></div>
       <div class="desk-admin-list">`;
     for (const d of desks) {
+      // La position sur le plan ne se tape plus en chiffres : elle se règle en
+      // glisser-déposer dans « Placer les postes sur le plan », plus bas sur cet
+      // écran. Deux champs X/Y en pourcentage faisaient double emploi et
+      // intimidaient pour rien (retour de Thibaud, 29/08/2026).
       html += `<div class="desk-admin-row" data-id="${d.id}">
         <input class="da-name" value="${d.name}" data-field="name">
-        <div class="da-pos-group">
-          <input class="da-pos" type="number" placeholder="X %" value="${d.pos_x ?? ""}" data-field="pos_x">
-          <input class="da-pos" type="number" placeholder="Y %" value="${d.pos_y ?? ""}" data-field="pos_y">
-        </div>
         <input class="da-features" placeholder="Caractéristiques (ex : double écran, compatible Surface)" value="${(d.features || "").replace(/"/g, "&quot;")}" data-field="features">
         <label class="admin-toggle"><input type="checkbox" data-field="is_active" ${d.is_active ? "checked" : ""}> Active</label>
         <button class="da-del" title="Supprimer">✕</button>
@@ -1826,10 +2324,15 @@ async function renderAdminEspaces() {
     box.innerHTML = regles.length
       ? regles.map((r, i) => `
           <div class="icon-rule">
-            <input class="icon-rule-emoji" data-icon-emoji="${i}" maxlength="8" aria-label="Icône"
-                   value="${escapeHtml(r.icon).replace(/"/g, "&quot;")}">
+            ${isImageIcon(r.icon)
+              // Une icône image ne se retape pas au clavier : on la montre, et on
+              // la remplace en supprimant la règle puis en la recréant.
+              ? `<span class="icon-rule-preview" title="Icône envoyée en image">${iconHtml(r.icon, r.keyword)}</span>`
+              : `<input class="icon-rule-emoji" data-icon-emoji="${i}" maxlength="8" aria-label="Icône"
+                   value="${escapeHtml(r.icon).replace(/"/g, "&quot;")}">`}
             <input class="icon-rule-keyword" data-icon-keyword="${i}" maxlength="60" aria-label="Mot-clé"
                    value="${escapeHtml(r.keyword).replace(/"/g, "&quot;")}">
+            <button class="presence-out" data-icon-img="${i}" title="Remplacer l'icône par une image (PNG, GIF…)">🖼</button>
             <button class="presence-out" data-icon-up="${i}"${i === 0 ? " disabled" : ""} title="Monter la priorité">↑</button>
             <button class="presence-out" data-icon-del="${i}" title="Supprimer">✕</button>
           </div>`).join("")
@@ -1852,6 +2355,15 @@ async function renderAdminEspaces() {
     });
     box.querySelectorAll("[data-icon-del]").forEach(b => b.addEventListener("click", () => {
       regles.splice(+b.dataset.iconDel, 1); saveIconRules();
+    }));
+    // Remplacer l'icône d'une règle existante par un fichier : le bouton ouvre le
+    // sélecteur caché, le changement de fichier envoie l'image et met la règle à
+    // jour. Vaut pour une règle emoji comme pour une règle déjà en image.
+    box.querySelectorAll("[data-icon-img]").forEach(b => b.addEventListener("click", () => {
+      const picker = document.getElementById("iconReplacePicker");
+      picker.dataset.target = b.dataset.iconImg;
+      picker.value = "";
+      picker.click();
     }));
     box.querySelectorAll("[data-icon-up]").forEach(b => b.addEventListener("click", () => {
       const i = +b.dataset.iconUp;
@@ -1880,14 +2392,60 @@ async function renderAdminEspaces() {
       toast("Ce mot-clé a déjà une icône. Supprime la règle existante d'abord.", "error");
       return;
     }
-    // La première règle qui matche gagne : une règle ajoutée à la fin serait
-    // battue par une règle plus générale déjà présente (« écran » l'emporterait
-    // sur « double écran »). On la place donc juste avant celle-ci.
+    insererRegle(mot, icone);
+    document.getElementById("iconKeyword").value = "";
+    document.getElementById("iconEmoji").value = "";
+    saveIconRules();
+  });
+
+  // La première règle qui matche gagne : une règle ajoutée à la fin serait battue
+  // par une règle plus générale déjà présente (« écran » l'emporterait sur
+  // « double écran »). On la place donc juste avant celle-ci.
+  function insererRegle(mot, icone) {
     const plusGenerale = regles.findIndex(r => mot.toLowerCase().includes(r.keyword.toLowerCase()));
     if (plusGenerale === -1) regles.push({ keyword: mot, icon: icone });
     else regles.splice(plusGenerale, 0, { keyword: mot, icon: icone });
-    document.getElementById("iconKeyword").value = "";
-    document.getElementById("iconEmoji").value = "";
+  }
+
+  // --- Icônes en image : envoi d'un fichier vers /api/admin/feature-icons/image ---
+  // FormData impose son propre Content-Type avec la frontière multipart :
+  // on n'utilise pas api(), qui force application/json.
+  async function envoyerIconeImage(fichier) {
+    const corps = new FormData();
+    corps.append("file", fichier);
+    const rep = await fetch("/api/admin/feature-icons/image", { method: "POST", body: corps });
+    const data = await rep.json().catch(() => ({}));
+    if (!rep.ok) { toast(data.detail || "Envoi impossible.", "error"); return null; }
+    return data.icon;
+  }
+
+  // Nouvelle règle dont l'icône est une image.
+  document.getElementById("iconImageAddBtn").addEventListener("click", async () => {
+    const input = document.getElementById("iconImageFile");
+    const champMot = document.getElementById("iconImageKeyword");
+    const fichier = input.files && input.files[0];
+    const mot = champMot.value.trim();
+    if (!fichier) { toast("Choisis une image.", "error"); return; }
+    if (!mot) { toast("Indique le mot-clé auquel cette image correspond.", "error"); return; }
+    if (regles.some(r => r.keyword.toLowerCase() === mot.toLowerCase())) {
+      toast("Ce mot-clé a déjà une icône. Supprime la règle existante d'abord.", "error");
+      return;
+    }
+    const icone = await envoyerIconeImage(fichier);
+    if (!icone) return;
+    insererRegle(mot, icone);
+    input.value = ""; champMot.value = "";
+    saveIconRules();
+  });
+
+  // Règle existante dont on remplace l'icône (emoji ou image) par un fichier.
+  document.getElementById("iconReplacePicker").addEventListener("change", async (e) => {
+    const fichier = e.target.files && e.target.files[0];
+    const i = +e.target.dataset.target;
+    if (!fichier || !(i >= 0) || !regles[i]) return;
+    const icone = await envoyerIconeImage(fichier);
+    if (!icone) return;
+    regles[i].icon = icone;   // l'ancienne image éventuelle est purgée côté serveur
     saveIconRules();
   });
 
@@ -1951,6 +2509,41 @@ async function renderAdminEspaces() {
     document.getElementById("planEditorNote").textContent = restants
       ? `${restants} poste${restants > 1 ? "s" : ""} pas encore placé${restants > 1 ? "s" : ""}.`
       : "Tous les postes sont placés.";
+    renderPlanQuick();
+  }
+
+  /* Réglage rapide du poste sélectionné sur le plan : deux interrupteurs qui
+     reprennent les réglages existants sans les dupliquer ailleurs.
+     « Réservable » = la disponibilité (fermeture temporaire, visible grisée sur le
+     plan) ; « Active » = le poste fait partie du parc (décochée, il disparaît de
+     partout : plan, listes, capacité). */
+  function renderPlanQuick() {
+    const boite = document.getElementById("planEditorQuick");
+    if (!boite) return;
+    const d = postes.find(p => p.id === posteChoisi);
+    if (!d) { boite.classList.add("hidden"); return; }
+    const etatDispo = (dispo.desks || []).find(x => x.name === d.name);
+    const reservable = etatDispo ? etatDispo.enabled : true;
+
+    boite.innerHTML = `
+      <b>${escapeHtml(d.name)}</b>
+      <label class="toggle-row"><input type="checkbox" id="quickDispo"${reservable ? " checked" : ""}>
+        <span>Réservable <small class="muted">(décochée : fermée, grisée sur le plan — dates réglables dans « Disponibilité »)</small></span></label>
+      <label class="toggle-row"><input type="checkbox" id="quickActive"${d.is_active ? " checked" : ""}>
+        <span>Active <small class="muted">(décochée : retirée du parc, disparaît du plan et de la capacité)</small></span></label>`;
+    boite.classList.remove("hidden");
+
+    boite.querySelector("#quickDispo").addEventListener("change", async (e) => {
+      await enregistrerDispo("desk", d.name, { enabled: e.target.checked, since: null, until: null });
+      renderPlanQuick();
+    });
+    boite.querySelector("#quickActive").addEventListener("change", async (e) => {
+      d.is_active = e.target.checked;
+      await patchDesk(d.id, { is_active: d.is_active });
+      // La liste des postes plus haut affiche la même case : on la resynchronise.
+      const ligne = document.querySelector(`.desk-admin-row[data-id="${d.id}"] [data-field="is_active"]`);
+      if (ligne) ligne.checked = d.is_active;
+    });
   }
 
   /* Coordonnées d'un événement en pourcentage de l'image, bornées au cadre :
@@ -2071,28 +2664,88 @@ async function delDesk(id) {
 /* ============================================================
    VUE : RÉSERVER — tables avec sièges groupés + capacité au centre
    ============================================================ */
-/* Jours OUVRÉS (lundi-vendredi) dans les state.advanceDays prochains jours calendaires
-   (horizon configurable par l'admin — cf. /api/reservation-policy, plus de constante figée). */
-function upcomingWeekdays() {
+/* Les state.advanceDays prochains jours calendaires, week-end compris.
+   (Horizon configurable par l'admin — cf. /api/reservation-policy, plus de constante figée.)
+   Le samedi et le dimanche étaient exclus d'office : Olivier demande de pouvoir les
+   réserver, quitte à faire confirmer que la personne sait que c'est un week-end. Les
+   garder ici rend aussi l'horizon lisible — passer de 7 à 8 jours un samedi ne changeait
+   rien à l'écran tant que le jour gagné tombait forcément sur un week-end masqué. */
+function upcomingDays() {
   const days = []; const d = new Date();
   for (let i = 0; i <= state.advanceDays; i++) {
     const day = new Date(d); day.setDate(d.getDate() + i);
-    if (day.getDay() !== 0 && day.getDay() !== 6) days.push(day);
+    days.push(day);
   }
   return days;
 }
 
+function isWeekendIso(iso) {
+  const j = new Date(iso + "T12:00:00").getDay();
+  return j === 0 || j === 6;
+}
+
+/* Affiche (ou masque) l'avertissement « c'est un week-end » dans une feuille de
+   confirmation. Réserver le samedi est autorisé, mais ne doit pas arriver par
+   distraction en cliquant une pastille du bandeau de jours. */
+function setWeekendNotice(elementId, iso, force) {
+  const box = document.getElementById(elementId);
+  if (!box) return false;
+  const estWeekend = isWeekendIso(iso) && force !== false;
+  box.classList.toggle("hidden", !estWeekend);
+  if (estWeekend) {
+    const jour = new Date(iso + "T12:00:00").getDay() === 6 ? "un samedi" : "un dimanche";
+    box.textContent = `Attention, c'est ${jour}.`;
+  }
+  return estWeekend;
+}
+
+function dayPickerHtml() {
+  return upcomingDays().map(d => {
+    const iso = toLocalISODate(d);
+    const we = isWeekendIso(iso);
+    return `<button class="day-pill${we ? " weekend" : ""}${iso === state.date ? " active" : ""}" data-day="${iso}"
+      title="${we ? "Week-end : réservable, confirmation demandée" : ""}">
+      <span class="dp-d">${d.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
+      <span class="dp-n">${d.getDate()}</span></button>`;
+  }).join("");
+}
+
+function bindDayPills() {
+  document.querySelectorAll(".day-pill").forEach(b => {
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".day-pill").forEach(x => x.classList.remove("active"));
+      b.classList.add("active"); state.date = b.dataset.day; clearSelection(); loadReserve();
+    });
+  });
+}
+
+/* Le plan de la page Réserver. Sur ordinateur, une seule image. Sur téléphone,
+   l'image entière tiendrait dans ~380 px : une frise illisible, et le défilement
+   horizontal déplaît (retour de Thibaud, 29/08/2026). Le plan y est donc coupé en
+   DEUX moitiés empilées, chacune deux fois plus grande : l'open space en haut,
+   les salles fermées en bas. La coupure à 50 % tombe dans le couloir entre la
+   Table 4 (dernière chaise vers 46 %) et le premier bureau fermé (55 %), aucune
+   place n'est à cheval. Chaque moitié est une fenêtre sur la MÊME image complète
+   avec les MÊMES pastilles en pourcentage : c'est le cadrage qui change, pas les
+   données, donc aucune position à recalculer. */
+function reservePlanMarkup() {
+  const alt = "Plan réel des locaux : tables 1 à 4 de l'open space, bureaux fermés, bulles calmes et entrées";
+  if (!matchMedia("(max-width: 819.98px)").matches) {
+    return `<div class="plan-wrap" id="planWrap">
+      <img src="${floorplanUrl()}" alt="${alt}" class="plan-image">
+      <div class="plan-pins" data-plan-pins></div>
+    </div>`;
+  }
+  const moitie = (classe) => `<div class="plan-strip"><div class="plan-strip-inner ${classe}">
+      <img src="${floorplanUrl()}" alt="${alt}" class="plan-image">
+      <div class="plan-pins" data-plan-pins></div>
+    </div></div>`;
+  return moitie("") + moitie("second");
+}
+
 function viewReserver() {
-  const days = upcomingWeekdays();
   document.getElementById("view").innerHTML = `
-    <div class="resa-daypicker scroll">
-      ${days.map(d => {
-        const iso = toLocalISODate(d);
-        return `<button class="day-pill" data-day="${iso}">
-          <span class="dp-d">${d.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
-          <span class="dp-n">${d.getDate()}</span></button>`;
-      }).join("")}
-    </div>
+    <div class="resa-daypicker scroll" id="dayPicker">${dayPickerHtml()}</div>
     <div class="legend">
       <span class="lg"><span class="sw free"></span> Libre</span>
       <span class="lg"><span class="sw occupied"></span> Occupé</span>
@@ -2103,10 +2756,7 @@ function viewReserver() {
       <div>
         <div class="section-eyebrow">Plan de l'espace · clique une place pour la réserver</div>
         <div class="card plan-panel">
-          <div class="plan-wrap" id="planWrap">
-            <img src="${floorplanUrl()}" alt="Plan réel des locaux : tables 1 à 4 de l'open space, bureaux fermés, bulles calmes et entrées" class="plan-image">
-            <div class="plan-pins" id="planPins"></div>
-          </div>
+          ${reservePlanMarkup()}
           <div class="plan-note" id="planNote"></div>
         </div>
         <div id="tableSections"><div class="empty">Chargement…</div></div>
@@ -2115,25 +2765,32 @@ function viewReserver() {
         <div class="card"><h3>Mes réservations</h3><div id="myReservations" class="list"></div></div>
       </div>
     </div>`;
-  document.querySelectorAll(".day-pill").forEach(b => {
-    if (b.dataset.day === state.date) b.classList.add("active");
-    b.addEventListener("click", () => {
-      document.querySelectorAll(".day-pill").forEach(x => x.classList.remove("active"));
-      b.classList.add("active"); state.date = b.dataset.day; clearSelection(); loadReserve();
-    });
-  });
+  bindDayPills();
   loadReserve();
 }
 
 const ROOM_ZONES = ["Bureau 1", "Bureau 2"];
 
 async function loadReserve() {
-  const [avail, mine, labels, spaces] = await Promise.all([
+  const [avail, mine, labels, spaces, policy] = await Promise.all([
     api(`/api/availability?date=${state.date}&slot=${state.slot}`),
     api("/api/reservations/me"),
     api("/api/room-labels"),
     api("/api/spaces"),
+    api("/api/reservation-policy"),
   ]);
+
+  // L'horizon était lu une seule fois au démarrage : un admin qui le passait de 7 à 8
+  // jours ne voyait rien changer tant qu'il n'avait pas rechargé la page. On le relit
+  // ici, et on redessine le bandeau de jours s'il a bougé — il est dessiné par
+  // viewReserver() AVANT que cette réponse n'arrive.
+  const horizon = (policy.data && policy.data.advance_days) || state.advanceDays;
+  if (horizon !== state.advanceDays) {
+    state.advanceDays = horizon;
+    const picker = document.getElementById("dayPicker");
+    if (picker) { picker.innerHTML = dayPickerHtml(); bindDayPills(); }
+  }
+
   state.availability = avail.data || [];
   state.myReservations = mine.data || [];
   state.roomLabels = labels.data || {};
@@ -2195,13 +2852,16 @@ function groupIntoTables(items) {
    Un poste sans coordonnées n'apparaît simplement pas sur le plan ; il reste
    réservable dans les listes au-dessus. */
 function renderPlanPins() {
-  const box = document.getElementById("planPins");
-  if (!box) return;
+  // Un seul conteneur sur ordinateur, deux sur téléphone (le plan y est coupé en
+  // deux moitiés empilées — cf. reservePlanMarkup) : mêmes pastilles partout,
+  // chaque fenêtre n'en montre que sa moitié.
+  const boxes = [...document.querySelectorAll("#view [data-plan-pins]")];
+  if (!boxes.length) return;
 
   const places = state.availability.filter(x => x.desk.pos_x != null && x.desk.pos_y != null);
   const sans = state.availability.length - places.length;
 
-  box.innerHTML = places.map(item => {
+  const pinsHtml = places.map(item => {
     const occupant = item.occupied_by || null;
     const mineHere = !item.is_available && occupant === state.profile.name;
     const gardee = !item.is_available && !occupant;
@@ -2210,11 +2870,12 @@ function renderPlanPins() {
     const ferme = item.is_available && item.unavailable === true;
     const cls = ferme ? "off"
       : item.is_available ? "free" : mineHere ? "mine" : gardee ? "held" : "occupied";
-    const equipement = featureTags(item.desk.features)[0];
+    const equipements = featureTags(item.desk.features);
+    const equipement = equipements[0];
     const label = ferme ? ""
       : mineHere ? "moi"
-      : occupant ? deskAcronym(occupant)
-      : item.is_available && equipement ? featureIcon(equipement)
+      : occupant ? escapeHtml(deskAcronym(occupant))
+      : item.is_available && equipement ? featureIconHtml(equipement)
       : "";
 
     let etat;
@@ -2224,9 +2885,15 @@ function renderPlanPins() {
     else if (occupant) etat = occupant;
     else etat = "place gardée libre";
 
+    // L'info-bulle nomme le type de poste : sur le plan, la pastille ne montre au
+    // mieux qu'une icône, et Olivier signale qu'on ne devine pas ce qu'elle veut
+    // dire. Le survol donne la réponse en toutes lettres.
+    const infobulle = [item.desk.name + " — " + etat, equipements.join(", ")]
+      .filter(Boolean).join("\n");
+
     return `<button class="plan-pin ${cls}" data-plan-desk="${item.desk.id}"
       style="left:${item.desk.pos_x}%; top:${item.desk.pos_y}%"
-      title="${escapeHtml(item.desk.name + " — " + etat)}">${label}</button>`;
+      title="${escapeHtml(infobulle)}">${label}</button>`;
   }).join("");
 
   const note = document.getElementById("planNote");
@@ -2236,13 +2903,16 @@ function renderPlanPins() {
       : "";
   }
 
-  box.querySelectorAll("[data-plan-desk]").forEach(btn => {
-    const item = state.availability.find(a => a.desk.id === +btn.dataset.planDesk);
-    const mineHere = !item.is_available && item.booked_by === state.profile.name;
-    if (item.is_available || mineHere) {
-      btn.addEventListener("click", () => selectSeat(item, mineHere));
-    }
-  });
+  for (const box of boxes) {
+    box.innerHTML = pinsHtml;
+    box.querySelectorAll("[data-plan-desk]").forEach(btn => {
+      const item = state.availability.find(a => a.desk.id === +btn.dataset.planDesk);
+      const mineHere = !item.is_available && item.booked_by === state.profile.name;
+      if (item.is_available || mineHere) {
+        btn.addEventListener("click", () => selectSeat(item, mineHere));
+      }
+    });
+  }
 }
 
 function renderTables() {
@@ -2362,6 +3032,7 @@ async function openGroupSheet() {
   document.getElementById("groupSheetTitle").textContent = st.label;
   document.getElementById("groupSheetSub").textContent =
     `${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })} · ${st.seats.length} places`;
+  setWeekendNotice("groupWeekendNotice", state.date);
   document.querySelectorAll("#groupSlotToggle button").forEach(b =>
     b.classList.toggle("active", b.dataset.slot === groupSlot));
 
@@ -2494,6 +3165,7 @@ function openPodSheet(deskId) {
   const item = state.availability.find(x => x.desk.id === deskId);
   document.getElementById("podSheetTitle").textContent = item ? podLabel(item.desk.name) : "Bulle calme";
   document.getElementById("podSheetSub").textContent = fdate(state.date, { weekday: "long", day: "numeric", month: "long" });
+  setWeekendNotice("podWeekendNotice", state.date);
   // Par défaut : le prochain quart d'heure, pour 30 min.
   const now = new Date();
   let mins = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
@@ -2553,6 +3225,12 @@ function openReserveSheet() {
     ? fdate(state.date, { weekday: "long", day: "numeric", month: "long" })
     : `${state.selected.zone || "Open space"} · ${fdate(state.date, { weekday: "long", day: "numeric", month: "long" })}`;
   document.getElementById("sheetFeatures").innerHTML = isRoom ? "" : featureTagsHtml(state.selected.features);
+
+  // Le week-end est réservable depuis le 29/08/2026, mais il ne doit pas se réserver
+  // par distraction : la feuille le dit avant de laisser confirmer. Inutile quand on
+  // vient au contraire annuler une place déjà prise.
+  setWeekendNotice("sheetWeekendNotice", state.date, !state.selected.mine);
+
   const mine = document.getElementById("sheetMineNotice");
   const durationBox = document.getElementById("sheetDuration");
   const confirmBtn = document.getElementById("sheetConfirmBtn");
@@ -2565,24 +3243,97 @@ function openReserveSheet() {
     confirmBtn.textContent = "Confirmer"; confirmBtn.classList.remove("danger");
     document.querySelectorAll("#sheetSlotToggle button").forEach(b => b.classList.toggle("active", b.dataset.slot === sheetSlot));
   }
+  // Bloc visiteur : replié par défaut, réinitialisé à chaque ouverture. Une salle
+  // entière gère déjà ses occupants place par place, le bouton n'y a pas de sens.
+  document.getElementById("sheetGuestBlock").classList.add("hidden");
+  document.getElementById("sheetGuestName").value = "";
+  document.getElementById("sheetGuestCompany").value = "";
+  document.getElementById("sheetGuestToggleBtn").classList.toggle("hidden", isRoom || !!state.selected.mine);
   document.getElementById("reserveSheetBackdrop").classList.remove("hidden");
 }
 function closeReserveSheet() {
   document.getElementById("reserveSheetBackdrop").classList.add("hidden");
 }
+/* Les accompagnants déjà déclarés aujourd'hui (feuille de présence ou « Dans les
+   locaux ») se choisissent d'un clic dans la feuille de réservation : leur nom et
+   leur société remplissent les champs, au lieu d'être retapés. Les champs restent
+   modifiables — un visiteur pas encore déclaré se saisit comme avant. */
+function renderSheetGuestSuggestions() {
+  const boite = document.getElementById("sheetGuestSuggestions");
+  if (!boite) return;
+  // Seulement les accompagnants encore présents, sans doublon : quelqu'un de
+  // reparti puis revenu peut exister en deux lignes, une seule chip suffit.
+  const vus = new Set();
+  const declares = (attendanceState.visitors || []).filter(v => {
+    const cle = (v.full_name || "").toLowerCase();
+    if (!v.present || vus.has(cle)) return false;
+    vus.add(cle);
+    return true;
+  });
+  boite.innerHTML = declares.length
+    ? `<div class="guest-suggest-label">Déjà déclaré :</div>` + declares.map((v, i) =>
+        `<button type="button" class="visitor-chip guest-suggest" data-guest-suggest="${i}">
+          ${escapeHtml(v.full_name)}${v.company ? " · " + escapeHtml(v.company) : ""}</button>`).join("")
+    : "";
+  boite.querySelectorAll("[data-guest-suggest]").forEach(b => b.addEventListener("click", () => {
+    const v = declares[+b.dataset.guestSuggest];
+    document.getElementById("sheetGuestName").value = v.full_name;
+    document.getElementById("sheetGuestCompany").value = v.company || "";
+  }));
+}
+
 async function confirmSheet() {
   if (!state.selected) return;
   if (state.selected.mine) { await cancelRes(state.selected.resIds[0], "Espace libéré."); }
   else if (state.selected.type === "room") await bookRoom(state.selected.zone, sheetSlot);
-  else await book(state.selected.deskId, sheetSlot);
+  else {
+    const blocInvite = document.getElementById("sheetGuestBlock");
+    const invite = blocInvite.classList.contains("hidden")
+      ? null : document.getElementById("sheetGuestName").value.trim();
+    if (!blocInvite.classList.contains("hidden") && !invite) {
+      toast("Indique le nom du visiteur, ou referme le bloc visiteur.", "error");
+      return;
+    }
+    await book(state.selected.deskId, sheetSlot, invite,
+      invite ? document.getElementById("sheetGuestCompany").value.trim() || null : null);
+  }
   clearSelection();
 }
 /* Regroupe les places prises d'un bloc : la Table 1 réservée entière est UNE
    entrée, pas quatre lignes identiques. Clé : espace + date + créneau. */
+/* Fusionne les paires matin + après-midi d'une même personne sur une même place en
+   UNE réservation « Journée ». Le stockage garde deux lignes, mais les montrer
+   toutes les deux faisait croire à deux réservations distinctes (retour de Thibaud,
+   29/08/2026) — et le serveur annule, déplace et confirme désormais les deux lignes
+   d'un coup, l'affichage doit dire la même chose. */
+function fuseDayPairs(reservations) {
+  const parJour = new Map();
+  for (const r of reservations) {
+    if (r.is_group_booking || r.slot === "timeslot") continue;
+    const cle = `${r.desk.id}|${r.reservation_date}|${r.booked_by || ""}`;
+    (parJour.get(cle) || parJour.set(cle, []).get(cle)).push(r);
+  }
+  const sorties = [];
+  const absorbes = new Set();
+  for (const lignes of parJour.values()) {
+    const am = lignes.find(r => r.slot === "AM");
+    const pm = lignes.find(r => r.slot === "PM");
+    if (am && pm) {
+      absorbes.add(pm.id);
+      am.fullDay = true;   // affiché « Journée » ; agir sur cet id agit sur les deux
+      // La journée n'est « confirmée » que si ses deux moitiés le sont (les
+      // anciennes réservations d'avant la fusion peuvent n'en avoir qu'une).
+      am.checked_in_at = am.checked_in_at && pm.checked_in_at ? am.checked_in_at : null;
+    }
+  }
+  for (const r of reservations) if (!absorbes.has(r.id)) sorties.push(r);
+  return sorties;
+}
+
 function groupMyReservations(reservations) {
   const entrees = [];
   const parLot = new Map();
-  for (const r of reservations) {
+  for (const r of fuseDayPairs(reservations)) {
     // On ne regroupe que ce qu'on a réservé soi-même : la place qu'un collègue
     // nous a attribuée est une entrée à elle seule, on ne possède pas l'espace.
     const jeSuisLeReservant = !r.booked_by || r.booked_by === state.profile.name;
@@ -2625,7 +3376,8 @@ function renderMyReservations() {
     const checkinBtn = isToday && !isTimeslot
       ? (r.checked_in_at ? `<span class="res-checked">✓ Présent</span>` : `<button class="checkin" data-checkin="${r.id}">Je suis arrivé</button>`)
       : "";
-    const slotText = isTimeslot ? `${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)}` : slotLabel(r.slot);
+    const slotText = isTimeslot ? `${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)}`
+      : r.fullDay ? "Journée" : slotLabel(r.slot);
     // Nom du poste, date et équipements sur trois lignes distinctes : collés sur une seule
     // ligne, le nom de la table et le jour se lisaient mal (retour d'Olivier, 25/08/2026).
     const zone = r.desk.zone ? ` · ${escapeHtml(r.desk.zone)}` : "";
@@ -2683,9 +3435,17 @@ function groupResItem(entree, todayIso) {
   return el;
 }
 
-async function book(deskId, slot) {
-  const { ok, data } = await api("/api/reservations", { method: "POST", body: JSON.stringify({ desk_id: deskId, reservation_date: state.date, slot }) });
+async function book(deskId, slot, guestName = null, guestCompany = null) {
+  const { ok, data } = await api("/api/reservations", { method: "POST", body: JSON.stringify({
+    desk_id: deskId, reservation_date: state.date, slot,
+    guest_name: guestName, guest_company: guestCompany,
+  }) });
   if (!ok) return toast(data?.detail || "Réservation impossible.", "error");
+  if (guestName) {
+    // Pas de points pour la place d'un visiteur : le toast ne doit pas en promettre.
+    toast(`Place réservée pour ${guestName} ✓`, "success"); loadReserve();
+    return;
+  }
   const pts = slot === "DAY" ? 20 : 10;
   refreshPoints(+pts); floatPoint(); toast(`Réservé ! +${pts} points ⭐`, "success"); loadReserve();
 }
@@ -3609,7 +4369,7 @@ function viewAide() {
         <p>Dans les bureaux fermés (Bureau 1 et 2), tu réserves soit un siège précis, soit toute la salle d'un coup avec "Réserver toute la salle", pratique pour une réunion d'équipe. Un seul poste déjà pris dans la salle suffit à bloquer cette option, peu importe qui l'a réservé.</p>
         <p>Dans l'open space, certains postes portent une petite icône (écran, debout, calme, fenêtre...) qui signale leurs particularités. Un clic ou un survol suffit pour les voir avant de te décider.</p>
         <p>Les bulles calmes (BC-1, BC-2) sont pensées pour un appel ou un moment de concentration. Elles se réservent par créneau horaire libre plutôt que par demi-journée, et ne rapportent volontairement pas de points : ça évite qu'on les réserve juste pour gonfler son score. Elles ne comptent pas non plus dans le taux d'occupation affiché sur l'accueil.</p>
-        <p>Quelques garde-fous s'appliquent à tout le monde : pas de réservation le week-end, un horizon maximum fixé par l'admin (affiché en haut de la page Réserver), et un nombre de jours consécutifs limité. Tu peux annuler à tout moment depuis "Mes réservations" ou l'accueil.</p>
+        <p>Quelques garde-fous s'appliquent à tout le monde : un horizon maximum fixé par l'admin (affiché en haut de la page Réserver), et un nombre de jours ouvrés consécutifs limité. Le week-end est réservable, mais une confirmation te rappelle que c'est un samedi ou un dimanche. Tu peux annuler à tout moment depuis "Mes réservations" ou l'accueil.</p>
         ${warn(`Le jour J, pense à cliquer <b>"Je suis arrivé"</b> une fois sur place. Une demi-journée réservée mais jamais confirmée devient un no-show : -10 points, sans rattrapage possible après coup.`)}
         ${tip(`Tu déclares le statut "Coworking" sans avoir encore réservé ? L'app te propose de le faire directement, pas besoin de changer d'écran.`)}`,
     },
@@ -3703,7 +4463,7 @@ function viewAide() {
     id: "faq",
     title: "Questions fréquentes",
     a: `<ul>
-          <li><b>Je n'arrive pas à réserver un jour précis.</b> Trois causes possibles : c'est un week-end, c'est au-delà de l'horizon autorisé (affiché en haut de la page Réserver), ou tu as déjà atteint ton maximum de jours consécutifs.</li>
+          <li><b>Je n'arrive pas à réserver un jour précis.</b> Deux causes possibles : c'est au-delà de l'horizon autorisé (affiché en haut de la page Réserver), ou tu as déjà atteint ton maximum de jours ouvrés consécutifs.</li>
           <li><b>J'ai perdu des points sans comprendre pourquoi.</b> Regarde du côté d'une réservation jamais confirmée par "Je suis arrivé" (no-show, -10 points), ou d'une annulation d'une réservation déjà validée.</li>
           <li><b>"Réserver toute la salle" refuse.</b> Il suffit qu'un seul poste actif de la salle soit déjà pris pour bloquer toute la salle sur ce créneau.</li>
           <li><b>Je ne vois pas l'onglet Administration.</b> Il est réservé à une liste restreinte de personnes, indépendamment de ton rôle sur l'intranet.</li>

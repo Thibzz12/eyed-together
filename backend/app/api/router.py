@@ -6,6 +6,7 @@ Toutes les routes exigent une session valide (get_current_user).
 
 from datetime import date, datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
@@ -24,6 +25,7 @@ from app.services import media as media_svc
 from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import stats as stats_svc
+from app.services import users as users_svc
 from app.services.gamification import points_rules
 from app.services.profile import get_leaderboard, get_public_profile, level_info
 from app.services import reservations as svc
@@ -834,9 +836,34 @@ def admin_list_users(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Liste de tous les collaborateurs (pour la gestion des anniversaires et l'attribution de badges)."""
     users = db.scalars(select(m.User).order_by(m.User.display_name))
     return [
-        {"id": u.id, "name": u.display_name, "email": u.email, "department": u.department, "birthday": u.birthday}
+        {
+            "id": u.id, "name": u.display_name, "email": u.email,
+            "department": u.department, "birthday": u.birthday,
+            "is_admin": u.role == m.UserRole.ADMIN,
+        }
         for u in users
     ]
+
+
+@router.patch("/admin/users/{user_id}/role")
+def admin_set_role(
+    user_id: int,
+    data: schemas.AdminRoleUpdate,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(require_admin),
+):
+    """Nomme un collaborateur administrateur, ou lui retire ses droits.
+
+    Jusqu'ici la seule façon d'ajouter un admin était de modifier la variable
+    d'environnement ADMIN_EMAILS et de redéployer. Olivier demande de pouvoir le
+    faire depuis l'application.
+    """
+    cible = _or_404(db.get(m.User, user_id), "Utilisateur introuvable.")
+    try:
+        cible = users_svc.set_role(db, cible, data.is_admin, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    return {"id": cible.id, "is_admin": cible.role == m.UserRole.ADMIN}
 
 
 @router.patch("/admin/users/{user_id}/birthday")
@@ -1067,6 +1094,62 @@ def admin_feature_icons(
     return {"rules": svc.get_feature_icons(db)}
 
 
+# Une icône peut être une image envoyée par l'admin plutôt qu'un emoji : le jeu
+# d'emoji ne connaît ni le double écran ni l'écran courbé, et il rend mal sur
+# ordinateur. Même stockage que le plan (stored_images) et pour la même raison :
+# Render remonte un disque neuf à chaque déploiement.
+_MAX_ICON_BYTES = 300 * 1024
+_ICON_TYPES = {"image/png", "image/gif", "image/jpeg", "image/webp", "image/svg+xml"}
+
+
+@router.get("/feature-icons/{slug}/image")
+def feature_icon_image(slug: str, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Sert l'image d'une icône de type de poste."""
+    row = db.get(m.StoredImage, svc.icon_image_key(slug))
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Icône introuvable.")
+    return Response(
+        content=row.data,
+        media_type=row.content_type,
+        # Le slug change à chaque envoi : l'URL est donc déjà unique par contenu,
+        # le navigateur peut la garder longtemps sans risque de servir une vieille icône.
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@router.post("/admin/feature-icons/image")
+async def admin_feature_icon_upload(
+    file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Envoie une image d'icône et renvoie la référence à mettre dans une règle.
+
+    L'image n'est rattachée à aucune règle tant que l'administration n'a pas
+    enregistré la liste : une image envoyée puis abandonnée est nettoyée au
+    prochain enregistrement (cf. set_feature_icons).
+    """
+    if (file.content_type or "") not in _ICON_TYPES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Format non reconnu. Envoie un PNG, un GIF, un JPEG, un WebP ou un SVG.",
+        )
+    contenu = await file.read()
+    if not contenu:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le fichier est vide.")
+    if len(contenu) > _MAX_ICON_BYTES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Image trop lourde ({len(contenu) // 1024} Ko). Maximum 300 Ko pour une icône.",
+        )
+
+    slug = uuid4().hex[:16]
+    db.add(m.StoredImage(
+        key=svc.icon_image_key(slug), content_type=file.content_type,
+        data=contenu, updated_at=datetime.now(timezone.utc),
+    ))
+    db.commit()
+    return {"icon": f"img:{slug}", "url": f"/api/feature-icons/{slug}/image"}
+
+
 @router.get("/colleagues")
 def colleagues(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Annuaire léger, pour désigner qui occupe une place d'un espace réservé.
@@ -1168,3 +1251,63 @@ async def admin_floorplan_upload(
         # sans attendre un rechargement de la page.
         "version": floorplan_version(db),
     }
+
+
+# ---------------------------------------------------------------- Réservations (administration)
+#  Créer, déplacer ou supprimer la réservation de quelqu'un d'autre. Les règles de
+#  politique (horizon, jours consécutifs) ne s'appliquent pas à un administrateur :
+#  elles servent à répartir les places entre employés, pas à l'empêcher de corriger
+#  un planning. Les contraintes physiques, elles, restent opposables.
+@router.get("/admin/reservations")
+def admin_reservations(
+    day: date = Query(..., alias="date", description="Date au format AAAA-MM-JJ"),
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """Toutes les réservations d'une journée, avec qui a réservé et qui occupe."""
+    return [
+        {
+            "id": r.id,
+            "slot": r.slot.value,
+            "start_time": r.start_time.isoformat() if r.start_time else None,
+            "end_time": r.end_time.isoformat() if r.end_time else None,
+            "checked_in": r.checked_in_at is not None,
+            "is_group_booking": r.is_group_booking,
+            "desk": {"id": r.desk.id, "name": r.desk.name, "zone": r.desk.zone},
+            "user": {"id": r.user.id, "name": r.user.display_name},
+            "occupant": r.occupant_display,
+        }
+        for r in svc.admin_day_reservations(db, day)
+    ]
+
+
+@router.post("/admin/reservations", status_code=status.HTTP_201_CREATED)
+def admin_create_reservation(
+    data: schemas.AdminReservationCreate, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Réserve une place au nom d'un collaborateur, ou du visiteur qu'il reçoit."""
+    creees = svc.admin_create_reservation(
+        db, data.user_id, data.desk_id, data.reservation_date, data.slot,
+        guest_name=data.guest_name, guest_company=data.guest_company,
+    )
+    return {"ids": [r.id for r in creees]}
+
+
+@router.patch("/admin/reservations/{reservation_id}")
+def admin_move_reservation(
+    reservation_id: int,
+    data: schemas.AdminReservationMove,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """Déplace une réservation sur une autre place ou un autre jour."""
+    r = svc.admin_move_reservation(db, reservation_id, data.desk_id, data.reservation_date)
+    return {"id": r.id, "desk_id": r.desk_id, "reservation_date": r.reservation_date}
+
+
+@router.delete("/admin/reservations/{reservation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_reservation(
+    reservation_id: int, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Supprime la réservation de n'importe qui."""
+    svc.admin_cancel_reservation(db, reservation_id)

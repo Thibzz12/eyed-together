@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=73">
+  <link rel="stylesheet" href="/static/styles.css?v=75">
 </head>
 <body>
 
@@ -85,6 +85,14 @@
             </button>
             <div class="notif-panel hidden" id="notifPanel"></div>
           </div>
+          <!-- Point d'entrée permanent vers la présence : le pop-up d'arrivée se ferme
+               une fois par jour, et rien ne permettait ensuite de confirmer son arrivée
+               ni de déclarer un visiteur sans savoir que l'onglet « Dans les locaux »
+               existe (retour d'Olivier du 29/08/2026). -->
+          <button class="search-btn" id="presenceBtn" aria-label="Ma présence dans les locaux" title="Ma présence dans les locaux">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m17 11 2 2 4-4"/></svg>
+            <span class="notif-badge hidden" id="presenceBadge">!</span>
+          </button>
           <button class="leave-btn hidden" id="leaveBtn" title="Enregistrer mon départ des locaux">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
             <span>Je pars</span>
@@ -121,6 +129,7 @@
       <div class="sheet-eyebrow" id="sheetEyebrow">Réservation</div>
       <div class="sheet-title" id="sheetTitle">Poste</div>
       <div class="sheet-sub" id="sheetSub"></div>
+      <div id="sheetWeekendNotice" class="sheet-warn hidden"></div>
       <div id="sheetFeatures"></div>
       <div id="sheetDuration">
         <div class="sheet-label">Durée</div>
@@ -129,10 +138,23 @@
         </div>
       </div>
       <div id="sheetMineNotice" class="sheet-mine-notice hidden">Tu as déjà réservé ce poste pour ce créneau.</div>
+      <!-- La place peut être prise pour un visiteur externe reçu par l'employé :
+           elle porte alors le nom du visiteur sur le plan, sans points ni pénalité. -->
+      <div id="sheetGuestBlock" class="hidden">
+        <div class="sheet-label">Visiteur</div>
+        <!-- Les accompagnants déjà déclarés aujourd'hui se choisissent d'un clic :
+             les retaper serait du double encodage (retour de Thibaud, 30/08/2026). -->
+        <div id="sheetGuestSuggestions"></div>
+        <div class="visitor-form">
+          <input id="sheetGuestName" type="text" maxlength="120" placeholder="Nom et prénom">
+          <input id="sheetGuestCompany" type="text" maxlength="120" placeholder="Société (facultatif)">
+        </div>
+      </div>
       <div class="sheet-actions">
         <button class="btn sheet-cancel" id="sheetCancelBtn">Annuler</button>
         <button class="btn btn-primary sheet-confirm" id="sheetConfirmBtn">Confirmer</button>
       </div>
+      <button class="btn-back" id="sheetGuestToggleBtn">Cette place est pour un visiteur externe</button>
     </div>
   </div>
 
@@ -143,6 +165,7 @@
       <div class="sheet-eyebrow">Bulle calme</div>
       <div class="sheet-title" id="podSheetTitle">Bulle</div>
       <div class="sheet-sub" id="podSheetSub"></div>
+      <div id="podWeekendNotice" class="sheet-warn hidden"></div>
       <div class="pod-time-row">
         <label>Début <input type="time" id="podStart" step="900"></label>
         <label>Fin <input type="time" id="podEnd" step="900"></label>
@@ -198,6 +221,7 @@
       <div class="sheet-eyebrow" id="groupSheetEyebrow">Espace entier</div>
       <div class="sheet-title" id="groupSheetTitle">Table</div>
       <div class="sheet-sub" id="groupSheetSub"></div>
+      <div id="groupWeekendNotice" class="sheet-warn hidden"></div>
       <div class="sheet-label">Durée</div>
       <div class="segmented" id="groupSlotToggle">
         <button data-slot="AM">Matin</button>
@@ -218,8 +242,8 @@
     <div class="sheet" id="arrivalSheet">
       <div class="sheet-handle"></div>
       <div class="sheet-eyebrow">Présence</div>
-      <div class="sheet-title">Tu es au bureau aujourd'hui ?</div>
-      <div class="sheet-sub">
+      <div class="sheet-title" id="arrivalTitle">Tu es au bureau aujourd'hui ?</div>
+      <div class="sheet-sub" id="arrivalSub">
         Confirmer ton arrivée permet de savoir qui se trouve dans les locaux,
         notamment en cas d'évacuation.
       </div>
@@ -237,10 +261,11 @@
         <button class="btn btn-primary sheet-confirm" id="arrivalConfirmBtn">Je suis arrivé</button>
       </div>
       <button class="btn-back" id="arrivalVisitorToggleBtn">Je suis accompagné</button>
+      <div class="sheet-hint" id="arrivalHint">Tu pourras revenir ici à tout moment par l'icône de présence, en haut à droite.</div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=91"></script>
+  <script src="/static/app.js?v=93"></script>
 </body>
 </html>

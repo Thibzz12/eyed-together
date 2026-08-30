@@ -267,3 +267,56 @@ def test_le_checkin_d_une_reservation_marque_la_presence(db, employee):
     assert presence.user_id == employee.id
     assert presence.source == "reservation"
     assert presence.left_at is None
+
+
+# ---------------------------------------------------------------- Arrivées tardives
+#  Constaté par Thibaud le 29/08/2026 à 20 h : confirmer son arrivée après
+#  l'heure de clôture créait la présence puis la refermait dans la seconde,
+#  au premier passage de close_stale. La personne qui travaille tard doit
+#  rester sur la liste d'évacuation.
+def _a_20h(monkeypatch):
+    tard = local_now().replace(hour=20, minute=15, second=0, microsecond=0)
+    monkeypatch.setattr(svc, "local_now", lambda: tard)
+    return tard
+
+
+def test_une_arrivee_apres_l_heure_limite_reste_ouverte(db, employee, monkeypatch):
+    tard = _a_20h(monkeypatch)
+    svc.check_in(db, employee.id)
+
+    assert svc.close_stale(db, now=tard.replace(minute=30)) == 0
+    assert db.query(m.Attendance).one().left_at is None
+
+
+def test_un_visiteur_declare_apres_l_heure_limite_reste_ouvert(db, employee, monkeypatch):
+    tard = _a_20h(monkeypatch)
+    svc.check_in(db, employee.id)
+    svc.add_visitor(db, employee.id, "Jean Tardif", "Acme")
+
+    assert svc.close_stale(db, now=tard.replace(minute=45)) == 0
+    assert db.query(m.Visitor).one().left_at is None
+
+
+def test_revenir_apres_la_cloture_automatique_rouvre_pour_de_bon(db, employee, monkeypatch):
+    """La ligne du matin auto-fermée gardait son arrivée de 10 h : rouverte à
+    20 h, le balayage suivant la refermait aussitôt. La réouverture tardive
+    repart de l'heure de retour."""
+    svc.check_in(db, employee.id)                      # arrivé à 10 h (fixture)
+    svc.close_stale(db, now=local_now().replace(hour=19, minute=5))
+    assert db.query(m.Attendance).one().auto_closed is True
+
+    tard = _a_20h(monkeypatch)
+    svc.check_in(db, employee.id)                      # revient à 20 h 15
+
+    assert svc.close_stale(db, now=tard.replace(minute=30)) == 0
+    row = db.query(m.Attendance).one()
+    assert row.left_at is None
+
+
+def test_la_presence_tardive_est_fermee_le_lendemain(db, employee, monkeypatch):
+    _a_20h(monkeypatch)
+    svc.check_in(db, employee.id)
+
+    lendemain = local_now().replace(hour=8) + timedelta(days=1)
+    assert svc.close_stale(db, now=lendemain) == 1
+    assert db.query(m.Attendance).one().auto_closed is True
