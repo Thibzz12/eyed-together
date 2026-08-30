@@ -1,0 +1,50 @@
+# Garde l'hébergement gratuit éveillé aux heures de bureau.
+#
+# Deux mises en veille menacent l'application, et ce ping couvre les deux :
+#   - Render endort le service après quinze minutes sans requête ; le réveil
+#     prend ensuite près d'une minute, que le premier arrivant du matin subit.
+#   - Supabase met le projet en pause après sept jours sans activité sur la
+#     base, et il faut alors le relancer à la main depuis le tableau de bord.
+#
+# Le ping s'arrête le soir et le week-end à dessein : le service dort, donc il
+# ne consomme pas les 750 heures d'instance offertes chaque mois (environ 300
+# heures ici, large). Quelqu'un qui travaille tard réveille l'application par
+# son propre usage, elle reste chaude tant qu'il s'en sert.
+name: Réveil de l'hébergement
+
+on:
+  schedule:
+    # Toutes les dix minutes, du lundi au vendredi, 04h00 à 17h59 UTC.
+    # Soit 06h00-19h59 en heure d'été belge, 05h00-18h59 en heure d'hiver :
+    # la fenêtre couvre les arrivées les plus matinales dans les deux cas.
+    - cron: "*/10 4-17 * * 1-5"
+  workflow_dispatch:   # permet de réveiller le service à la demande
+
+# Un ping en retard ne doit pas s'empiler sur le suivant.
+concurrency:
+  group: reveil-hebergement
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Réveille l'application et la base
+        run: |
+          # Six essais espacés : un service endormi met jusqu'à une minute à
+          # répondre, et la toute première requête expire souvent avant lui.
+          for tentative in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 45 \
+              https://eyedtogether.onrender.com/health/db) || code=000
+            echo "tentative $tentative : HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Application et base réveillées."
+              exit 0
+            fi
+            sleep 20
+          done
+          # Volontairement sans échec : un réveil manqué n'est pas un incident,
+          # le ping suivant réessaie dix minutes plus tard. Un vrai arrêt se
+          # verra à la suite d'avertissements dans l'onglet Actions.
+          echo "::warning::Pas de réponse 200 après six tentatives, à surveiller si cela se répète."

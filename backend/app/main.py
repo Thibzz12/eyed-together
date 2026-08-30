@@ -1,5 +1,6 @@
 """Point d'entrée de l'API FastAPI + assemblage des couches de sécurité."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -29,7 +30,7 @@ from app.db.seed import (
 from app.services.attendance import AttendanceError
 from app.services.badges import BadgeError
 from app.services.badges import seed_catalog_if_empty as seed_badges_if_empty
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal, engine, get_db
 from app.deps import get_current_user
 from app.services.events import EventError
 from app.services.ideas import IdeaError
@@ -155,9 +156,44 @@ def index():
     return FileResponse(_STATIC_DIR / "index.html")
 
 
+class _FiltreSondes(logging.Filter):
+    """Écarte les sondes de disponibilité du journal d'accès.
+
+    Le réveil planifié frappe /health/db toutes les dix minutes en heures
+    ouvrées : sans ce filtre, ces appels noieraient les vraies requêtes le jour
+    où on cherche un incident dans les logs de l'hébergeur.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        chemin = record.args[2] if record.args and len(record.args) > 2 else ""
+        return not str(chemin).startswith("/health")
+
+
+logging.getLogger("uvicorn.access").addFilter(_FiltreSondes())
+
+
 @app.get("/health", tags=["system"])
 def health():
     """Sonde de disponibilité."""
+    return {"status": "ok"}
+
+
+@app.get("/health/db", tags=["system"])
+def health_db(db: Session = Depends(get_db)):
+    """Sonde de réveil : touche la base pour que l'hébergement gratuit la garde active.
+
+    Render endort le service après quinze minutes sans requête et Supabase met le
+    projet en pause après sept jours sans activité sur la base. Un appel planifié
+    aux heures de bureau couvre les deux.
+
+    Volontairement séparée de /health, que Render interroge pour décider si le
+    conteneur est vivant : y brancher la base ferait redémarrer l'application en
+    boucle au moindre hoquet de Supabase, alors que le service, lui, va bien.
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "db-unreachable"})
     return {"status": "ok"}
 
 
