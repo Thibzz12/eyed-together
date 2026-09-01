@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import schemas
 from app.db import models as m
 from app.db.session import get_db
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, manages_presence, require_admin, require_presence_access
 from app.services import attendance as attendance_svc
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
@@ -76,6 +76,7 @@ def _user_profile(u: m.User) -> schemas.UserProfile:
     return schemas.UserProfile(
         id=u.id, name=u.display_name, email=u.email, department=u.department,
         role=u.role.value, total_points=u.total_points, birthday=u.birthday,
+        can_manage_presence=u.can_manage_presence,
     )
 
 
@@ -840,6 +841,7 @@ def admin_list_users(db: Session = Depends(get_db), _=Depends(require_admin)):
             "id": u.id, "name": u.display_name, "email": u.email,
             "department": u.department, "birthday": u.birthday,
             "is_admin": u.role == m.UserRole.ADMIN,
+            "can_manage_presence": u.can_manage_presence,
         }
         for u in users
     ]
@@ -864,6 +866,27 @@ def admin_set_role(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return {"id": cible.id, "is_admin": cible.role == m.UserRole.ADMIN}
+
+
+@router.patch("/admin/users/{user_id}/presence-role")
+def admin_set_presence_role(
+    user_id: int,
+    data: schemas.AdminPresenceRoleUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """Donne ou retire le droit d'administrer la présence (liste d'évacuation).
+
+    Plus étroit que le rôle admin : Olivier veut que d'autres personnes puissent
+    exporter la liste au point de rassemblement si Kevin et lui sont absents,
+    sans leur ouvrir tout l'écran d'administration. Contrairement au rôle admin,
+    ce droit prend effet immédiatement, sans reconnexion : il se lit en base à
+    chaque requête, pas dans la session.
+    """
+    cible = _or_404(db.get(m.User, user_id), "Utilisateur introuvable.")
+    cible.can_manage_presence = data.can_manage_presence
+    db.commit()
+    return {"id": cible.id, "can_manage_presence": cible.can_manage_presence}
 
 
 @router.patch("/admin/users/{user_id}/birthday")
@@ -894,9 +917,15 @@ def attendance_checkin(db: Session = Depends(get_db), user: dict = Depends(get_c
 
 
 @router.post("/attendance/checkout")
-def attendance_checkout(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    """Confirme le départ des locaux."""
-    attendance_svc.check_out(db, user["id"])
+def attendance_checkout(
+    data: schemas.AttendanceCheckoutPayload | None = None,
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Confirme le départ des locaux, avec ses visiteurs si demandé."""
+    attendance_svc.check_out(
+        db, user["id"], with_visitors=bool(data and data.with_visitors)
+    )
     return attendance_svc.state_for(db, user["id"])
 
 
@@ -925,9 +954,10 @@ def create_visitor(
 def visitor_checkout(
     visitor_id: int, db: Session = Depends(get_db), user: dict = Depends(get_current_user)
 ):
-    """Enregistre le départ d'un visiteur. Réservé à son hôte et aux administrateurs."""
+    """Enregistre le départ d'un visiteur. Réservé à son hôte, aux administrateurs
+    et aux responsables présence."""
     attendance_svc.visitor_check_out(
-        db, visitor_id, user["id"], is_admin=user.get("role") == "admin"
+        db, visitor_id, user["id"], is_admin=manages_presence(db, user)
     )
     return {"ok": True}
 
@@ -963,8 +993,12 @@ def _cellule(valeur):
 
 
 @router.get("/admin/attendance/export")
-def admin_attendance_export(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Relevé du jour au format CSV, imprimable pour l'évacuation."""
+def admin_attendance_export(db: Session = Depends(get_db), _=Depends(require_presence_access)):
+    """Relevé du jour au format CSV, imprimable pour l'évacuation.
+
+    Ouvert aux responsables présence en plus des administrateurs : si les admins
+    sont absents le jour d'une évacuation, quelqu'un doit pouvoir sortir la liste.
+    """
     data = attendance_svc.roster(db)
     lignes = ["Type;Nom;Société ou service;Arrivée;Départ;Statut"]
     for e in data["employees"]:

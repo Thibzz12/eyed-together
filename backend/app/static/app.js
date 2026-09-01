@@ -347,16 +347,33 @@ async function maybeShowArrivalSheet() {
    Elle s'ouvrait uniquement d'elle-même, au chargement, une fois par jour — après
    quoi Olivier signale ne plus trouver ni l'un ni l'autre. Elle est désormais
    rappelable à tout moment depuis l'en-tête, et s'adapte à l'état du moment. */
+/* Vrai le temps que la feuille demande si les visiteurs partent avec l'hôte :
+   les mêmes boutons servent alors à répondre à cette question, pas à arriver. */
+let departureAsking = false;
+
+function visitorsStillHere() {
+  return (attendanceState.visitors || []).filter(v => v.present);
+}
+
 function openArrivalSheet() {
+  departureAsking = false;
+  document.getElementById("arrivalLeaveAloneBtn").classList.add("hidden");
+  const bloc = document.getElementById("arrivalVisitorBlock");
+  bloc.querySelector(".visitor-form").classList.remove("hidden");
+  bloc.querySelector(".sheet-note").classList.remove("hidden");
+
   const present = attendanceState.present;
   const arrive = attendanceState.arrived;
+  const restants = visitorsStillHere().length;
   document.getElementById("arrivalTitle").textContent = present
     ? "Tu es dans les locaux"
     : arrive ? "Tu es reparti aujourd'hui" : "Tu es au bureau aujourd'hui ?";
   document.getElementById("arrivalSub").textContent = present
     ? "Ton arrivée est enregistrée. Tu peux déclarer une personne qui t'accompagne, ou enregistrer ton départ."
     : arrive
-      ? "Ton départ est enregistré. Reconfirme ton arrivée si tu reviens dans les locaux."
+      ? (restants
+          ? "Ton départ est enregistré, mais des visiteurs que tu accompagnes sont encore marqués présents. Enregistre leur départ ci-dessous."
+          : "Ton départ est enregistré. Reconfirme ton arrivée si tu reviens dans les locaux.")
       : "Confirmer ton arrivée permet de savoir qui se trouve dans les locaux, notamment en cas d'évacuation.";
 
   const confirmer = document.getElementById("arrivalConfirmBtn");
@@ -364,17 +381,58 @@ function openArrivalSheet() {
   confirmer.classList.toggle("danger", present);
   document.getElementById("arrivalDismissBtn").textContent = arrive ? "Fermer" : "Pas au bureau aujourd'hui";
 
-  // Quand la personne est déjà dans les locaux, la seule raison de rouvrir cette
-  // feuille est presque toujours le visiteur : on l'ouvre directement.
-  const bloc = document.getElementById("arrivalVisitorBlock");
-  bloc.classList.toggle("hidden", !present);
-  if (present) renderArrivalVisitors();
+  // Le bloc visiteurs est toujours visible, même avant de confirmer sa propre
+  // arrivée : Olivier arrivait en réunion avec quatre externes sans trouver où
+  // les déclarer, le bouton « Je suis accompagné » qui le dépliait passait
+  // inaperçu (mail du 01/09/2026). Aucune place à réserver, on déclare et c'est tout.
+  renderArrivalVisitors();
 
   document.getElementById("arrivalSheetBackdrop").classList.remove("hidden");
 }
 
 function closeArrivalSheet() {
   document.getElementById("arrivalSheetBackdrop").classList.add("hidden");
+}
+
+/* Bascule la feuille en question de départ : l'hôte part alors que ses visiteurs
+   sont encore marqués présents. Sans cette question, il partait en les oubliant,
+   ils restaient sur la liste d'évacuation jusqu'au balayage du soir et seul un
+   admin pouvait corriger entre-temps (constaté par Olivier le 01/09/2026). */
+function askAboutVisitorsBeforeLeaving() {
+  departureAsking = true;
+  const restants = visitorsStillHere();
+  document.getElementById("arrivalTitle").textContent = restants.length > 1
+    ? "Tes visiteurs partent aussi ?" : "Ton visiteur part aussi ?";
+  document.getElementById("arrivalSub").textContent = (restants.length > 1
+    ? `${restants.length} visiteurs que tu accompagnes sont encore marqués présents.`
+    : `${restants[0].full_name} est encore marqué présent.`)
+    + " S'ils quittent les locaux avec toi, enregistre leur départ en même temps, ou marque-les partis un par un ci-dessous.";
+
+  const confirmer = document.getElementById("arrivalConfirmBtn");
+  confirmer.textContent = "Nous partons tous";
+  confirmer.classList.add("danger");
+  document.getElementById("arrivalLeaveAloneBtn").classList.remove("hidden");
+  document.getElementById("arrivalDismissBtn").textContent = "Annuler";
+
+  // Pendant la question, on ne déclare pas de nouveau visiteur : seuls les
+  // départs comptent. Les puces « parti » restent actives.
+  const bloc = document.getElementById("arrivalVisitorBlock");
+  bloc.querySelector(".visitor-form").classList.add("hidden");
+  bloc.querySelector(".sheet-note").classList.add("hidden");
+  renderArrivalVisitors();
+
+  document.getElementById("arrivalSheetBackdrop").classList.remove("hidden");
+}
+
+async function checkoutRequest(withVisitors) {
+  const { ok, data } = await api("/api/attendance/checkout", {
+    method: "POST", body: JSON.stringify({ with_visitors: withVisitors }),
+  });
+  if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton départ.", "error"); return false; }
+  attendanceState = data;
+  await refreshAttendance();
+  closeArrivalSheet();
+  return true;
 }
 
 function renderArrivalVisitors() {
@@ -410,7 +468,12 @@ async function addVisitorFromSheet() {
   nameInput.value = ""; companyInput.value = "";
   await refreshAttendance();
   renderArrivalVisitors();
-  toast("Visiteur enregistré ✓", "success");
+  // Le focus revient sur le nom : une réunion amène souvent plusieurs externes,
+  // on les enchaîne au clavier sans reprendre la souris.
+  nameInput.focus();
+  toast(attendanceState.arrived
+    ? "Visiteur enregistré ✓"
+    : "Visiteur enregistré ✓ Pense aussi à confirmer ta propre arrivée.", "success");
 }
 
 function initAttendanceUi() {
@@ -424,13 +487,14 @@ function initAttendanceUi() {
     // Le même bouton confirme l'arrivée ou enregistre le départ, selon l'état :
     // rouvrir la feuille alors qu'on est déjà présent ne doit pas proposer
     // d'arriver une seconde fois.
+    if (departureAsking) {
+      if (await checkoutRequest(true)) toast("Départ enregistré, visiteurs compris. Bonne soirée !", "success");
+      return;
+    }
     if (attendanceState.present) {
-      const { ok, data } = await api("/api/attendance/checkout", { method: "POST" });
-      if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton départ.", "error"); return; }
-      attendanceState = data;
-      await refreshAttendance();
-      closeArrivalSheet();
-      toast("Départ enregistré. Bonne soirée !", "success");
+      // Des visiteurs encore présents ? On pose la question avant d'enregistrer.
+      if (visitorsStillHere().length) { askAboutVisitorsBeforeLeaving(); return; }
+      if (await checkoutRequest(false)) toast("Départ enregistré. Bonne soirée !", "success");
       return;
     }
     const { ok, data } = await api("/api/attendance/checkin", { method: "POST" });
@@ -443,6 +507,9 @@ function initAttendanceUi() {
   });
 
   document.getElementById("arrivalDismissBtn").addEventListener("click", () => {
+    // Pendant la question de départ, ce bouton est un simple « Annuler » :
+    // personne ne part, rien n'est enregistré.
+    if (departureAsking) { closeArrivalSheet(); return; }
     // Ne masquer la question pour la journée que si elle a été posée d'elle-même
     // et laissée sans réponse : fermer une feuille qu'on est venu ouvrir soi-même
     // n'est pas un « je ne viens pas aujourd'hui ».
@@ -450,13 +517,22 @@ function initAttendanceUi() {
     closeArrivalSheet();
   });
 
-  document.getElementById("arrivalVisitorToggleBtn").addEventListener("click", () => {
-    const block = document.getElementById("arrivalVisitorBlock");
-    block.classList.toggle("hidden");
-    if (!block.classList.contains("hidden")) renderArrivalVisitors();
+  document.getElementById("arrivalLeaveAloneBtn").addEventListener("click", async () => {
+    if (await checkoutRequest(false)) {
+      toast("Départ enregistré. Tes visiteurs restent marqués présents.", "success");
+    }
   });
 
   document.getElementById("arrivalVisitorAddBtn").addEventListener("click", addVisitorFromSheet);
+
+  // Saisie en série au clavier : Entrée sur le nom passe à la société, Entrée
+  // sur la société enregistre et revient au nom pour le visiteur suivant.
+  document.getElementById("arrivalVisitorName").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); document.getElementById("arrivalVisitorCompany").focus(); }
+  });
+  document.getElementById("arrivalVisitorCompany").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addVisitorFromSheet(); }
+  });
 
   // Pas de fermeture au clic à côté, contrairement aux autres feuilles : c'est une
   // question de sécurité incendie, pas un panneau d'information. Se débarrasser du
@@ -464,11 +540,14 @@ function initAttendanceUi() {
   // choisir : « Je suis arrivé » ou « Pas au bureau aujourd'hui ».
 
   document.getElementById("leaveBtn").addEventListener("click", async () => {
-    const { ok, data } = await api("/api/attendance/checkout", { method: "POST" });
-    if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton départ.", "error"); return; }
-    attendanceState = data;
-    document.getElementById("leaveBtn").classList.add("hidden");
-    toast("Départ enregistré. Bonne soirée !", "success");
+    // Même garde-fou que dans la feuille : partir avec des visiteurs encore
+    // marqués présents doit poser la question, pas les oublier sur la liste.
+    await refreshAttendance();
+    if (attendanceState.present && visitorsStillHere().length) {
+      askAboutVisitorsBeforeLeaving();
+      return;
+    }
+    if (await checkoutRequest(false)) toast("Départ enregistré. Bonne soirée !", "success");
   });
 }
 
@@ -495,7 +574,17 @@ async function init() {
   const avm = document.getElementById("avatarMobile");
   if (avm) avm.textContent = initials(state.profile.name);
   refreshPoints(0);
-  if (state.profile.role === "admin") document.querySelector(".nav-admin").classList.remove("hidden");
+  // L'entrée « Administration » s'ouvre aussi aux responsables présence : ils y
+  // trouvent la seule vue à laquelle ils ont droit, la liste d'évacuation,
+  // renommée pour ne pas promettre plus que ce que la vue contient.
+  const navAdmin = document.querySelector(".nav-admin");
+  if (state.profile.role === "admin" || state.profile.can_manage_presence) {
+    navAdmin.classList.remove("hidden");
+    if (state.profile.role !== "admin") {
+      navAdmin.title = "Présence dans les locaux";
+      navAdmin.querySelector(".nav-label").textContent = "Présence";
+    }
+  }
 
   document.querySelectorAll(".nav-link[data-route], .tab-link[data-route]").forEach(a =>
     a.addEventListener("click", e => { e.preventDefault(); goTo(a.dataset.route); closeMobileMenu(); }));
@@ -856,7 +945,18 @@ async function handleStatusChange(day, slot, statusKey, onSuccess) {
    ============================================================ */
 async function viewAdmin() {
   const view = document.getElementById("view");
-  if (state.profile.role !== "admin") { view.innerHTML = `<div class="empty">Accès réservé aux administrateurs.</div>`; return; }
+  if (state.profile.role !== "admin") {
+    // Un responsable présence n'a droit qu'à une seule vue : la liste
+    // d'évacuation, sans les autres onglets ni le réglage de clôture.
+    if (state.profile.can_manage_presence) {
+      document.getElementById("pageTitle").textContent = "Présence dans les locaux";
+      view.innerHTML = `<div id="adminBody"></div>`;
+      renderAdminPresence();
+      return;
+    }
+    view.innerHTML = `<div class="empty">Accès réservé aux administrateurs.</div>`;
+    return;
+  }
   view.innerHTML = `
     <div class="admin-tabs">
       <button data-tab="accueil" class="active">Accueil</button>
@@ -890,29 +990,39 @@ async function renderAdminPresence() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
 
+  // Le réglage de l'heure de clôture reste réservé aux administrateurs : un
+  // responsable présence voit la liste et exporte le relevé, rien de plus.
+  const isAdmin = state.profile.role === "admin";
   const [reglages, releve] = await Promise.all([
-    api("/api/admin/attendance/settings"),
+    isAdmin ? api("/api/admin/attendance/settings") : Promise.resolve({ ok: true, data: null }),
     api("/api/attendance/today"),
   ]);
-  if (!reglages.ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
+  if (!reglages.ok || !releve.ok) { body.innerHTML = `<div class="empty">Erreur de chargement.</div>`; return; }
   const heure = (reglages.data && reglages.data.auto_close_hour) ?? 19;
   const presents = (releve.data && releve.data.employees) || [];
   const visiteurs = (releve.data && releve.data.visitors) || [];
 
-  body.innerHTML = `
+  const carteCloture = isAdmin ? `
     <p class="sub" style="color:var(--muted);margin:0 0 16px">
       Toute personne encore marquée présente après l'heure ci-dessous est considérée comme partie.
       Son départ apparaît alors comme non confirmé dans le relevé : c'est un oubli, pas un vrai départ.
     </p>
-    <div class="card">
+    <div class="card" style="margin-bottom:14px">
       <h3>Clôture automatique</h3>
       <div class="visitor-form">
         <input id="autoCloseHour" type="number" min="0" max="23" value="${heure}" style="flex:0 0 6rem">
         <span style="color:var(--muted);font-size:.9rem">heures</span>
         <button class="btn btn-ghost" id="autoCloseSaveBtn" type="button">Enregistrer</button>
       </div>
-    </div>
-    <div class="card" style="margin-top:14px">
+    </div>` : `
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">
+      Qui est dans les locaux en ce moment, visiteurs externes compris.
+      En cas d'évacuation, exporte le relevé du jour et emporte-le au point de rassemblement.
+    </p>`;
+
+  body.innerHTML = `
+    ${carteCloture}
+    <div class="card">
       <h3>Dans les locaux maintenant (${presents.length + visiteurs.length})</h3>
       <div class="presence-list">
         ${presents.map(e => `<div class="presence-row">
@@ -929,7 +1039,7 @@ async function renderAdminPresence() {
       <a class="btn btn-primary" href="/api/admin/attendance/export">Exporter le relevé du jour (CSV)</a>
     </div>`;
 
-  document.getElementById("autoCloseSaveBtn").addEventListener("click", async () => {
+  if (isAdmin) document.getElementById("autoCloseSaveBtn").addEventListener("click", async () => {
     const valeur = parseInt(document.getElementById("autoCloseHour").value, 10);
     const { ok, data } = await api("/api/admin/attendance/settings", {
       method: "PATCH", body: JSON.stringify({ auto_close_hour: valeur }),
@@ -1327,7 +1437,7 @@ async function renderAdminCollaborateurs() {
     return list.map(u => `
       <div class="collab-row" data-id="${u.id}">
         <div class="collab-info">
-          <b>${escapeHtml(u.name)}${u.is_admin ? ` <span class="collab-admin-tag">admin</span>` : ""}</b>
+          <b>${escapeHtml(u.name)}${u.is_admin ? ` <span class="collab-admin-tag">admin</span>` : ""}${!u.is_admin && u.can_manage_presence ? ` <span class="collab-admin-tag">présence</span>` : ""}</b>
           <small class="muted">${escapeHtml(u.department || u.email)}</small>
         </div>
         <label class="collab-admin-switch" title="Donner ou retirer les droits d'administrateur">
@@ -1335,12 +1445,16 @@ async function renderAdminCollaborateurs() {
                  ${u.id === state.profile.id ? " disabled" : ""}>
           <span>Admin</span>
         </label>
+        <label class="collab-admin-switch" title="Voir qui est dans les locaux et exporter la liste d'évacuation, sans le reste de l'administration">
+          <input type="checkbox" data-field="presence"${u.can_manage_presence ? " checked" : ""}>
+          <span>Présence</span>
+        </label>
         <input type="date" class="collab-birthday" data-field="birthday" value="${u.birthday || ""}">
       </div>`).join("") || `<div class="empty">Aucun collaborateur.</div>`;
   }
 
   body.innerHTML = `
-    <p class="sub" style="color:var(--muted);margin:0 0 16px">Anniversaire de chaque collaborateur (pas de source WordPress fiable identifiée pour le récupérer automatiquement — à renseigner manuellement). Seuls jour et mois sont affichés dans l'appli. La case « Admin » ouvre l'accès à cet écran d'administration : elle prend effet à la prochaine connexion de la personne, et tu ne peux pas décocher la tienne.</p>
+    <p class="sub" style="color:var(--muted);margin:0 0 16px">Anniversaire de chaque collaborateur (pas de source WordPress fiable identifiée pour le récupérer automatiquement — à renseigner manuellement). Seuls jour et mois sont affichés dans l'appli. La case « Admin » ouvre l'accès à cet écran d'administration : elle prend effet à la prochaine connexion de la personne, et tu ne peux pas décocher la tienne. La case « Présence » donne seulement accès à la liste des personnes dans les locaux et à son export d'évacuation, immédiatement et sans reconnexion : utile pour que quelqu'un puisse sortir la liste au point de rassemblement si aucun admin n'est là.</p>
     <div class="search-bar"><input type="text" id="collabSearch" placeholder="Rechercher un collaborateur…"></div>
     <div class="desk-admin-list" id="collabList">${rowsHtml(users)}</div>`;
 
@@ -1367,6 +1481,21 @@ async function renderAdminCollaborateurs() {
       const u = users.find(x => x.id === id);
       if (u) u.is_admin = box.checked;
       toast(box.checked ? "Droits d'administrateur accordés ✓" : "Droits d'administrateur retirés ✓", "success");
+    }));
+
+    document.querySelectorAll('.collab-row [data-field="presence"]').forEach(box => box.addEventListener("change", async () => {
+      const id = +box.closest(".collab-row").dataset.id;
+      const { ok, data } = await api(`/api/admin/users/${id}/presence-role`, {
+        method: "PATCH", body: JSON.stringify({ can_manage_presence: box.checked }),
+      });
+      if (!ok) {
+        box.checked = !box.checked;   // rien n'a changé côté serveur, la case ne doit pas mentir
+        toast((data && data.detail) || "Erreur", "error");
+        return;
+      }
+      const u = users.find(x => x.id === id);
+      if (u) u.can_manage_presence = box.checked;
+      toast(box.checked ? "Accès à la présence accordé ✓" : "Accès à la présence retiré ✓", "success");
     }));
   }
   wireRows();
@@ -4214,6 +4343,7 @@ function openMenuSheet() {
     { route: "aide", label: "Aide", icon: "❓" },
   ];
   if (state.profile.role === "admin") items.push({ route: "admin", label: "Administration", icon: "⚙️" });
+  else if (state.profile.can_manage_presence) items.push({ route: "admin", label: "Présence", icon: "🧯" });
   document.getElementById("menuGrid").innerHTML = items.map(e => `
     <button class="explore-tile" data-go-menu="${e.route}"><span class="explore-icon">${e.icon}</span><span>${e.label}</span></button>`).join("");
   document.querySelectorAll("[data-go-menu]").forEach(b => b.addEventListener("click", () => {

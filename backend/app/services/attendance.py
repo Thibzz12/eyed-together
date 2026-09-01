@@ -240,14 +240,29 @@ def _accueillir_les_invites(db: Session, user_id: int, day: date) -> None:
         ))
 
 
-def check_out(db: Session, user_id: int, day: date | None = None) -> m.Attendance:
-    """Confirme le départ. Refuse si la personne n'était pas marquée présente."""
+def check_out(
+    db: Session, user_id: int, day: date | None = None, *, with_visitors: bool = False
+) -> m.Attendance:
+    """Confirme le départ. Refuse si la personne n'était pas marquée présente.
+
+    `with_visitors` clôture en même temps les visiteurs encore présents de cet
+    hôte : partir en oubliant ses accompagnants les laissait marqués présents
+    jusqu'au balayage du soir, et seul un admin pouvait corriger entre-temps
+    (constaté par Olivier le 01/09/2026). Leur départ est un vrai départ
+    confirmé par l'hôte, pas une clôture d'office : `auto_closed` reste faux.
+    """
     day = day or local_today()
     row = _row_for(db, user_id, day)
     if row is None:
         raise AttendanceNotFound("Aucune arrivée confirmée aujourd'hui.")
     if row.left_at is not None:
         raise AttendanceError("Ton départ est déjà enregistré.")
+
+    if with_visitors:
+        for v in _visitors_of(db, user_id, day):
+            if v.left_at is None:
+                v.left_at = local_now()
+                v.auto_closed = False
 
     row.left_at = local_now()
     row.auto_closed = False

@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=76">
+  <link rel="stylesheet" href="/static/styles.css?v=77">
 </head>
 <body>
 
@@ -247,8 +247,11 @@
         Confirmer ton arrivée permet de savoir qui se trouve dans les locaux,
         notamment en cas d'évacuation.
       </div>
-      <div id="arrivalVisitorBlock" class="hidden">
-        <div class="sheet-label">Personnes que tu accompagnes</div>
+      <div id="arrivalVisitorBlock">
+        <div class="sheet-label">Visiteurs externes avec toi</div>
+        <div class="sheet-note">Déclare chaque personne, même sans lui réserver de place :
+          elle compte alors dans la liste d'évacuation. Ajoute-les une par une,
+          autant que nécessaire.</div>
         <div id="arrivalVisitorList"></div>
         <div class="visitor-form">
           <input id="arrivalVisitorName" type="text" maxlength="120" placeholder="Nom et prénom">
@@ -258,14 +261,15 @@
       </div>
       <div class="sheet-actions">
         <button class="btn sheet-cancel" id="arrivalDismissBtn">Pas au bureau aujourd'hui</button>
+        <!-- Visible uniquement quand la feuille demande si les visiteurs partent avec l'hôte. -->
+        <button class="btn hidden" id="arrivalLeaveAloneBtn">Je pars seul, ils restent</button>
         <button class="btn btn-primary sheet-confirm" id="arrivalConfirmBtn">Je suis arrivé</button>
       </div>
-      <button class="btn-back" id="arrivalVisitorToggleBtn">Je suis accompagné</button>
       <div class="sheet-hint" id="arrivalHint">Tu pourras revenir ici à tout moment par l'icône de présence, en haut à droite.</div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=94"></script>
+  <script src="/static/app.js?v=95"></script>
 </body>
 </html>

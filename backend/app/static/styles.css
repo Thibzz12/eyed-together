@@ -808,6 +808,8 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .badge-detail-status { text-align: center; font-weight: 700; font-size: .84rem; color: var(--muted); margin-top: 4px; }
 .badge-detail-status.earned { color: var(--green); }
 .sheet-label { font-size: .78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+/* Précision sous un .sheet-label : explique la portée du bloc sans voler la vedette. */
+.sheet-note { font-size: .82rem; color: var(--muted); margin: -4px 0 10px; line-height: 1.4; }
 #sheetSlotToggle { display: flex; width: 100%; }
 #sheetSlotToggle button { flex: 1; text-align: center; }
 .sheet-mine-notice { background: var(--amber-050); color: #92600A; border-radius: var(--radius-sm); padding: 10px 12px; font-size: .86rem; margin-bottom: 16px; }

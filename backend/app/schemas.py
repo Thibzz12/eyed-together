@@ -22,6 +22,9 @@ class UserProfile(BaseModel):
     role: str
     total_points: int
     birthday: date | None = None
+    # Second niveau de droits : administrer la présence (liste d'évacuation)
+    # sans être administrateur. Pilote l'affichage de la vue côté client.
+    can_manage_presence: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -237,6 +240,16 @@ class AdminBirthdayUpdate(BaseModel):
 
 class AdminRoleUpdate(BaseModel):
     is_admin: bool
+
+
+class AdminPresenceRoleUpdate(BaseModel):
+    can_manage_presence: bool
+
+
+class AttendanceCheckoutPayload(BaseModel):
+    # Si vrai, les visiteurs encore présents de l'hôte partent en même temps que
+    # lui : évite qu'un hôte pressé les laisse marqués présents jusqu'au soir.
+    with_visitors: bool = False
 
 
 class AdminReservationCreate(BaseModel):

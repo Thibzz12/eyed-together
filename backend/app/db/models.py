@@ -117,6 +117,11 @@ class User(Base):
     # comptent pour "anniversaire du jour", l'année n'est jamais affichée ni utilisée.
     birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
     role: Mapped[UserRole] = mapped_column(_enum(UserRole), default=UserRole.EMPLOYEE, nullable=False)
+    # Second niveau de droits, plus étroit que le rôle admin : voir qui est dans les
+    # locaux et exporter la liste d'évacuation. Si les administrateurs sont absents
+    # le jour d'un incendie, quelqu'un d'autre doit pouvoir sortir la liste au point
+    # de rassemblement (demande d'Olivier du 01/09/2026).
+    can_manage_presence: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Compteur agrégé (source de vérité = journal PointTransaction).
     total_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
