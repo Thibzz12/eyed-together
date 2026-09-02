@@ -1480,14 +1480,24 @@ async function renderAdminCollaborateurs() {
     if (!ok) { toast((data && data.detail) || "Erreur de chargement.", "error"); return; }
 
     const injustes = data.no_shows.filter(n => n.present_ce_jour);
+    // Une alerte réglée doit se taire : les sanctions gardent leur trace en base,
+    // mais si le journal contient déjà des régularisations à hauteur du crédit
+    // suggéré, on affiche « réglé » au lieu de réclamer un crédit à l'infini
+    // (et de risquer un double remboursement).
+    const dejaCredite = data.transactions
+      .filter(t => t.amount > 0 && t.reason.startsWith("ajustement_admin") && /gularisation/i.test(t.reason))
+      .reduce((s, t) => s + t.amount, 0);
+    const creditSuggere = injustes.length * 20;
+    const resteDu = Math.max(0, creditSuggere - dejaCredite);
     const panneau = document.createElement("div");
     panneau.className = "collab-points";
     panneau.innerHTML = `
       <h4>${escapeHtml(data.user.name)} · ${data.user.total_points} points</h4>
-      ${injustes.length ? `<div class="pt-alerte">⚠ ${injustes.length === 1
+      ${resteDu ? `<div class="pt-alerte">⚠ ${injustes.length === 1
           ? "1 no-show sanctionné un jour où la personne avait pourtant confirmé son arrivée"
           : injustes.length + " no-shows sanctionnés des jours où la personne avait pourtant confirmé son arrivée"}
-        (${injustes.map(n => n.date).join(", ")}). Un crédit de régularisation de ${injustes.length * 20} points est probablement dû.</div>` : ""}
+        (${injustes.map(n => n.date).join(", ")}). Un crédit de régularisation de ${resteDu} points est probablement dû.</div>`
+        : injustes.length ? `<div style="font-size:.84rem;color:var(--green);margin-bottom:8px">✓ Anciennes sanctions à tort régularisées (+${dejaCredite} crédités, visibles dans le journal).</div>` : ""}
       ${data.no_shows.length ? `<div style="font-size:.84rem;color:var(--muted);margin-bottom:8px">No-shows enregistrés :
         ${data.no_shows.map(n => `${n.date} (${escapeHtml(n.desk || "?")}${n.present_ce_jour ? ", était présent" : ""})`).join(" · ")}</div>` : ""}
       <div>${data.transactions.map(t => `<div class="pt-ligne">
