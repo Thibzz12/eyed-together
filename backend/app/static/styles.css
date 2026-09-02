@@ -557,6 +557,15 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
 .status-add-form .btn-save { margin: 0; width: auto; padding: 10px 18px; flex-shrink: 0; }
 .collab-row { display: flex; align-items: center; gap: 14px; background: #F9FAFC; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+/* Journal de points d'un collaborateur, déplié sous sa ligne (admin). */
+.collab-points { background: #fff; border: 1px solid var(--line); border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin: -6px 0 4px; padding: 14px 16px; }
+.collab-points h4 { margin: 0 0 8px; font-size: .9rem; }
+.pt-ligne { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: .86rem; border-bottom: 1px dashed var(--line); }
+.pt-ligne small { color: var(--muted); white-space: nowrap; }
+.pt-montant { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2rem; text-align: right; }
+.pt-montant.plus { color: var(--green); }
+.pt-montant.moins { color: var(--red); }
+.pt-alerte { background: var(--amber-050); color: #92600A; border-radius: var(--radius-sm); padding: 9px 12px; font-size: .86rem; margin: 10px 0; }
 /* Le nom prend toute la place restante : la case « Admin » et la date se calent
    ainsi à droite, à la même position sur chaque ligne, au lieu de flotter au
    milieu au gré de la longueur des noms. */

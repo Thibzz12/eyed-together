@@ -11,7 +11,7 @@ sens créerait un import circulaire.
 
 from datetime import date, datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.timezone import LOCAL_TZ, local_now, local_today
@@ -129,6 +129,34 @@ def _row_for(db: Session, user_id: int, day: date) -> m.Attendance | None:
     )
 
 
+def _confirmer_les_reservations_du_jour(db: Session, user_id: int, day: date) -> None:
+    """La présence dans le bâtiment confirme les réservations du jour.
+
+    Miroir de reservations.check_in, qui confirme déjà la présence : une seule
+    vérité, la personne est là. Sans ce sens-ci, le pop-up d'arrivée — devenu LE
+    geste du matin — laissait la réservation sans check-in, et son auteur se
+    faisait sanctionner en no-show le lendemain alors qu'il était venu (cas de
+    Ruben, -20 points, signalé par Olivier le 02/09/2026). Couvre aussi les
+    places attribuées par un collègue (occupant) : marquer la ligne suffit à
+    honorer tout le lot d'un espace entier. On lit le modèle Reservation
+    directement, le service `reservations` importe déjà celui-ci.
+    """
+    lignes = db.scalars(
+        select(m.Reservation).where(
+            or_(
+                m.Reservation.user_id == user_id,
+                m.Reservation.occupant_user_id == user_id,
+            ),
+            m.Reservation.reservation_date == day,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.checked_in_at.is_(None),
+        )
+    )
+    quand = local_now()
+    for r in lignes:
+        r.checked_in_at = quand
+
+
 def check_in(db: Session, user_id: int, source: str = "popup", day: date | None = None) -> m.Attendance:
     """Confirme l'arrivée. Rouvre la ligne du jour si la personne était partie.
 
@@ -137,6 +165,7 @@ def check_in(db: Session, user_id: int, source: str = "popup", day: date | None 
     """
     close_stale(db)
     day = day or local_today()
+    _confirmer_les_reservations_du_jour(db, user_id, day)
     row = _row_for(db, user_id, day)
 
     if row is None:

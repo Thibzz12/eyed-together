@@ -1258,13 +1258,34 @@ def apply_noshow_penalties(db: Session, user_id: int) -> int:
     if not rows:
         return 0
 
+    # Une arrivée confirmée dans les locaux vaut présence : sanctionner un jour
+    # où la personne était dans le bâtiment n'est pas un no-show, c'est un
+    # check-in de réservation oublié — on le répare au lieu de punir. Les
+    # arrivées récentes marquent désormais la réservation d'elles-mêmes
+    # (attendance._confirmer_les_reservations_du_jour) ; ce filet couvre les
+    # journées d'avant ce correctif, pas encore balayées.
+    jours_presents = {
+        a.day: a.arrived_at
+        for a in db.scalars(
+            select(m.Attendance).where(
+                m.Attendance.user_id == user_id,
+                m.Attendance.day.in_({r.reservation_date for r in rows}),
+            )
+        )
+    }
+
     # Un espace entier compte pour UN no-show, pas un par place : il n'avait
     # rapporté qu'une fois, et surtout le réservant ne peut confirmer que sa
     # propre place — les autres n'ont jamais de check-in, si bien que réserver
     # une table pour des collègues garantissait la pénalité même en étant venu.
     lots_penalises: set[tuple] = set()
+    sanctions = 0
     for r in rows:
+        if r.reservation_date in jours_presents:
+            r.checked_in_at = jours_presents[r.reservation_date]
+            continue
         r.status = m.ReservationStatus.NO_SHOW
+        sanctions += 1
         if not r.is_group_booking:
             _sanctionner(db, user_id, r)
             continue
@@ -1275,7 +1296,7 @@ def apply_noshow_penalties(db: Session, user_id: int) -> int:
         _sanctionner(db, user_id, r)
 
     db.commit()
-    return len(rows)
+    return sanctions
 
 
 def _sanctionner(db: Session, user_id: int, reservation: m.Reservation) -> None:

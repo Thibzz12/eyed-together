@@ -1450,7 +1450,70 @@ async function renderAdminCollaborateurs() {
           <span>Présence</span>
         </label>
         <input type="date" class="collab-birthday" data-field="birthday" value="${u.birthday || ""}">
+        <button class="btn btn-ghost" type="button" data-action="points" title="Journal de points de ce collaborateur">Points</button>
       </div>`).join("") || `<div class="empty">Aucun collaborateur.</div>`;
+  }
+
+  // Les raisons du journal sont des codes techniques : on les dit en français.
+  function libellePoints(reason) {
+    if (reason.startsWith("badge_")) return "Badge « " + reason.slice(6) + " »";
+    if (reason.startsWith("revoke_badge_")) return "Badge retiré « " + reason.slice(13) + " »";
+    if (reason.startsWith("ajustement_admin")) {
+      const note = reason.split("·").slice(1).join("·").trim();
+      return "Ajustement admin" + (note ? " · " + note : "");
+    }
+    return ({
+      checkin: "Arrivée confirmée",
+      reservation_created: "Réservation",
+      reservation_cancelled: "Annulation, reprise des points",
+      no_show: "Absence non annulée (no-show)",
+      quiz_correct_answers: "Quiz",
+    })[reason] || reason;
+  }
+
+  async function ouvrirPointsDe(ligne, id) {
+    const deja = ligne.nextElementSibling;
+    if (deja && deja.classList.contains("collab-points")) { deja.remove(); return; }
+    document.querySelectorAll(".collab-points").forEach(p => p.remove());
+
+    const { ok, data } = await api(`/api/admin/users/${id}/points`);
+    if (!ok) { toast((data && data.detail) || "Erreur de chargement.", "error"); return; }
+
+    const injustes = data.no_shows.filter(n => n.present_ce_jour);
+    const panneau = document.createElement("div");
+    panneau.className = "collab-points";
+    panneau.innerHTML = `
+      <h4>${escapeHtml(data.user.name)} · ${data.user.total_points} points</h4>
+      ${injustes.length ? `<div class="pt-alerte">⚠ ${injustes.length === 1
+          ? "1 no-show sanctionné un jour où la personne avait pourtant confirmé son arrivée"
+          : injustes.length + " no-shows sanctionnés des jours où la personne avait pourtant confirmé son arrivée"}
+        (${injustes.map(n => n.date).join(", ")}). Un crédit de régularisation de ${injustes.length * 20} points est probablement dû.</div>` : ""}
+      ${data.no_shows.length ? `<div style="font-size:.84rem;color:var(--muted);margin-bottom:8px">No-shows enregistrés :
+        ${data.no_shows.map(n => `${n.date} (${escapeHtml(n.desk || "?")}${n.present_ce_jour ? ", était présent" : ""})`).join(" · ")}</div>` : ""}
+      <div>${data.transactions.map(t => `<div class="pt-ligne">
+          <span>${escapeHtml(libellePoints(t.reason))}</span>
+          <small>${t.at ? t.at.slice(0, 10) : ""}</small>
+          <span class="pt-montant ${t.amount >= 0 ? "plus" : "moins"}">${t.amount >= 0 ? "+" : ""}${t.amount}</span>
+        </div>`).join("") || `<div class="empty-inline">Aucun mouvement de points.</div>`}</div>
+      <div class="visitor-form" style="margin-top:12px">
+        <input type="number" data-pt="montant" min="-500" max="500" step="5" placeholder="± points" style="flex:0 0 7rem">
+        <input type="text" data-pt="note" maxlength="80" placeholder="Motif (visible dans le journal)">
+        <button class="btn btn-ghost" type="button" data-pt="crediter">Ajuster</button>
+      </div>`;
+    ligne.after(panneau);
+
+    panneau.querySelector('[data-pt="crediter"]').addEventListener("click", async () => {
+      const montant = parseInt(panneau.querySelector('[data-pt="montant"]').value, 10);
+      const note = panneau.querySelector('[data-pt="note"]').value.trim();
+      if (!montant) { toast("Indique un nombre de points, positif ou négatif.", "error"); return; }
+      const rep = await api(`/api/admin/users/${id}/points`, {
+        method: "POST", body: JSON.stringify({ amount: montant, note: note || null }),
+      });
+      if (!rep.ok) { toast((rep.data && rep.data.detail) || "Ajustement refusé.", "error"); return; }
+      toast(`Points ajustés ✓ Nouveau total : ${rep.data.total_points}`, "success");
+      panneau.remove();
+      ouvrirPointsDe(ligne, id);
+    });
   }
 
   body.innerHTML = `
@@ -1496,6 +1559,11 @@ async function renderAdminCollaborateurs() {
       const u = users.find(x => x.id === id);
       if (u) u.can_manage_presence = box.checked;
       toast(box.checked ? "Accès à la présence accordé ✓" : "Accès à la présence retiré ✓", "success");
+    }));
+
+    document.querySelectorAll('.collab-row [data-action="points"]').forEach(btn => btn.addEventListener("click", () => {
+      const ligne = btn.closest(".collab-row");
+      ouvrirPointsDe(ligne, +ligne.dataset.id);
     }));
   }
   wireRows();

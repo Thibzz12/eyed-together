@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app import schemas
 from app.db import models as m
@@ -26,7 +26,7 @@ from app.services import notifications as notif_svc
 from app.services import quiz as quiz_svc
 from app.services import stats as stats_svc
 from app.services import users as users_svc
-from app.services.gamification import points_rules
+from app.services.gamification import award_points, points_rules
 from app.services.profile import get_leaderboard, get_public_profile, level_info
 from app.services import reservations as svc
 from app.services.search import search_all
@@ -887,6 +887,92 @@ def admin_set_presence_role(
     cible.can_manage_presence = data.can_manage_presence
     db.commit()
     return {"id": cible.id, "can_manage_presence": cible.can_manage_presence}
+
+
+@router.get("/admin/users/{user_id}/points")
+def admin_user_points(user_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Journal de points d'un collaborateur, avec ses no-shows passés au crible.
+
+    Né du cas Ruben (02/09/2026) : « il n'a aucun point et il râle », et aucun
+    moyen pour un admin de voir POURQUOI. Le journal répond ; et chaque no-show
+    est croisé avec la présence dans les locaux du même jour, pour repérer les
+    sanctions tombées sur quelqu'un qui était bien venu (check-in de réservation
+    oublié, avant que l'arrivée ne le fasse d'elle-même).
+    """
+    u = _or_404(db.get(m.User, user_id), "Utilisateur introuvable.")
+
+    transactions = db.scalars(
+        select(m.PointTransaction)
+        .where(m.PointTransaction.user_id == user_id)
+        .order_by(m.PointTransaction.created_at.desc(), m.PointTransaction.id.desc())
+        .limit(100)
+    ).all()
+
+    no_shows = db.scalars(
+        select(m.Reservation)
+        .options(joinedload(m.Reservation.desk))
+        .where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.status == m.ReservationStatus.NO_SHOW,
+        )
+        .order_by(m.Reservation.reservation_date.desc())
+    ).all()
+    jours_presents = set(
+        db.scalars(
+            select(m.Attendance.day).where(
+                m.Attendance.user_id == user_id,
+                m.Attendance.day.in_({r.reservation_date for r in no_shows} or {date.min}),
+            )
+        )
+    )
+
+    return {
+        "user": {"id": u.id, "name": u.display_name, "total_points": u.total_points},
+        "transactions": [
+            {
+                "amount": t.amount,
+                "reason": t.reason,
+                "at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in transactions
+        ],
+        "no_shows": [
+            {
+                "date": r.reservation_date.isoformat(),
+                "desk": r.desk.name if r.desk else None,
+                "slot": r.slot.value,
+                # Vrai quand la personne avait confirmé son arrivée ce jour-là :
+                # la sanction a alors frappé quelqu'un qui était présent.
+                "present_ce_jour": r.reservation_date in jours_presents,
+            }
+            for r in no_shows
+        ],
+    }
+
+
+@router.post("/admin/users/{user_id}/points", status_code=status.HTTP_201_CREATED)
+def admin_adjust_points(
+    user_id: int,
+    data: schemas.AdminPointsAdjust,
+    db: Session = Depends(get_db),
+    admin: dict = Depends(require_admin),
+):
+    """Ajustement manuel de points, tracé dans le journal comme tout mouvement.
+
+    Sert à régulariser une pénalité injustifiée (no-show d'une personne
+    présente, avant le correctif du 02/09/2026) sans toucher à la base à la
+    main. Le motif et l'auteur restent lisibles dans le journal.
+    """
+    cible = _or_404(db.get(m.User, user_id), "Utilisateur introuvable.")
+    if data.amount == 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un ajustement de zéro point ne dit rien.")
+    raison = "ajustement_admin"
+    if data.note and data.note.strip():
+        raison += " · " + data.note.strip()
+    award_points(db, cible.id, data.amount, raison[:100])
+    db.commit()
+    db.refresh(cible)
+    return {"id": cible.id, "total_points": cible.total_points}
 
 
 @router.patch("/admin/users/{user_id}/birthday")

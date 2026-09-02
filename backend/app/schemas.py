@@ -246,6 +246,13 @@ class AdminPresenceRoleUpdate(BaseModel):
     can_manage_presence: bool
 
 
+class AdminPointsAdjust(BaseModel):
+    # Ajustement manuel : régularisation d'une pénalité injuste, geste
+    # exceptionnel. Borné pour qu'une faute de frappe ne fausse pas le classement.
+    amount: int = Field(..., ge=-500, le=500)
+    note: str | None = Field(None, max_length=80)
+
+
 class AttendanceCheckoutPayload(BaseModel):
     # Si vrai, les visiteurs encore présents de l'hôte partent en même temps que
     # lui : évite qu'un hôte pressé les laisse marqués présents jusqu'au soir.

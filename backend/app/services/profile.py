@@ -46,7 +46,12 @@ def level_info(points: int) -> dict:
         "level": _level_label(n),
         "points_to_next_level": max(0, next_threshold - points),
         "next_level_label": _level_label(n + 1),
-        "level_progress_pct": round((points - _level_threshold(n)) / (next_threshold - _level_threshold(n)) * 100) if next_threshold > _level_threshold(n) else 100,
+        # Borné à [0, 100] : un solde négatif (pénalités) donnait un pourcentage
+        # négatif, et la barre de progression du profil s'affichait n'importe
+        # comment (constaté sur le profil de Ruben, à -20, le 02/09/2026).
+        "level_progress_pct": max(0, min(100, round(
+            (points - _level_threshold(n)) / (next_threshold - _level_threshold(n)) * 100
+        ))) if next_threshold > _level_threshold(n) else 100,
     }
 
 
