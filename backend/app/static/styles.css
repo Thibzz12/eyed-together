@@ -274,6 +274,30 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .hb-status { position: relative; display: flex; align-items: center; gap: 6px; margin-top: 14px; color: #7EC8E3; font-size: .78rem; font-weight: 600; }
 .hb-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
 
+/* Bloc présence du bandeau d'accueil : le geste d'arrivée/départ, bien en vue
+   (demande d'Olivier du 18/09/2026). Remplace l'ancien "Connecté · SSO EyeD". */
+.hb-presence { position: relative; margin-top: 16px; }
+.pcta-status { display: flex; align-items: center; gap: 7px; color: #B9D9E8; font-size: .82rem; font-weight: 600; margin-bottom: 10px; }
+.pcta-dot { width: 9px; height: 9px; border-radius: 999px; flex-shrink: 0; }
+.pcta-dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+.pcta-dot.off { background: #94A3B8; box-shadow: 0 0 0 3px rgba(148,163,184,.2); }
+.pcta-dot.wait { background: #F59E0B; box-shadow: 0 0 0 3px rgba(245,158,11,.25); animation: pcta-pulse 1.6s ease-in-out infinite; }
+@keyframes pcta-pulse { 50% { box-shadow: 0 0 0 6px rgba(245,158,11,.12); } }
+.pcta-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pcta-btn {
+  border: 0; border-radius: 999px; padding: 11px 20px; cursor: pointer;
+  background: #fff; color: var(--navy); font-weight: 700; font-size: .92rem; font-family: var(--font-heading);
+  box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: transform .12s ease, box-shadow .12s ease;
+}
+.pcta-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+.pcta-btn.leave { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.35); box-shadow: none; }
+.pcta-link {
+  border: 0; background: none; cursor: pointer; color: #7EC8E3;
+  font-size: .82rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 6px 2px;
+}
+.pcta-link:hover { color: #fff; }
+@media (prefers-reduced-motion: reduce) { .pcta-dot.wait { animation: none; } }
+
 /* Cadran : occupation (anneau ext.) + progression de niveau (anneau int.), disque central =
    statut de réservation du jour. Repris de la maquette, alimenté par les données réelles du
    dashboard (cartes next_reservation / coworking_status), sans dépendre de leur activation admin. */

@@ -183,14 +183,6 @@ def coworking_status(db: Session) -> dict:
 
 def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None):
     wp_cache = wp_cache or {}
-    if key == "presence":
-        row = db.scalar(
-            select(m.DailyStatus).where(m.DailyStatus.user_id == user_id, m.DailyStatus.day == date.today())
-        )
-        return {
-            "status_am": row.status_am if row else None,
-            "status_pm": row.status_pm if row else None,
-        }
     if key == "coworking_status":
         return coworking_status(db)
     if key == "next_reservation":
@@ -260,6 +252,12 @@ def build_dashboard(db: Session, user_id: int) -> list[dict]:
     cards = db.scalars(
         select(m.DashboardCard).where(m.DashboardCard.enabled.is_(True)).order_by(m.DashboardCard.position)
     ).all()
+    # La carte de déclaration de statut (coworking/télétravail/voyage…) est retirée
+    # de l'app : elle faisait doublon avec la confirmation d'arrivée, seule la
+    # question incendie reste (mail d'Olivier du 18/09/2026). La ligne en base et
+    # les données DailyStatus sont conservées : filtrer ici suffit à la faire
+    # disparaître partout, et la décision reste réversible.
+    cards = [c for c in cards if c.key != "presence"]
     enabled_keys = {c.key for c in cards}
 
     wp_cache: dict = {}

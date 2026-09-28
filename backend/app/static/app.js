@@ -21,7 +21,6 @@ const state = {
   availability: [],
   myReservations: [],
   selected: null,
-  statusCatalog: [], // rempli au démarrage depuis /api/statuses : [{key,label,color,enabled}] (admin-géré)
   advanceDays: 7,     // rempli au démarrage depuis /api/reservation-policy (admin-géré)
   featureIcons: [],   // règles mot-clé -> icône, administrables (/api/feature-icons)
   floorplanVersion: 0,  // date du dernier remplacement du plan, mise dans l'URL de l'image
@@ -29,16 +28,6 @@ const state = {
   bookingModes: { seat: true, table: true, room: true, pod: true },
 };
 
-/* Catalogue de statuts de présence (4 de base + statuts perso ajoutés par l'admin) —
-   plus de liste figée côté client : tout vient de state.statusCatalog. */
-function enabledStatusEntries() {
-  return state.statusCatalog.filter(s => s.enabled).map(s => [s.key, s.label]);
-}
-function statusLabel(key) { const s = state.statusCatalog.find(x => x.key === key); return (s && s.label) || key; }
-function statusColor(key) { const s = state.statusCatalog.find(x => x.key === key); return (s && s.color) || "#94A3B8"; }
-/* Icône générique pour un statut sans icône dédiée (tout statut perso ajouté en admin). */
-const DEFAULT_STATUS_ICON = '<circle cx="12" cy="12" r="8"/>';
-function statusIcon(key) { return STATUS_ICON[key] || DEFAULT_STATUS_ICON; }
 const PALETTE = ["#00608D", "#2E9E5B", "#E6A100", "#7A4E86", "#B4761C", "#0891b2", "#D64545"];
 
 async function api(path, options = {}) {
@@ -122,13 +111,17 @@ function fdate(iso, opt) { return new Date(iso).toLocaleDateString("fr-FR", opt 
 function levelOf(pts) {
   if (pts >= 300) return "Platine"; if (pts >= 150) return "Or"; if (pts >= 50) return "Argent"; return "Bronze";
 }
-/* Progression (0-100) vers le prochain palier de niveau, pour l'anneau du cadran d'accueil. */
+/* Progression (0-100) vers le prochain palier de niveau, pour l'anneau du cadran d'accueil.
+   Borné à [0, 100] : un solde négatif tombait sur le palier [0, 0] et affichait
+   "-Infinity %" dans le cadran (même famille de bug que le level_progress_pct
+   serveur, corrigé le 02/09/2026). */
 function levelProgress(pts) {
+  if (pts <= 0) return 0;
   const steps = [0, 50, 150, 300];
   const i = steps.findIndex(s => pts < s);
   if (i === -1) return 100; // déjà Platine, palier max
   const [lo, hi] = [steps[i - 1] || 0, steps[i]];
-  return Math.round(((pts - lo) / (hi - lo)) * 100);
+  return Math.max(0, Math.min(100, Math.round(((pts - lo) / (hi - lo)) * 100)));
 }
 /* Longueur de l'arc SVG (stroke-dashoffset) pour un anneau de cadran, à partir d'un %. */
 function ringOffset(circumference, pct) {
@@ -299,10 +292,11 @@ function initLoginScene() {
 /* ============================================================
    PRÉSENCE DANS LES LOCAUX (arrivée, départ, visiteurs)
    ------------------------------------------------------------
-   À ne pas confondre avec la vue "Ma présence", qui sert à déclarer un
-   statut matin/après-midi à l'avance. Ici on enregistre un fait : la
-   personne est physiquement dans le bâtiment. Sert à l'évacuation.
-   ============================================================ */
+   On enregistre un fait : la personne est physiquement dans le bâtiment.
+   Sert à l'évacuation. C'est LE geste de présence de l'app : l'ancienne
+   déclaration de statut (coworking/télétravail/voyage…) a été retirée,
+   elle faisait doublon avec cette confirmation (mail d'Olivier du
+   18/09/2026). ============================================================ */
 let attendanceState = { arrived: false, present: false, visitors: [] };
 
 /* Clé de rejet du pop-up, valable pour la seule journée en cours : refuser une
@@ -332,7 +326,36 @@ async function refreshAttendance() {
   // jour ouvré : le pop-up ne se pose qu'une fois, le rappel doit rester visible.
   const badge = document.getElementById("presenceBadge");
   if (badge) badge.classList.toggle("hidden", attendanceState.arrived || !isWorkday(new Date()));
+  renderPresenceCta();
   return attendanceState;
+}
+
+/* Bloc présence bien en vue (accueil et « Dans les locaux ») : demande d'Olivier
+   du 18/09/2026 — le geste d'arrivée/départ doit sauter aux yeux, pas seulement
+   vivre dans l'icône d'en-tête. Re-rendu par refreshAttendance après chaque
+   arrivée ou départ, pour rester juste sans recharger la page. */
+function renderPresenceCta() {
+  const box = document.getElementById("presenceCta");
+  if (!box) return;
+  const a = attendanceState;
+  const restants = visitorsStillHere().length;
+  const statut = a.present
+    ? `<span class="pcta-dot on"></span>Tu es dans les locaux${restants ? ` · ${restants} visiteur${restants > 1 ? "s" : ""} avec toi` : ""}`
+    : a.arrived
+      ? `<span class="pcta-dot off"></span>Reparti pour aujourd'hui`
+      : `<span class="pcta-dot wait"></span>Arrivée pas encore confirmée`;
+  box.innerHTML = `
+    <div class="pcta-status">${statut}</div>
+    <div class="pcta-actions">
+      <button class="pcta-btn${a.present ? " leave" : ""}" data-pcta-open>${
+        a.present ? "J'enregistre mon départ" : a.arrived ? "Je suis de retour" : "Je suis arrivé"}</button>
+      <button class="pcta-link" data-pcta-locaux>Qui est là ?</button>
+    </div>`;
+  box.querySelector("[data-pcta-open]").addEventListener("click", async () => {
+    await refreshAttendance();
+    openArrivalSheet();
+  });
+  box.querySelector("[data-pcta-locaux]").addEventListener("click", () => goTo("locaux"));
 }
 
 async function maybeShowArrivalSheet() {
@@ -553,16 +576,15 @@ function initAttendanceUi() {
 
 /* ---------------- Démarrage ---------------- */
 async function init() {
-  // /api/profile, /api/statuses et /api/reservation-policy sont indépendants : lancés en
+  // /api/profile et /api/reservation-policy sont indépendants : lancés en
   // parallèle plutôt que l'un après l'autre pour économiser des allers-retours réseau au
   // démarrage (sensible surtout en mobile/latence élevée).
-  const [{ ok, data }, st, pol, icons] = await Promise.all([
-    api("/api/profile"), api("/api/statuses"), api("/api/reservation-policy"),
+  const [{ ok, data }, pol, icons] = await Promise.all([
+    api("/api/profile"), api("/api/reservation-policy"),
     api("/api/feature-icons"),
   ]);
   if (!ok) { document.getElementById("login").classList.remove("hidden"); initLoginScene(); return; }
   state.profile = data;
-  state.statusCatalog = (st.data && st.data.catalog) || [];
   state.advanceDays = (pol.data && pol.data.advance_days) || 7;
   state.featureIcons = (icons.data && icons.data.rules) || [];
   document.getElementById("app").classList.remove("hidden");
@@ -619,16 +641,6 @@ async function init() {
   document.getElementById("podSheetBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "podSheetBackdrop") closePodSheet();
   });
-  document.getElementById("statusConflictKeepBtn").addEventListener("click", () => closeStatusConflictSheet("keep"));
-  document.getElementById("statusConflictBackBtn").addEventListener("click", () => closeStatusConflictSheet("abort"));
-  document.getElementById("statusConflictCancelResBtn").addEventListener("click", async () => {
-    const st = statusConflictState;
-    if (st) { for (const r of st.reservations) await api(`/api/reservations/${r.id}`, { method: "DELETE" }); }
-    closeStatusConflictSheet("cancelled");
-  });
-  document.getElementById("statusConflictSheetBackdrop").addEventListener("click", (e) => {
-    if (e.target.id === "statusConflictSheetBackdrop") closeStatusConflictSheet("abort");
-  });
   document.getElementById("badgeDetailCloseBtn").addEventListener("click", closeBadgeDetailSheet);
   document.getElementById("badgeDetailSheetBackdrop").addEventListener("click", (e) => {
     if (e.target.id === "badgeDetailSheetBackdrop") closeBadgeDetailSheet();
@@ -658,7 +670,6 @@ const ROUTES = {
   accueil: { title: "Accueil", render: viewAccueil },
   reserver: { title: "Réserver une place", render: viewReserver },
   evenements: { title: "Événements", render: viewEvenements },
-  presence: { title: "Ma présence", render: viewPresence },
   locaux: { title: "Dans les locaux", render: viewLocaux },
   recompenses: { title: "Récompenses", render: viewRecompenses },
   idees: { title: "Boîte à idées", render: viewIdees },
@@ -709,18 +720,13 @@ function refreshPoints(delta) {
 /* ============================================================
    VUE : ACCUEIL (tableau de bord administrable)
    ============================================================ */
-const STATUS_ICON = {
-  coworking: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
-  teletravail: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
-  deplacement: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
-  conge: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
-};
-
 async function viewAccueil() {
   const view = document.getElementById("view");
   const today = toLocalISODate(new Date());
   view.innerHTML = `<div class="empty">Chargement…</div>`;
-  const d = (await api("/api/dashboard")).data;
+  // L'état de présence alimente le bloc bien visible du bandeau : rafraîchi en
+  // parallèle du tableau de bord, ça ne coûte aucun aller-retour supplémentaire.
+  const [{ data: d }] = await Promise.all([api("/api/dashboard"), refreshAttendance()]);
   const cards = (d && d.cards) || [];
   const resa = cards.find(c => c.key === "next_reservation");
   const occ = cards.find(c => c.key === "coworking_status");
@@ -748,7 +754,7 @@ async function viewAccueil() {
         <div class="hb-top">
           <div>
             <div class="hb-greet"><span class="hb-muted">Bonjour</span><br><span class="hb-name">${firstName(state.profile.name)}</span></div>
-            <div class="hb-status"><span class="hb-dot"></span>Connecté · SSO EyeD</div>
+            <div class="hb-presence" id="presenceCta"></div>
           </div>
           <div class="hb-dial" id="hbDial" ${resa ? 'data-go="reserver" tabindex="0" role="button" aria-label="Modifier ma réservation"' : ""}>
             <svg viewBox="0 0 200 200">
@@ -770,6 +776,7 @@ async function viewAccueil() {
         </div>
       </div>
       <div class="dash-grid" id="dashGrid">${cards.map(c => renderCard(c)).join("") || `<div class="empty">Aucune carte activée.</div>`}</div>`;
+  renderPresenceCta();
   wireDashboard(today);
   const dial = document.getElementById("hbDial");
   if (dial) { dial.addEventListener("click", () => goTo("reserver")); dial.addEventListener("keydown", e => { if (e.key === "Enter") goTo("reserver"); }); }
@@ -781,17 +788,7 @@ function renderCard(c) {
   const data = c.data;
   let inner = "", extraClass = "";
 
-  if (c.key === "presence") {
-    const amCur = data && data.status_am;
-    const pmCur = data && data.status_pm;
-    const seg = (slot, cur) => `<div class="status-seg">${enabledStatusEntries().map(([k, l]) =>
-      `<button class="status-seg-btn${cur === k ? " on" : ""}" data-slot="${slot}" data-status="${k}" style="--tile-color:${statusColor(k)}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${statusIcon(k)}</svg>
-        <span>${l}</span></button>`).join("")}</div>`;
-    inner = `<div class="card-label">${c.title}</div>
-      <div class="status-half-label">Matin</div>${seg("AM", amCur)}
-      <div class="status-half-label">Après-midi</div>${seg("PM", pmCur)}`;
-  } else if (c.key === "next_reservation") {
+  if (c.key === "next_reservation") {
     extraClass = " reservation-card";
     if (data) {
       inner = `<div class="rc-row">
@@ -876,68 +873,6 @@ function wireDashboard(today) {
     if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
     toast("Présence confirmée ✓", "success"); viewAccueil();
   }));
-  view.querySelectorAll("[data-status]").forEach(el => el.addEventListener("click", () => {
-    handleStatusChange(today, el.dataset.slot, el.dataset.status, (cancelledCount) => {
-      if (cancelledCount) { refreshPoints(-10 * cancelledCount); viewAccueil(); }
-      else {
-        view.querySelectorAll(`[data-slot="${el.dataset.slot}"]`).forEach(b => b.classList.remove("on"));
-        el.classList.add("on");
-      }
-    });
-  }));
-}
-
-/* Si le statut choisi est "coworking" et qu'aucune place n'est encore réservée ce jour-là,
-   propose de réserver directement (le statut seul ne réserve rien). */
-async function maybeSuggestBooking(day, statusKey) {
-  if (statusKey !== "coworking") return;
-  const { data } = await api("/api/reservations/me");
-  const already = (data || []).some(r => r.reservation_date === day);
-  if (already) return;
-  toastAction("Tu as indiqué Coworking pour ce jour.", "Réserver une place", () => {
-    state.date = day; goTo("reserver");
-  });
-}
-
-/* Statut ET réservations ne sont pas liés en base : si on change de statut vers autre chose
-   que "coworking" alors qu'une place est déjà réservée ce jour-là, ça devient contradictoire
-   (réservé mais "en télétravail"/"en congé"…) — on prévient et on laisse le choix de garder
-   ou d'annuler la réservation avant d'enregistrer le nouveau statut. */
-let statusConflictState = null; // { reservations, resolve }
-
-function openStatusConflictSheet(reservations, resolve) {
-  statusConflictState = { reservations, resolve };
-  const names = reservations.map(r => `Poste ${r.desk.name} · ${slotLabel(r.slot)}`).join(", ");
-  document.getElementById("statusConflictSub").textContent =
-    `Réservation actuelle : ${names}. Si tu changes de statut, tu peux la garder ou l'annuler.`;
-  document.getElementById("statusConflictSheetBackdrop").classList.remove("hidden");
-}
-
-function closeStatusConflictSheet(choice) {
-  document.getElementById("statusConflictSheetBackdrop").classList.add("hidden");
-  const st = statusConflictState; statusConflictState = null;
-  if (st) st.resolve(choice);
-}
-
-/* Enregistre le statut, en passant par la confirmation ci-dessus si nécessaire.
-   onSuccess(cancelledCount) est appelé une fois le statut effectivement enregistré. */
-async function handleStatusChange(day, slot, statusKey, onSuccess) {
-  if (statusKey !== "coworking") {
-    const { data } = await api("/api/reservations/me");
-    const conflicts = (data || []).filter(r => r.reservation_date === day);
-    if (conflicts.length) {
-      const choice = await new Promise(resolve => openStatusConflictSheet(conflicts, resolve));
-      if (choice === "abort") return;
-      const ok = await setStatus(day, slot, statusKey);
-      if (ok) onSuccess(choice === "cancelled" ? conflicts.length : 0);
-      return;
-    }
-  }
-  const ok = await setStatus(day, slot, statusKey);
-  if (ok) {
-    onSuccess(0);
-    if (statusKey === "coworking") maybeSuggestBooking(day, statusKey);
-  }
 }
 
 /* ============================================================
@@ -1657,11 +1592,10 @@ async function toggleEventRegistrations(eventId) {
 async function renderAdminAccueil() {
   const body = document.getElementById("adminBody");
   body.innerHTML = `<div class="empty">Chargement…</div>`;
-  const [dash, st, links] = await Promise.all([api("/api/admin/dashboard"), api("/api/admin/statuses"), api("/api/admin/links")]);
+  const [dash, links] = await Promise.all([api("/api/admin/dashboard"), api("/api/admin/links")]);
   if (!dash.ok) { body.innerHTML = `<div class="empty">Accès refusé.</div>`; return; }
   adminState = {
     cards: dash.data.cards.slice(), progress: dash.data.project_progress,
-    statusCatalog: ((st.data && st.data.catalog) || []).map(s => ({ ...s })),
     links: links.data || [],
   };
   renderAdminCards();
@@ -1678,13 +1612,6 @@ function renderAdminCards() {
       <div class="admin-title">${c.title}</div>
       <label class="admin-toggle"><input type="checkbox" data-enabled="${i}" ${c.enabled ? "checked" : ""}> Activée</label>
       <label class="admin-toggle"><input type="checkbox" data-highlight="${i}" ${c.highlighted ? "checked" : ""}> Mise en avant</label>
-    </div>`).join("");
-  const statusRows = adminState.statusCatalog.map(s => `
-    <div class="status-admin-row">
-      <input type="checkbox" data-statuskey="${s.key}" ${s.enabled ? "checked" : ""} title="Activé">
-      <input type="color" class="status-color-input" data-key="${s.key}" value="${s.color}" title="Couleur">
-      <input type="text" class="status-label-input" data-key="${s.key}" value="${s.label.replace(/"/g, "&quot;")}" maxlength="60">
-      ${s.builtin ? "" : `<button class="da-del" data-del-status="${s.key}" title="Supprimer">✕</button>`}
     </div>`).join("");
   const linksRows = adminState.links.map(l => `
     <div class="desk-admin-row" data-id="${l.id}">
@@ -1706,15 +1633,6 @@ function renderAdminCards() {
           <input type="range" id="ppRange" min="0" max="100" value="${adminState.progress.value}"></label>
       </div>
     </div>
-    <div class="card"><h3>Statuts de présence proposés</h3>
-      <p class="sub" style="color:var(--muted);margin:0 0 10px">Décoche un statut pour le retirer des choix proposés aux employés, ou ajoutes-en un nouveau.</p>
-      <div class="status-admin-list">${statusRows}</div>
-      <form id="statusAddForm" class="status-add-form">
-        <input id="statusAddLabel" type="text" placeholder="Nouveau statut (ex : Formation)" required maxlength="60">
-        <input id="statusAddColor" type="color" value="#00608D" title="Couleur">
-        <button type="submit" class="btn-save">Ajouter</button>
-      </form>
-    </div>
     <button class="btn-save" id="adminSave">Enregistrer</button>
     <div class="card" style="margin-top:16px">
       <h3>Liens utiles</h3>
@@ -1731,39 +1649,6 @@ function renderAdminCards() {
   body.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => moveCard(+b.dataset.down, 1)));
   body.querySelectorAll("[data-enabled]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.enabled].enabled = cb.checked; }));
   body.querySelectorAll("[data-highlight]").forEach(cb => cb.addEventListener("change", () => { adminState.cards[+cb.dataset.highlight].highlighted = cb.checked; }));
-  body.querySelectorAll("[data-statuskey]").forEach(cb => cb.addEventListener("change", () => {
-    const s = adminState.statusCatalog.find(x => x.key === cb.dataset.statuskey);
-    if (s) s.enabled = cb.checked;
-  }));
-  body.querySelectorAll("[data-del-status]").forEach(b => b.addEventListener("click", async () => {
-    const { ok, data } = await api(`/api/admin/statuses/${b.dataset.delStatus}`, { method: "DELETE" });
-    if (!ok) return toast(data?.detail || "Suppression impossible.", "error");
-    state.statusCatalog = state.statusCatalog.filter(s => s.key !== b.dataset.delStatus);
-    toast("Statut supprimé", "success");
-    renderAdminAccueil();
-  }));
-  body.querySelectorAll(".status-label-input, .status-color-input").forEach(inp => inp.addEventListener("change", async () => {
-    const key = inp.dataset.key;
-    const field = inp.classList.contains("status-color-input") ? "color" : "label";
-    const value = inp.value.trim();
-    if (field === "label" && !value) { toast("Le libellé est obligatoire.", "error"); inp.value = adminState.statusCatalog.find(x => x.key === key).label; return; }
-    const { ok, data } = await api(`/api/admin/statuses/${key}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
-    if (!ok) return toast(data?.detail || "Erreur", "error");
-    const s = adminState.statusCatalog.find(x => x.key === key); if (s) s[field] = data[field];
-    const gs = state.statusCatalog.find(x => x.key === key); if (gs) gs[field] = data[field];
-    toast("Statut mis à jour ✓", "success");
-  }));
-  document.getElementById("statusAddForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const label = document.getElementById("statusAddLabel").value.trim();
-    const color = document.getElementById("statusAddColor").value;
-    if (!label) return;
-    const { ok, data } = await api("/api/admin/statuses", { method: "POST", body: JSON.stringify({ label, color }) });
-    if (!ok) return toast(data?.detail || "Erreur", "error");
-    state.statusCatalog.push(data);
-    toast("Statut ajouté ✓", "success");
-    renderAdminAccueil();
-  });
   const range = document.getElementById("ppRange");
   range.addEventListener("input", () => document.getElementById("ppVal").textContent = range.value);
   document.getElementById("adminSave").addEventListener("click", saveAdmin);
@@ -1799,15 +1684,8 @@ async function saveAdmin() {
     value: +document.getElementById("ppRange").value, label: document.getElementById("ppLabel").value,
     milestone_title: document.getElementById("ppMilestone").value, target_date: document.getElementById("ppTarget").value || null,
   }) });
-  const r3 = await api("/api/admin/statuses", {
-    method: "PUT",
-    body: JSON.stringify({ enabled: adminState.statusCatalog.filter(s => s.enabled).map(s => s.key) }),
-  });
-  if (r1.ok && r2.ok && r3.ok) {
-    const enabledKeys = new Set(adminState.statusCatalog.filter(s => s.enabled).map(s => s.key));
-    state.statusCatalog.forEach(s => { s.enabled = enabledKeys.has(s.key); });
-    toast("Accueil mis à jour ✓", "success");
-  } else toast("Erreur d'enregistrement.", "error");
+  if (r1.ok && r2.ok) toast("Accueil mis à jour ✓", "success");
+  else toast("Erreur d'enregistrement.", "error");
 }
 
 /* ---- Administration : Contenu (sous-onglets Idées / Quiz / Médias) ---- */
@@ -3779,104 +3657,6 @@ function openEvent(id) { openContent("/api/events/" + id, "Événement", "evenem
 function openNews(id) { openContent("/api/news/" + id, "Actualité", "accueil"); }
 
 /* ============================================================
-   VUE : MA PRÉSENCE (déclaration de statut)
-   ============================================================ */
-let presenceState = { days: [], byDay: {}, selected: null };
-
-async function viewPresence() {
-  const view = document.getElementById("view");
-  const days = []; const d = new Date();
-  while (days.length < 7) { if (d.getDay() !== 0 && d.getDay() !== 6) days.push(new Date(d)); d.setDate(d.getDate() + 1); }
-  const from = toLocalISODate(days[0]), to = toLocalISODate(days[days.length - 1]);
-  const rows = (await api(`/api/status/me?from=${from}&to=${to}`)).data || [];
-  const byDay = {}; for (const r of rows) byDay[r.day] = { am: r.status_am, pm: r.status_pm };
-  presenceState = { days, byDay, selected: toLocalISODate(days[0]) };
-
-  view.innerHTML = `
-    <div class="hero-banner presence-hero">
-      <div class="banner-eyebrow">MA PRÉSENCE</div>
-      <div class="banner-title" style="margin-bottom:14px">Où seras-tu cette semaine ?</div>
-      <div class="presence-daystrip" id="presenceDaystrip"></div>
-    </div>
-    <div class="card presence-card">
-      <h3 id="presenceDayTitle"></h3>
-      <div class="presence-status-grid" id="presenceStatusGrid"></div>
-    </div>
-    <div class="card search-section"><h3>Vue de la semaine</h3><div class="list" id="presenceWeekList"></div></div>`;
-  renderPresenceDaystrip();
-  renderPresenceStatusGrid();
-  renderPresenceWeekList();
-}
-
-function renderPresenceDaystrip() {
-  const box = document.getElementById("presenceDaystrip");
-  box.innerHTML = presenceState.days.map(day => {
-    const iso = toLocalISODate(day);
-    const s = presenceState.byDay[iso] || {};
-    const amColor = s.am ? statusColor(s.am) : "transparent";
-    const pmColor = s.pm ? statusColor(s.pm) : "transparent";
-    return `<button class="pd-pill${iso === presenceState.selected ? " active" : ""}" data-day="${iso}">
-      <span class="pd-d">${day.toLocaleDateString("fr-FR", { weekday: "short" })}</span>
-      <span class="pd-n">${day.getDate()}</span>
-      <span class="pd-dot" style="background:linear-gradient(to right, ${amColor} 50%, ${pmColor} 50%)"></span></button>`;
-  }).join("");
-  box.querySelectorAll("[data-day]").forEach(b => b.addEventListener("click", () => {
-    presenceState.selected = b.dataset.day;
-    renderPresenceDaystrip(); renderPresenceStatusGrid();
-  }));
-}
-
-function renderPresenceStatusGrid() {
-  const iso = presenceState.selected;
-  const day = presenceState.days.find(d => toLocalISODate(d) === iso);
-  document.getElementById("presenceDayTitle").textContent = day.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-  const grid = document.getElementById("presenceStatusGrid");
-  const s = presenceState.byDay[iso] || {};
-  const tiles = (slot, current) => enabledStatusEntries().map(([key, lbl]) => `
-    <button class="presence-status-tile${current === key ? " on" : ""}" data-slot="${slot}" data-status="${key}" style="--tile-color:${statusColor(key)}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${statusIcon(key)}</svg>
-      <span>${lbl}</span>
-    </button>`).join("");
-  grid.innerHTML = `
-    <div class="status-half-label">Matin</div>
-    <div class="presence-status-tiles">${tiles("AM", s.am)}</div>
-    <div class="status-half-label">Après-midi</div>
-    <div class="presence-status-tiles">${tiles("PM", s.pm)}</div>`;
-  grid.querySelectorAll("[data-status]").forEach(b => b.addEventListener("click", () => {
-    const slot = b.dataset.slot, statusKey = b.dataset.status;
-    handleStatusChange(iso, slot, statusKey, (cancelledCount) => {
-      presenceState.byDay[iso] = { ...(presenceState.byDay[iso] || {}), [slot === "AM" ? "am" : "pm"]: statusKey };
-      renderPresenceStatusGrid(); renderPresenceDaystrip(); renderPresenceWeekList();
-      if (cancelledCount) refreshPoints(-10 * cancelledCount);
-    });
-  }));
-}
-
-function renderPresenceWeekList() {
-  const box = document.getElementById("presenceWeekList");
-  const badge = (status) => status
-    ? `<span class="ev-status-badge" style="background:${statusColor(status)}22;color:${statusColor(status)}">${statusLabel(status)}</span>`
-    : `<span class="muted">—</span>`;
-  box.innerHTML = presenceState.days.map(day => {
-    const iso = toLocalISODate(day);
-    const s = presenceState.byDay[iso] || {};
-    return `<div class="pres-week-row">
-      <div class="pres-week-day">${day.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</div>
-      <div class="pres-week-slots">
-        <span class="pres-week-slot"><span class="pws-label">Matin</span> ${badge(s.am)}</span>
-        <span class="pres-week-slot"><span class="pws-label">Après-midi</span> ${badge(s.pm)}</span>
-      </div>
-    </div>`;
-  }).join("");
-}
-
-async function setStatus(day, slot, status) {
-  const { ok, data } = await api("/api/status/me", { method: "PUT", body: JSON.stringify({ day, slot, status }) });
-  if (!ok) { toast(data?.detail || "Impossible d'enregistrer.", "error"); return false; }
-  toast("Présence enregistrée ✓", "success"); return true;
-}
-
-/* ============================================================
    VUE : DANS LES LOCAUX (présence physique constatée)
    ------------------------------------------------------------
    Volontairement sans heures d'arrivée ni de départ : les afficher à tous
@@ -3955,12 +3735,14 @@ async function viewLocaux() {
 
   const leaveBtn = document.getElementById("locauxLeaveBtn");
   if (leaveBtn) leaveBtn.addEventListener("click", async () => {
-    const { ok: parti, data: res } = await api("/api/attendance/checkout", { method: "POST" });
-    if (!parti) { toast((res && res.detail) || "Impossible d'enregistrer ton départ.", "error"); return; }
-    attendanceState = res;
-    document.getElementById("leaveBtn").classList.add("hidden");
-    toast("Départ enregistré. Bonne soirée !", "success");
-    viewLocaux();
+    // Même garde-fou que partout ailleurs : partir avec des visiteurs encore
+    // marqués présents pose la question, plutôt que de les oublier sur la liste.
+    await refreshAttendance();
+    if (attendanceState.present && visitorsStillHere().length) { askAboutVisitorsBeforeLeaving(); return; }
+    if (await checkoutRequest(false)) {
+      toast("Départ enregistré. Bonne soirée !", "success");
+      viewLocaux();
+    }
   });
 
   const addBtn = document.getElementById("locauxVisitorAddBtn");
@@ -4452,9 +4234,6 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
   const view = document.getElementById("view");
   document.getElementById("pageTitle").textContent = isOwn ? "Mon profil" : data.name;
 
-  const statusRows = data.upcoming_status.map(s => `
-    <div class="event-item"><span class="event-date">${fdate(s.day, { weekday: "short", day: "numeric" })}</span>
-      <span class="event-title">Matin : ${s.status_am ? statusLabel(s.status_am) : "—"} · Après-midi : ${s.status_pm ? statusLabel(s.status_pm) : "—"}</span></div>`).join("") || `<div class="empty">Aucun statut déclaré.</div>`;
   const resRows = data.upcoming_reservations.map(r => `
     <div class="event-item"><span class="event-date">${fdate(r.date, { day: "numeric", month: "short" })}</span>
       <span class="event-title">Poste ${r.desk} · ${slotLabel(r.slot)}</span></div>`).join("") || `<div class="empty">Aucune réservation à venir.</div>`;
@@ -4485,7 +4264,6 @@ function renderProfileView(data, { isOwn, backLabel, backRoute }) {
     </div>
     <div class="card search-section"><h3>Badges <span class="badge-count">${data.badges.filter(b => b.earned).length}/${data.badges.length}</span></h3>
       <div class="badges-grid">${badgesHtml}</div></div>
-    <div class="card search-section"><h3>Présence des prochains jours</h3><div class="list">${statusRows}</div></div>
     <div class="card search-section"><h3>Réservations à venir</h3><div class="list">${resRows}</div></div>
     <div class="card search-section"><h3>Idées soumises</h3><div class="list">${ideaRows}</div></div>
     <div class="card search-section"><h3>Quiz passés</h3><div class="list">${quizRows}</div></div>
@@ -4579,16 +4357,15 @@ function viewAide() {
         <p>Dans les bureaux fermés (Bureau 1 et 2), tu réserves soit un siège précis, soit toute la salle d'un coup avec "Réserver toute la salle", pratique pour une réunion d'équipe. Un seul poste déjà pris dans la salle suffit à bloquer cette option, peu importe qui l'a réservé.</p>
         <p>Dans l'open space, certains postes portent une petite icône (écran, debout, calme, fenêtre...) qui signale leurs particularités. Un clic ou un survol suffit pour les voir avant de te décider.</p>
         <p>Les bulles calmes (BC-1, BC-2) sont pensées pour un appel ou un moment de concentration. Elles se réservent par créneau horaire libre plutôt que par demi-journée, et ne rapportent volontairement pas de points : ça évite qu'on les réserve juste pour gonfler son score. Elles ne comptent pas non plus dans le taux d'occupation affiché sur l'accueil.</p>
-        <p>Quelques garde-fous s'appliquent à tout le monde : un horizon maximum fixé par l'admin (affiché en haut de la page Réserver), et un nombre de jours ouvrés consécutifs limité. Le week-end est réservable, mais une confirmation te rappelle que c'est un samedi ou un dimanche. Tu peux annuler à tout moment depuis "Mes réservations" ou l'accueil.</p>
-        ${warn(`Le jour J, pense à cliquer <b>"Je suis arrivé"</b> une fois sur place. Une demi-journée réservée mais jamais confirmée devient un no-show : -10 points, sans rattrapage possible après coup.`)}
-        ${tip(`Tu déclares le statut "Coworking" sans avoir encore réservé ? L'app te propose de le faire directement, pas besoin de changer d'écran.`)}`,
+        <p>Un seul garde-fou s'applique à tout le monde : un horizon maximum fixé par l'admin (affiché en haut de la page Réserver). Le week-end est réservable, mais une confirmation te rappelle que c'est un samedi ou un dimanche. Tu peux réserver la même place autant de jours d'affilée que tu veux, et annuler à tout moment depuis "Mes réservations" ou l'accueil.</p>
+        ${warn(`Le jour J, pense à cliquer <b>"Je suis arrivé"</b> une fois sur place. Une demi-journée réservée mais jamais confirmée devient un no-show : -10 points, sans rattrapage possible après coup.`)}`,
     },
     {
       id: "presence",
-      title: "Déclarer sa présence",
-      a: `<p>Dans "Ma présence", ou directement sur l'accueil, indique ton statut pour le matin et l'après-midi séparément : coworking, télétravail, déplacement, congé, ou un statut propre à ton équipe si l'admin en a créé un.</p>
-        <p>Si tu changes de statut un jour où tu as déjà une réservation, l'app te prévient et te laisse choisir entre la garder ou l'annuler. Rien n'est décidé à ta place.</p>
-        <p>La page affiche aussi un aperçu de ta semaine complète, pratique pour visualiser tes prochains jours d'un coup d'œil.</p>`,
+      title: "Confirmer sa présence",
+      a: `<p>Le matin en arrivant, clique "Je suis arrivé" : depuis le bandeau de l'accueil, le pop-up du matin ou l'icône de présence en haut à droite. Le soir, "J'enregistre mon départ" au même endroit. C'est le geste le plus important de l'app : en cas d'évacuation, la liste des personnes dans le bâtiment vient de là.</p>
+        <p>Tu reçois quelqu'un d'extérieur ? Déclare-le (nom et société) depuis la même feuille, même sans lui réserver de place. Il apparaît dans "Dans les locaux" et compte dans la liste d'évacuation. Si tu pars avant lui, l'app te demande s'il part avec toi.</p>
+        <p>La vue "Dans les locaux" montre en temps réel qui est présent, employés et visiteurs. Les présences oubliées se ferment automatiquement le soir.</p>`,
     },
     {
       id: "gamification",
@@ -4630,7 +4407,7 @@ function viewAide() {
       id: "recherche",
       title: "Recherche et notifications",
       a: `<p>La loupe en haut de l'écran cherche partout à la fois : collègues (nom, email), événements et actualités de l'intranet, idées (titre, description), liens utiles. Les résultats sont groupés par catégorie.</p>
-        <p>Clique sur un collègue pour ouvrir son profil public : son statut des prochains jours, ses réservations à venir, ses idées signées (les anonymes le restent) et ses résultats de quiz.</p>
+        <p>Clique sur un collègue pour ouvrir son profil public : ses réservations à venir, ses idées signées (les anonymes le restent) et ses résultats de quiz.</p>
         <p>La cloche affiche tes notifications : rappels d'événements et annonces de l'équipe. Le badge rouge compte les non-lues et se met à jour tout seul. Clique une notification pour la marquer lue, "Tout marquer lu" pour vider le badge d'un coup, ou la croix pour la supprimer. Pas d'email ni de notification Teams pour l'instant, tout se passe dans l'app.</p>`,
     },
     {
@@ -4647,7 +4424,7 @@ function viewAide() {
     title: "Administration (accès restreint)",
     a: `<p>Visible seulement par une liste restreinte de personnes, indépendamment du rôle sur l'intranet WordPress. Un aperçu de ce qu'on peut configurer, onglet par onglet :</p>
       <ul>
-        <li><b>Accueil</b> : active, désactive et réordonne les cartes du tableau de bord, configure le jalon "Building Our Future Home" et les statuts de présence proposés.</li>
+        <li><b>Accueil</b> : active, désactive et réordonne les cartes du tableau de bord, configure le jalon "Building Our Future Home" et les liens utiles.</li>
         <li><b>Coworking</b> : postes (création, désactivation, caractéristiques, position sur le plan), horizon de réservation, noms des salles et bulles.</li>
         <li><b>Événements</b> : capacité par événement, liste des inscrits et de la liste d'attente, envoi d'une notification manuelle à tous les inscrits.</li>
         <li><b>Contenu</b> : idées (workflow de statut), quiz (création et édition, y compris en mode sondage), médias (ajout, édition), badges (création, attribution ou retrait manuel, points associés).</li>
@@ -4673,7 +4450,7 @@ function viewAide() {
     id: "faq",
     title: "Questions fréquentes",
     a: `<ul>
-          <li><b>Je n'arrive pas à réserver un jour précis.</b> Deux causes possibles : c'est au-delà de l'horizon autorisé (affiché en haut de la page Réserver), ou tu as déjà atteint ton maximum de jours ouvrés consécutifs.</li>
+          <li><b>Je n'arrive pas à réserver un jour précis.</b> C'est probablement au-delà de l'horizon autorisé (affiché en haut de la page Réserver).</li>
           <li><b>J'ai perdu des points sans comprendre pourquoi.</b> Regarde du côté d'une réservation jamais confirmée par "Je suis arrivé" (no-show, -10 points), ou d'une annulation d'une réservation déjà validée.</li>
           <li><b>"Réserver toute la salle" refuse.</b> Il suffit qu'un seul poste actif de la salle soit déjà pris pour bloquer toute la salle sur ce créneau.</li>
           <li><b>Je ne vois pas l'onglet Administration.</b> Il est réservé à une liste restreinte de personnes, indépendamment de ton rôle sur l'intranet.</li>

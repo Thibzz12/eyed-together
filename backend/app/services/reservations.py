@@ -6,7 +6,9 @@ Règles appliquées :
     (demande d'Olivier du 29/08/2026 : certains viennent le samedi, les en
     empêcher servait moins que de leur faire confirmer qu'ils savent) ;
   - horizon max de réservation : MAX_ADVANCE_DAYS jours calendaires ;
-  - max MAX_CONSECUTIVE_DAYS jours ouvrés consécutifs réservés par un même employé ;
+  - plus de limite de jours consécutifs depuis le 25/09/2026 : EyeD attribue
+    certaines places de façon fixe, la règle bloquait cet usage (mail d'Olivier
+    du 18/09/2026) ;
   - un employé ne peut pas réserver 2 postes sur le même créneau ;
   - anti-doublon garanti par la base (index unique partiel) → capturé en 409 ;
   - on ne peut annuler que SES propres réservations (ownership) ;
@@ -31,7 +33,6 @@ from app.services.gamification import POINTS_PER_BOOKING, award_points
 
 # Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
 DEFAULT_MAX_ADVANCE_DAYS = 7  # horizon par défaut, si jamais configuré par l'admin (cf. get_booking_advance_days)
-MAX_CONSECUTIVE_DAYS = 5    # max de jours ouvrés consécutifs réservés d'affilée
 _ADVANCE_DAYS_KEY = "booking_advance_days"
 
 
@@ -176,63 +177,18 @@ class BookingWindowExceeded(ReservationError):
     status_code = 400
 
 
-class ConsecutiveLimitExceeded(ReservationError):
-    status_code = 409
-
-
-def _is_weekend(day: date) -> bool:
-    return day.weekday() >= 5  # 5=samedi, 6=dimanche
-
-
-def _adjacent_weekday(day: date, step: int) -> date:
-    """Jour ouvré suivant (step=+1) ou précédent (step=-1), en sautant les week-ends."""
-    d = day + timedelta(days=step)
-    while _is_weekend(d):
-        d += timedelta(days=step)
-    return d
-
-
 def _check_booking_policy(db: Session, user_id: int, target: date) -> None:
-    """Vérifie l'horizon max et la limite de jours ouvrés consécutifs.
+    """Vérifie l'horizon max de réservation.
 
-    Le week-end n'est plus refusé : c'est l'interface qui demande confirmation
-    avant d'envoyer un samedi ou un dimanche. La série de jours consécutifs
-    continue de ne compter que les jours ouvrés — venir un samedi n'entame pas
-    le quota de la semaine.
+    Le week-end n'est pas refusé : c'est l'interface qui demande confirmation
+    avant d'envoyer un samedi ou un dimanche. La limite de jours ouvrés
+    consécutifs a été retirée le 25/09/2026 : EyeD attribue certaines places
+    de façon fixe, réserver la même place toute la semaine (et au-delà) est
+    devenu l'usage normal, plus un abus (mail d'Olivier du 18/09/2026).
     """
     advance_days = get_booking_advance_days(db)
     if target > date.today() + timedelta(days=advance_days):
         raise BookingWindowExceeded(f"Impossible de réserver plus de {advance_days} jours à l'avance.")
-
-    if _is_weekend(target):
-        return  # hors quota : la série ne compte que les jours ouvrés
-
-    # Jours (ouvrés) où l'employé a déjà une réservation active, autour de la date visée.
-    window_start = target - timedelta(days=MAX_CONSECUTIVE_DAYS + 2)
-    window_end = target + timedelta(days=MAX_CONSECUTIVE_DAYS + 2)
-    rows = db.scalars(
-        select(m.Reservation.reservation_date).where(
-            m.Reservation.user_id == user_id,
-            m.Reservation.status == m.ReservationStatus.BOOKED,
-            m.Reservation.reservation_date >= window_start,
-            m.Reservation.reservation_date <= window_end,
-        ).distinct()
-    )
-    booked_days = set(rows) | {target}
-
-    # Longueur de la série de jours ouvrés consécutifs incluant la date visée.
-    run_length = 1
-    d = target
-    while _adjacent_weekday(d, -1) in booked_days:
-        d = _adjacent_weekday(d, -1); run_length += 1
-    d = target
-    while _adjacent_weekday(d, +1) in booked_days:
-        d = _adjacent_weekday(d, +1); run_length += 1
-
-    if run_length > MAX_CONSECUTIVE_DAYS:
-        raise ConsecutiveLimitExceeded(
-            f"Impossible de réserver plus de {MAX_CONSECUTIVE_DAYS} jours ouvrés d'affilée."
-        )
 
 
 # --------------------------------------------------------------------------
@@ -1140,8 +1096,7 @@ def book_timeslot(
 ) -> m.Reservation:
     """Réserve une bulle calme sur un créneau libre en minutes (pas de demi-journée).
 
-    Pas de limite de jours consécutifs (non pertinent pour un créneau de quelques minutes),
-    ni de points de gamification (éviterait un farming par réservations à répétition).
+    Pas de points de gamification (éviterait un farming par réservations à répétition).
     """
     if reservation_date < date.today():
         raise PastDate("Impossible de réserver une date déjà passée.")
@@ -1335,9 +1290,9 @@ def _lot_honore(db: Session, user_id: int, reservation: m.Reservation) -> bool:
 #  une équipe à replacer : jusqu'ici il fallait demander à l'intéressé de le
 #  faire lui-même, ou toucher à la base.
 #
-#  Un administrateur n'est pas soumis à la politique de réservation (horizon,
-#  jours consécutifs) : ces règles existent pour empêcher un employé de bloquer
-#  la moitié du mois, pas pour l'empêcher, lui, de corriger un planning. Restent
+#  Un administrateur n'est pas soumis à la politique de réservation (horizon
+#  max) : cette règle existe pour cadrer les employés, pas pour l'empêcher,
+#  lui, de corriger un planning. Restent
 #  opposables les contraintes physiques : pas de date passée, pas deux personnes
 #  sur la même place au même créneau, pas de place fermée ou désactivée.
 

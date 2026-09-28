@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>EyeD Together</title>
   <link rel="stylesheet" href="/static/fonts/brand.css">
-  <link rel="stylesheet" href="/static/styles.css?v=78">
+  <link rel="stylesheet" href="/static/styles.css?v=79">
 </head>
 <body>
 
@@ -39,8 +39,6 @@
           <svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg><span class="nav-label">Réserver une place</span></a>
         <a data-route="evenements" class="nav-link" title="Événements">
           <svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span class="nav-label">Événements</span></a>
-        <a data-route="presence" class="nav-link" title="Ma présence">
-          <svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg><span class="nav-label">Ma présence</span></a>
         <a data-route="locaux" class="nav-link" title="Dans les locaux">
           <svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg><span class="nav-label">Dans les locaux</span></a>
         <a data-route="recompenses" class="nav-link" title="Récompenses">
@@ -116,8 +114,10 @@
       <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M5 19v2M19 19v2"/></svg></span><span>Réserver</span></a>
     <a data-route="evenements" class="tab-link">
       <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span>Événements</span></a>
-    <a data-route="presence" class="tab-link">
-      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M20 6L9 17l-5-5"/></svg></span><span>Présence</span></a>
+    <!-- L'onglet pointe sur « Dans les locaux » : la déclaration de statut a été
+         retirée (mail d'Olivier du 18/09/2026), la présence physique est LE geste. -->
+    <a data-route="locaux" class="tab-link">
+      <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/></svg></span><span>Présence</span></a>
     <a data-route="profil" class="tab-link">
       <span class="tab-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><span>Profil</span></a>
   </nav>
@@ -174,21 +174,6 @@
         <button class="btn sheet-cancel" id="podCancelBtn">Annuler</button>
         <button class="btn btn-primary sheet-confirm" id="podConfirmBtn">Réserver</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Confirmation quand on change de statut alors qu'une résa existe déjà ce jour-là -->
-  <div id="statusConflictSheetBackdrop" class="sheet-backdrop hidden">
-    <div class="sheet" id="statusConflictSheet">
-      <div class="sheet-handle"></div>
-      <div class="sheet-eyebrow">Réservation existante</div>
-      <div class="sheet-title">Tu as une place réservée ce jour</div>
-      <div class="sheet-sub" id="statusConflictSub"></div>
-      <div class="sheet-actions">
-        <button class="btn sheet-cancel" id="statusConflictKeepBtn">Garder ma réservation</button>
-        <button class="btn btn-primary sheet-confirm danger" id="statusConflictCancelResBtn">Annuler la réservation</button>
-      </div>
-      <button class="btn-back" id="statusConflictBackBtn">← Ne rien changer</button>
     </div>
   </div>
 
@@ -270,6 +255,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=97"></script>
+  <script src="/static/app.js?v=98"></script>
 </body>
 </html>

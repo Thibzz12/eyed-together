@@ -55,27 +55,21 @@ def test_le_dimanche_est_reservable(db, desk, employee, prochain_samedi):
     assert resa.reservation_date == dimanche
 
 
-def test_le_week_end_n_entame_pas_le_quota_de_jours_consecutifs(db, desk, employee, prochain_samedi):
-    """La limite porte sur les jours OUVRÉS d'affilée : venir un samedi ne compte pas."""
+def test_plus_de_limite_de_jours_consecutifs(db, desk, employee):
+    """Demande d'Olivier du 18/09/2026 : certaines places sont attribuées de façon
+    fixe, réserver la même place tous les jours ouvrés d'affilée doit passer.
+    L'ancienne règle bloquait au-delà de 5 jours consécutifs."""
     svc.set_booking_advance_days(db, 30)
 
-    # Les cinq jours ouvrés qui précèdent le samedi visé, soit le quota complet.
-    jour = prochain_samedi
-    for _ in range(svc.MAX_CONSECUTIVE_DAYS):
-        jour -= timedelta(days=1)
-        while jour.weekday() >= 5:
-            jour -= timedelta(days=1)
-        db.add(m.Reservation(
-            user_id=employee.id, desk_id=desk.id, reservation_date=jour,
-            slot=m.ReservationSlot.AM,
-        ))
-    db.commit()
-
-    # Le samedi passe quand même : il n'allonge pas la série.
-    resa = svc.create_reservation(db, employee.id, ReservationCreate(
-        desk_id=desk.id, reservation_date=prochain_samedi, slot="AM",
-    ))
-    assert resa.reservation_date == prochain_samedi
+    jour, reservees = date.today(), 0
+    while reservees < 10:
+        if jour.weekday() < 5:
+            resa = svc.create_reservation(db, employee.id, ReservationCreate(
+                desk_id=desk.id, reservation_date=jour, slot="AM",
+            ))
+            assert resa.reservation_date == jour
+            reservees += 1
+        jour += timedelta(days=1)
 
 
 def test_l_horizon_reste_oppose_le_week_end(db, desk, employee):

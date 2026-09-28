@@ -339,12 +339,17 @@ def dashboard(db: Session = Depends(get_db), user: dict = Depends(get_current_us
 
 @router.get("/admin/dashboard")
 def admin_dashboard(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Toutes les cartes (admin) pour configuration."""
+    """Toutes les cartes (admin) pour configuration.
+
+    La carte "presence" (déclaration de statut) n'est plus proposée : la
+    fonctionnalité est retirée de l'app (mail d'Olivier du 18/09/2026), la
+    ligne reste en base pour pouvoir revenir en arrière.
+    """
     cards = db.scalars(select(m.DashboardCard).order_by(m.DashboardCard.position)).all()
     return {
         "cards": [
             {"id": c.id, "key": c.key, "title": c.title, "enabled": c.enabled, "highlighted": c.highlighted}
-            for c in cards
+            for c in cards if c.key != "presence"
         ],
         "project_progress": _project_progress_settings(db),
     }
@@ -1375,7 +1380,7 @@ async def admin_floorplan_upload(
 
 # ---------------------------------------------------------------- Réservations (administration)
 #  Créer, déplacer ou supprimer la réservation de quelqu'un d'autre. Les règles de
-#  politique (horizon, jours consécutifs) ne s'appliquent pas à un administrateur :
+#  politique (horizon max) ne s'appliquent pas à un administrateur :
 #  elles servent à répartir les places entre employés, pas à l'empêcher de corriger
 #  un planning. Les contraintes physiques, elles, restent opposables.
 @router.get("/admin/reservations")
