@@ -97,13 +97,6 @@ class DeskAvailability(BaseModel):
     unavailable: bool = False
 
 
-# ---------------------------------------------------------------- Réservation de salle entière
-class RoomBookingCreate(BaseModel):
-    zone: str                              # "Bureau 1" ou "Bureau 2"
-    reservation_date: date
-    slot: Literal["AM", "PM", "DAY"]
-
-
 class RoomLabelUpdate(BaseModel):
     ref: str        # "Bureau 1" / "Bureau 2" / "BC-1" / "BC-2"
     label: str
@@ -180,34 +173,6 @@ class ProjectProgress(BaseModel):
     label: str
     milestone_title: str = "Nouveaux locaux"
     target_date: date | None = None
-
-
-class StatusesUpdate(BaseModel):
-    enabled: list[str]
-
-
-# ---------------------------------------------------------------- Statut de présence (déclaration)
-class DailyStatusRead(BaseModel):
-    day: date
-    status_am: str | None = None
-    status_pm: str | None = None
-    model_config = ConfigDict(from_attributes=True)
-
-
-class DailyStatusDeclare(BaseModel):
-    day: date
-    slot: Literal["AM", "PM"]
-    status: str  # clé du catalogue de statuts (admin.dashboard.get_status_catalog), pas un enum figé
-
-
-class CustomStatusCreate(BaseModel):
-    label: str
-    color: str = "#64707A"
-
-
-class CustomStatusUpdate(BaseModel):
-    label: str | None = None
-    color: str | None = None
 
 
 class ReservationPolicyUpdate(BaseModel):
@@ -397,14 +362,6 @@ class MediaCreate(BaseModel):
 
 
 # ---------------------------------------------------------------- Présence (gamification)
-class PresenceEntry(BaseModel):
-    """Qui est présent (a réservé) pour une date donnée."""
-    user_name: str
-    department: str | None = None
-    desk_name: str
-    slot: ReservationSlot
-
-
 # ---------------------------------------------------------------- Présence dans les locaux
 class VisitorCreate(BaseModel):
     """Déclaration d'un visiteur externe par le collègue qui l'accompagne."""
@@ -460,3 +417,55 @@ class FeatureIconRule(BaseModel):
 
 class FeatureIconsUpdate(BaseModel):
     rules: list[FeatureIconRule]
+
+
+# ---------------------------------------------------------------- Appareils partagés
+class DeviceLinkCreate(BaseModel):
+    kind: Literal["screen", "kiosk"]
+    label: str = Field(min_length=1, max_length=80)
+
+
+class DeviceLinkRead(BaseModel):
+    id: int
+    kind: str
+    label: str
+    url: str                      # le lien complet à ouvrir sur l'appareil
+    created_at: datetime | None = None
+    revoked_at: datetime | None = None
+    last_seen_at: datetime | None = None
+
+
+class ScreenColors(BaseModel):
+    bg1: str = Field(default="#0F2836", pattern=r"^#[0-9A-Fa-f]{6}$")
+    bg2: str = Field(default="#04141D", pattern=r"^#[0-9A-Fa-f]{6}$")
+    text: str = Field(default="#FFFFFF", pattern=r"^#[0-9A-Fa-f]{6}$")
+    accent: str = Field(default="#7EC8E3", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class ScreenSettings(BaseModel):
+    """Personnalisation de l'écran du plan du jour, réglée par l'admin."""
+    title: str = Field(default="Plan du jour", max_length=60)
+    message: str = Field(default="", max_length=200)
+    preset: Literal["sombre", "clair", "eyed", "perso"] = "sombre"
+    colors: ScreenColors = Field(default_factory=ScreenColors)
+    bg_dim: int = Field(default=60, ge=0, le=100)
+    show_clock: bool = True
+    show_stats: bool = True
+    show_legend: bool = True
+    show_logo: bool = True
+    plan_size: Literal["auto", "large"] = "auto"
+
+
+class KioskAction(BaseModel):
+    """Une personne pointe depuis la tablette de l'entrée."""
+    user_id: int
+    # Au départ seulement : ses visiteurs encore présents partent-ils avec elle ?
+    with_visitors: bool = False
+
+
+class ScreenSettingsRead(ScreenSettings):
+    # Dérivés de l'image de fond en base, jamais envoyés par l'admin.
+    has_background: bool = False
+    background_version: str | None = None
+    # Préréglages de couleurs proposés par l'administration (une seule liste, côté serveur).
+    presets: dict[str, ScreenColors] = Field(default_factory=dict)

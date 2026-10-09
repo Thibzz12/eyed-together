@@ -1,143 +1,48 @@
 """Assemblage du tableau de bord d'accueil (cartes + données live)."""
 
-import json
-import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.timezone import local_today
 from app.db import models as m
 from app.services import events as events_svc
 from app.services import reservations as res_svc
+from app.services.settings import get_settings
 from app.services.wordpress import fetch_event_detail, fetch_events, fetch_news
 
 
-class DashboardError(Exception):
-    """Erreur métier générique (catalogue de statuts, réglages d'accueil…)."""
-    status_code = 400
+def project_progress_settings(db: Session) -> dict:
+    """Le jalon « Building Our Future Home » : valeur, libellé, titre, date cible.
 
-
-def get_setting(db: Session, key: str, default: str = "") -> str:
-    row = db.get(m.AppSetting, key)
-    return row.value if row else default
-
-
-def get_settings(db: Session, keys: list[str]) -> dict[str, str]:
-    """Version groupée de get_setting (1 requête au lieu d'une par clé) — pour les blocs
-    qui lisent plusieurs réglages d'un coup (ex: project_progress, chargé à chaque dashboard)."""
-    rows = db.scalars(select(m.AppSetting).where(m.AppSetting.key.in_(keys)))
-    values = {row.key: row.value for row in rows}
-    return {key: values.get(key, "") for key in keys}
-
-
-# ------------------------------------------------------------------
-#  Catalogue des statuts de présence (4 statuts de base + statuts
-#  personnalisés ajoutés par l'admin) — stocké en JSON dans AppSetting
-#  plutôt qu'un enum Python figé, pour permettre l'ajout depuis l'admin.
-# ------------------------------------------------------------------
-_STATUS_CATALOG_KEY = "status_catalog"
-_DEFAULT_STATUS_CATALOG = [
-    {"key": "coworking", "label": "Coworking", "color": "#00608D", "enabled": True, "builtin": True},
-    {"key": "teletravail", "label": "Télétravail", "color": "#7C3AED", "enabled": True, "builtin": True},
-    {"key": "deplacement", "label": "Déplacement", "color": "#B4761C", "enabled": True, "builtin": True},
-    {"key": "conge", "label": "Congé", "color": "#94A3B8", "enabled": True, "builtin": True},
-]
-
-
-def get_status_catalog(db: Session) -> list[dict]:
-    """Catalogue complet (base + personnalisés), chacun avec clé/libellé/couleur/activé."""
-    raw = get_setting(db, _STATUS_CATALOG_KEY, "")
-    if raw:
+    Lu par la carte d'accueil et par l'écran d'administration : une seule
+    lecture, un seul défaut (« Nouveaux locaux »).
+    """
+    settings = get_settings(db, [
+        "project_progress_value", "project_progress_label", "project_milestone_title", "project_target_date",
+    ])
+    target_raw = settings["project_target_date"]
+    days_left = None
+    if target_raw:
         try:
-            catalog = json.loads(raw)
-            if catalog:
-                return catalog
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return [dict(s) for s in _DEFAULT_STATUS_CATALOG]
-
-
-def _save_status_catalog(db: Session, catalog: list[dict]) -> None:
-    set_setting(db, _STATUS_CATALOG_KEY, json.dumps(catalog))
-    db.commit()
-
-
-def get_enabled_statuses(db: Session) -> list[str]:
-    """Clés des statuts actuellement proposés aux employés (jamais une liste vide)."""
-    enabled = [s["key"] for s in get_status_catalog(db) if s.get("enabled")]
-    return enabled or [s["key"] for s in _DEFAULT_STATUS_CATALOG]
-
-
-def set_enabled_statuses(db: Session, keys: list[str]) -> None:
-    """Active/désactive des statuts existants (le reste du catalogue ne bouge pas)."""
-    catalog = get_status_catalog(db)
-    keys_set = set(keys)
-    for s in catalog:
-        s["enabled"] = s["key"] in keys_set
-    if not any(s["enabled"] for s in catalog):
-        catalog = [dict(s) for s in _DEFAULT_STATUS_CATALOG]  # jamais tout désactivé
-    _save_status_catalog(db, catalog)
-
-
-def add_custom_status(db: Session, label: str, color: str) -> dict:
-    """Ajoute un statut personnalisé (label + couleur choisis par l'admin) au catalogue."""
-    label = (label or "").strip()
-    if not label:
-        raise DashboardError("Le libellé est obligatoire.")
-    color = (color or "#64707A").strip()
-    catalog = get_status_catalog(db)
-    base = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "statut"
-    key, existing, i = base, {s["key"] for s in catalog}, 2
-    while key in existing:
-        key = f"{base}_{i}"; i += 1
-    entry = {"key": key, "label": label, "color": color, "enabled": True, "builtin": False}
-    catalog.append(entry)
-    _save_status_catalog(db, catalog)
-    return entry
-
-
-def update_status(db: Session, key: str, label: str | None, color: str | None) -> dict:
-    """Modifie le libellé et/ou la couleur d'un statut existant (base ou personnalisé)."""
-    catalog = get_status_catalog(db)
-    target = next((s for s in catalog if s["key"] == key), None)
-    if target is None:
-        raise DashboardError("Statut inconnu.")
-    if label is not None:
-        label = label.strip()
-        if not label:
-            raise DashboardError("Le libellé est obligatoire.")
-        target["label"] = label
-    if color is not None and color.strip():
-        target["color"] = color.strip()
-    _save_status_catalog(db, catalog)
-    return target
-
-
-def delete_custom_status(db: Session, key: str) -> None:
-    """Supprime un statut personnalisé (les statuts de base ne se désactivent, jamais ne se suppriment)."""
-    catalog = get_status_catalog(db)
-    target = next((s for s in catalog if s["key"] == key), None)
-    if target is None:
-        return
-    if target.get("builtin"):
-        raise DashboardError("Les statuts de base ne peuvent pas être supprimés, seulement désactivés.")
-    _save_status_catalog(db, [s for s in catalog if s["key"] != key])
-
-
-def set_setting(db: Session, key: str, value: str) -> None:
-    row = db.get(m.AppSetting, key)
-    if row is None:
-        db.add(m.AppSetting(key=key, value=value))
-    else:
-        row.value = value
+            days_left = (date.fromisoformat(target_raw) - local_today()).days
+        except ValueError:
+            days_left = None
+    return {
+        "value": int(settings["project_progress_value"] or 0),
+        "label": settings["project_progress_label"],
+        "milestone_title": settings["project_milestone_title"] or "Nouveaux locaux",
+        "target_date": target_raw or None,
+        "days_left": days_left,
+    }
 
 
 def get_birthdays(db: Session) -> dict:
     """Anniversaires du jour + des 7 prochains jours (auto-déclarés par chacun dans son profil).
     Comparaison sur jour/mois uniquement, l'année de naissance n'est jamais utilisée."""
-    today = date.today()
+    today = local_today()
     users = db.scalars(select(m.User).where(m.User.birthday.isnot(None)))
     today_list, upcoming = [], []
     for u in users:
@@ -167,7 +72,7 @@ def coworking_status(db: Session) -> dict:
     Les bulles calmes ne comptent pas dans la capacité : ce sont des créneaux de 15 min,
     pas des postes de travail au même titre que les bureaux/l'open space.
     """
-    today = date.today()
+    today = local_today()
     total = db.scalar(
         select(func.count()).select_from(m.Desk).where(m.Desk.is_active.is_(True), m.Desk.zone != "Bulles calmes")
     ) or 0
@@ -186,35 +91,24 @@ def _card_data(db: Session, key: str, user_id: int, wp_cache: dict | None = None
     if key == "coworking_status":
         return coworking_status(db)
     if key == "next_reservation":
-        mine = res_svc.my_reservations(db, user_id)
+        # La place prise pour un visiteur n'est pas « ma réservation » : elle ne
+        # doit ni occuper la carte, ni réclamer un « Je suis arrivé » à l'hôte.
+        mine = [
+            r for r in res_svc.my_reservations(db, user_id)
+            if r.is_group_booking or not r.occupant_name
+        ]
         if not mine:
             return None
         r = mine[0]
         return {
             "reservation_id": r.id, "desk": r.desk.name, "date": r.reservation_date.isoformat(),
-            "slot": r.slot.value, "is_today": r.reservation_date == date.today(),
+            "slot": r.slot.value, "is_today": r.reservation_date == local_today(),
             "checked_in": r.checked_in_at is not None,
         }
     if key == "project_progress":
-        settings = get_settings(db, [
-            "project_target_date", "project_progress_value", "project_progress_label", "project_milestone_title",
-        ])
-        target_raw = settings["project_target_date"]
-        days_left = None
-        if target_raw:
-            try:
-                days_left = (date.fromisoformat(target_raw) - date.today()).days
-            except ValueError:
-                days_left = None
-        return {
-            "value": int(settings["project_progress_value"] or 0),
-            "label": settings["project_progress_label"],
-            "milestone_title": settings["project_milestone_title"] or "Nouveaux locaux",
-            "days_left": days_left,
-        }
+        return project_progress_settings(db)
     if key == "team_presence":
-        rows = res_svc.presence(db, date.today())
-        return [{"name": r.user.display_name, "desk": r.desk.name} for r in rows]
+        return res_svc.presence(db, local_today())
     if key == "events":
         return wp_cache.get("events") if "events" in wp_cache else fetch_events(limit=5)
     if key == "news":
@@ -252,12 +146,6 @@ def build_dashboard(db: Session, user_id: int) -> list[dict]:
     cards = db.scalars(
         select(m.DashboardCard).where(m.DashboardCard.enabled.is_(True)).order_by(m.DashboardCard.position)
     ).all()
-    # La carte de déclaration de statut (coworking/télétravail/voyage…) est retirée
-    # de l'app : elle faisait doublon avec la confirmation d'arrivée, seule la
-    # question incendie reste (mail d'Olivier du 18/09/2026). La ligne en base et
-    # les données DailyStatus sont conservées : filtrer ici suffit à la faire
-    # disparaître partout, et la décision reste réversible.
-    cards = [c for c in cards if c.key != "presence"]
     enabled_keys = {c.key for c in cards}
 
     wp_cache: dict = {}

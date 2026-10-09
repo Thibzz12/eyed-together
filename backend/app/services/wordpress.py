@@ -13,11 +13,11 @@ import html
 import json
 import re
 import time
-from datetime import datetime
 
 import httpx
 
 from app.core.config import settings
+from app.core.timezone import local_today
 
 # Petit cache mémoire pour ne pas solliciter l'intranet à chaque appel.
 _CACHE: dict[str, tuple[float, list]] = {}
@@ -233,7 +233,7 @@ def fetch_events(limit: int = 6) -> list[dict]:
                 })
             _CACHE["events"] = (now, all_events)
 
-    today_iso = datetime.now().date().isoformat()
+    today_iso = local_today().isoformat()
     upcoming = [e for e in all_events if e["date"][:10] >= today_iso]
     upcoming.sort(key=lambda e: e["date"])
     return upcoming[:limit]

@@ -4,6 +4,7 @@ Le journal `PointTransaction` est la source de vérité (append-only, auditable)
 `user.total_points` n'en est que le cumul, mis à jour en même temps.
 """
 
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from app.db import models as m
@@ -64,4 +65,11 @@ def award_points(db: Session, user_id: int, amount: int, reason: str) -> None:
     if user is None:
         return
     db.add(m.PointTransaction(user_id=user_id, amount=amount, reason=reason))
-    user.total_points = (user.total_points or 0) + amount
+    # Incrément fait par la base (UPDATE ... SET total_points = total_points + n)
+    # et non lu-modifié-écrit en Python : deux requêtes simultanées pour la même
+    # personne (deux onglets, double clic) s'additionnent au lieu de s'écraser.
+    db.execute(
+        update(m.User).where(m.User.id == user_id)
+        .values(total_points=func.coalesce(m.User.total_points, 0) + amount)
+    )
+    db.expire(user, ["total_points"])

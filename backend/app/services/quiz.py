@@ -7,12 +7,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
+from app.core.errors import AppError
 from app.services.gamification import award_points
 
 POINTS_PER_CORRECT_ANSWER = 2
 
 
-class QuizError(Exception):
+class QuizError(AppError):
     status_code = 400
 
 

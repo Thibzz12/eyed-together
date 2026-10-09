@@ -36,20 +36,8 @@ async function api(path, options = {}) {
   return { ok: res.ok, status: res.status, data };
 }
 function colorFor(n) { let s = 0; for (const c of n || "?") s += c.charCodeAt(0); return PALETTE[s % PALETTE.length]; }
-function initials(n) { return (n || "?").split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase(); }
-/* Acronyme à quatre lettres affiché SUR LES PLACES : deux lettres du prénom, deux du
-   nom. Olivier Vanbrabant donne OLVA. C'est la notation qu'ils utilisent déjà en
-   interne, et deux lettres seules créaient trop d'homonymes.
-   Les avatars ronds gardent deux lettres : quatre caractères y seraient illisibles.
-   Les accents sont retirés, un acronyme en capitales accentuées se lit mal. */
-function deskAcronym(n) {
-  const propre = (n || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const mots = propre.split(/[\s-]+/).filter(Boolean);
-  if (!mots.length) return "?";
-  if (mots.length === 1) return mots[0].slice(0, 4).toUpperCase();
-  // Prénom + dernier mot du nom : « Jean Paul Dupont » donne JEDU, pas JEPA.
-  return (mots[0].slice(0, 2) + mots[mots.length - 1].slice(0, 2)).toUpperCase();
-}
+/* initials, deskAcronym, escapeHtml et sansAccents viennent de shared.js,
+   partagé avec l'écran du couloir et la tablette de l'entrée. */
 /* URL de l'image du plan, versionnée par la date de son dernier remplacement.
    Une nouvelle image donne une nouvelle URL : rien à invalider, là où les
    en-têtes de cache seuls laissaient réapparaître l'ancien plan jusqu'au F5. */
@@ -61,10 +49,6 @@ function slotLabel(s) { return s === "AM" ? "Matin" : s === "PM" ? "Après-midi"
 /* Échappe le texte libre (saisi par un admin : badges, etc.) avant de l'insérer dans du HTML
    construit à la main — évite qu'un badge malveillant exécute du JS dans la session de
    n'importe quel employé consultant un profil. */
-function escapeHtml(s) {
-  return (s ?? "").toString().replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
 /* Caractéristiques d'un poste (texte libre, admin) affichées en petites étiquettes avec icône
    pendant la réservation. Icône choisie par mot-clé (100% libre côté admin, pas de catalogue
    à maintenir), avec une icône générique en repli pour tout ce qui n'est pas reconnu. */
@@ -349,13 +333,42 @@ function renderPresenceCta() {
     <div class="pcta-actions">
       <button class="pcta-btn${a.present ? " leave" : ""}" data-pcta-open>${
         a.present ? "J'enregistre mon départ" : a.arrived ? "Je suis de retour" : "Je suis arrivé"}</button>
+      <button class="pcta-link" data-pcta-visiteur>Déclarer un visiteur</button>
       <button class="pcta-link" data-pcta-locaux>Qui est là ?</button>
     </div>`;
+  // Un seul clic : le bouton agit directement, il n'ouvre plus la feuille où il
+  // fallait confirmer une seconde fois (« on doit toujours confirmer 2 fois
+  // qu'on est là », Olivier, 02/10/2026). La feuille reste accessible pour les
+  // visiteurs, et la question « tes visiteurs partent aussi ? » est préservée.
   box.querySelector("[data-pcta-open]").addEventListener("click", async () => {
+    await refreshAttendance();
+    if (attendanceState.present) {
+      if (visitorsStillHere().length) { askAboutVisitorsBeforeLeaving(); return; }
+      if (await checkoutRequest(false)) toast("Départ enregistré. Bonne soirée !", "success");
+      return;
+    }
+    const { ok, data } = await api("/api/attendance/checkin", { method: "POST" });
+    if (!ok) { toast((data && data.detail) || "Impossible d'enregistrer ton arrivée.", "error"); return; }
+    attendanceState = data;
+    await refreshAttendance();
+    toast("Arrivée confirmée ✓", "success");
+    resyncPoints();
+    rafraichirAccueilSiVisible();
+  });
+  box.querySelector("[data-pcta-visiteur]").addEventListener("click", async () => {
     await refreshAttendance();
     openArrivalSheet();
   });
   box.querySelector("[data-pcta-locaux]").addEventListener("click", () => goTo("locaux"));
+}
+
+/* Après une arrivée ou un départ, l'accueil peut montrer des boutons périmés :
+   la carte « Ma réservation » proposait encore son propre « Je suis arrivé »
+   alors que l'arrivée venait d'être confirmée ailleurs, deuxième moitié du
+   « confirmer 2 fois » signalé par Olivier. On re-rend la vue si c'est elle
+   qui est affichée. */
+function rafraichirAccueilSiVisible() {
+  if ((location.hash.replace("#", "") || "accueil") === "accueil") viewAccueil();
 }
 
 async function maybeShowArrivalSheet() {
@@ -455,6 +468,7 @@ async function checkoutRequest(withVisitors) {
   attendanceState = data;
   await refreshAttendance();
   closeArrivalSheet();
+  rafraichirAccueilSiVisible();
   return true;
 }
 
@@ -527,6 +541,7 @@ function initAttendanceUi() {
     closeArrivalSheet();
     toast("Arrivée confirmée ✓", "success");
     resyncPoints();
+    rafraichirAccueilSiVisible();
   });
 
   document.getElementById("arrivalDismissBtn").addEventListener("click", () => {
@@ -663,8 +678,16 @@ async function init() {
   router();
 }
 
-function toggleMobileMenu() { document.querySelector(".sidebar").classList.toggle("open"); }
 function closeMobileMenu() { document.querySelector(".sidebar").classList.remove("open"); }
+
+/* Confirmer sa présence sur une réservation du jour, depuis l'accueil ou la
+   page Réserver : même appel, même message, puis le rendu que l'appelant choisit. */
+async function confirmerArrivee(reservationId, apres) {
+  const { ok, data } = await api(`/api/reservations/${reservationId}/checkin`, { method: "POST" });
+  if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
+  toast("Présence confirmée ✓", "success");
+  apres();
+}
 
 const ROUTES = {
   accueil: { title: "Accueil", render: viewAccueil },
@@ -866,13 +889,12 @@ function wireDashboard(today) {
   view.querySelectorAll("[data-cancel-next]").forEach(el => el.addEventListener("click", async () => {
     const { ok, data } = await api(`/api/reservations/${el.dataset.cancelNext}`, { method: "DELETE" });
     if (!ok) return toast(data?.detail || "Annulation impossible.", "error");
-    refreshPoints(-10); toast("Réservation annulée."); viewAccueil();
+    // Une journée rend 20 points, une place attribuée par un collègue zéro :
+    // le serveur sait, pas l'interface.
+    await resyncPoints(); toast("Réservation annulée."); viewAccueil();
   }));
-  view.querySelectorAll("[data-checkin]").forEach(el => el.addEventListener("click", async () => {
-    const { ok, data } = await api(`/api/reservations/${el.dataset.checkin}/checkin`, { method: "POST" });
-    if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
-    toast("Présence confirmée ✓", "success"); viewAccueil();
-  }));
+  view.querySelectorAll("[data-checkin]").forEach(el => el.addEventListener("click", () =>
+    confirmerArrivee(el.dataset.checkin, viewAccueil)));
 }
 
 /* ============================================================
@@ -1672,6 +1694,15 @@ function renderAdminCards() {
   body.querySelectorAll("[data-del-link]").forEach(b => b.addEventListener("click", () => delLink(+b.dataset.delLink)));
 }
 
+/* L'aperçu de l'écran du couloir (admin > Coworking) est la vraie page de
+   l'écran en 1600x900, réduite à la largeur de sa boîte. */
+function ajusterApercuEcran() {
+  const boite = document.querySelector(".screen-preview-box");
+  const cadre = document.getElementById("scrPreview");
+  if (!boite || !cadre) return;
+  cadre.style.transform = `scale(${boite.clientWidth / 1600})`;
+}
+
 function moveCard(i, dir) {
   const j = i + dir; if (j < 0 || j >= adminState.cards.length) return;
   const a = adminState.cards; [a[i], a[j]] = [a[j], a[i]]; renderAdminCards();
@@ -2293,6 +2324,62 @@ async function renderAdminEspaces() {
       <label class="admin-toggle">Ouvre les réservations
         <input type="number" id="advanceDaysInput" min="1" max="30" value="${advanceDays}" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit">
         jour(s) à l'avance</label>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Écran d'affichage et tablette de pointage</h3>
+      <div class="card-note">Deux appareils sans connexion : un <b>grand écran</b> dans le couloir qui montre le plan du jour, et une <b>tablette</b> à l'entrée où chacun touche son nom pour confirmer son arrivée ou son départ. Crée un lien par appareil, ouvre-le une fois dans son navigateur (plein écran avec F11 sur l'écran), c'est tout. Révoque le lien si l'appareil change de mains.</div>
+      <div id="deviceLinks" class="device-list"></div>
+      <div class="visitor-form">
+        <select id="deviceKind" class="room-label-input" style="flex:0 0 auto">
+          <option value="screen">Écran : plan du jour</option>
+          <option value="kiosk">Tablette de pointage</option>
+        </select>
+        <input id="deviceLabel" maxlength="80" placeholder="Nom de l'appareil (ex : écran du couloir, tablette de l'entrée)">
+        <button class="btn btn-ghost" id="deviceAddBtn" type="button">Créer le lien</button>
+      </div>
+      <div class="dispo-eyebrow" style="margin-top:18px">Personnaliser l'écran</div>
+      <div class="card-note">L'aperçu réagit à chaque changement. Rien ne part sur les écrans avant « Enregistrer » ; ensuite ils s'adaptent dans les dix secondes.</div>
+      <div class="screen-preview-box"><iframe id="scrPreview" src="/ecran/apercu?apercu=1" title="Aperçu de l'écran" tabindex="-1"></iframe></div>
+      <div class="screen-form">
+        <div class="screen-form-col">
+          <div class="dispo-eyebrow">Textes</div>
+          <label class="screen-field">Titre <input class="room-label-input" id="scrTitle" maxlength="60" placeholder="Plan du jour"></label>
+          <label class="screen-field">Message affiché <input class="room-label-input" id="scrMessage" maxlength="200" placeholder="ex : Réunion d'équipe 14h, salle 2 (vide = rien)"></label>
+          <div class="dispo-eyebrow" style="margin-top:10px">Éléments affichés</div>
+          <div class="toggle-list">
+            <label class="toggle-row"><input type="checkbox" id="scrLogo"> <span>Logo EyeD</span></label>
+            <label class="toggle-row"><input type="checkbox" id="scrClock"> <span>Horloge</span></label>
+            <label class="toggle-row"><input type="checkbox" id="scrStats"> <span>Compteurs réservées / libres</span></label>
+            <label class="toggle-row"><input type="checkbox" id="scrLegend"> <span>Légende des couleurs</span></label>
+          </div>
+          <label class="screen-field" style="margin-top:8px">Taille du plan
+            <select class="room-label-input" id="scrPlanSize"><option value="auto">Ajusté à l'écran</option><option value="large">Pleine largeur</option></select></label>
+        </div>
+        <div class="screen-form-col">
+          <div class="dispo-eyebrow">Couleurs</div>
+          <div class="screen-presets">
+            <button type="button" class="screen-preset" data-preset="sombre"><span style="background:linear-gradient(135deg,#0F2836,#04141D)"></span>Sombre</button>
+            <button type="button" class="screen-preset" data-preset="clair"><span style="background:linear-gradient(135deg,#F3F6F9,#DCE6EE)"></span>Clair</button>
+            <button type="button" class="screen-preset" data-preset="eyed"><span style="background:linear-gradient(135deg,#00608D,#4FB3D9)"></span>Bleu EyeD</button>
+          </div>
+          <div class="screen-colors">
+            <label>Fond haut <input type="color" id="scrBg1"></label>
+            <label>Fond bas <input type="color" id="scrBg2"></label>
+            <label>Texte <input type="color" id="scrText"></label>
+            <label>Accent <input type="color" id="scrAccent"></label>
+          </div>
+          <div class="dispo-eyebrow" style="margin-top:10px">Image de fond</div>
+          <div class="card-note">Une photo des locaux, un visuel de campagne… 5 Mo maximum. Le voile assombrit l'image pour garder le plan lisible.</div>
+          <div class="visitor-form">
+            <input type="file" id="scrBgFile" accept="image/*">
+            <button class="btn btn-ghost" id="scrBgUploadBtn" type="button">Envoyer</button>
+            <button class="btn btn-ghost" id="scrBgRemoveBtn" type="button">Retirer</button>
+          </div>
+          <label class="screen-field">Voile <span class="muted" id="scrDimVal"></span>
+            <input type="range" id="scrDim" min="0" max="100" step="5"></label>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="scrSaveBtn" type="button" style="margin-top:12px">Enregistrer l'écran</button>
     </div>`;
   for (const [zone, desks] of Object.entries(groups)) {
     const active = desks.filter(d => d.is_active).length;
@@ -2728,6 +2815,156 @@ async function renderAdminEspaces() {
     state.advanceDays = days;
     toast("Horizon de réservation enregistré ✓", "success");
   });
+
+  // --- Appareils partagés : liens d'écran d'affichage ---
+  const KIND_LABEL = { screen: "Écran : plan du jour", kiosk: "Tablette de pointage" };
+  async function renderDeviceLinks() {
+    const box = document.getElementById("deviceLinks");
+    if (!box) return;
+    const { ok: okL, data: liens } = await api("/api/admin/devices");
+    if (!okL) { box.innerHTML = `<div class="empty">Liste indisponible.</div>`; return; }
+    const actifs = (liens || []).filter(l => !l.revoked_at);
+    box.innerHTML = actifs.length ? actifs.map(l => {
+      const vu = l.last_seen_at
+        ? "vu " + new Date(l.last_seen_at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+        : "jamais ouvert";
+      return `<div class="device-row" data-device="${l.id}">
+        <div class="device-id"><b>${escapeHtml(l.label)}</b><small>${KIND_LABEL[l.kind] || l.kind} · ${vu}</small></div>
+        <input class="device-url" value="${escapeHtml(l.url)}" readonly>
+        <button class="btn btn-ghost" data-device-copy="${l.id}" type="button">Copier</button>
+        <button class="da-del" data-device-revoke="${l.id}" title="Révoquer ce lien">✕</button>
+      </div>`;
+    }).join("") : `<div class="empty">Aucun écran pour l'instant.</div>`;
+
+    box.querySelectorAll("[data-device-copy]").forEach(b => b.addEventListener("click", async () => {
+      const url = b.closest(".device-row").querySelector(".device-url").value;
+      try { await navigator.clipboard.writeText(url); toast("Lien copié ✓", "success"); }
+      catch (_) { b.closest(".device-row").querySelector(".device-url").select(); toast("Sélectionne le lien et copie-le (Ctrl+C).", "error"); }
+    }));
+    // Révocation en deux clics : le second confirme, un clic distrait ne coupe
+    // pas un écran qui tourne dans le couloir.
+    box.querySelectorAll("[data-device-revoke]").forEach(b => b.addEventListener("click", async () => {
+      if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Révoquer ?"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "✕"; }, 4000); return; }
+      const { ok: okR, data: res } = await api(`/api/admin/devices/${b.dataset.deviceRevoke}`, { method: "DELETE" });
+      if (!okR) return toast((res && res.detail) || "Révocation impossible.", "error");
+      toast("Lien révoqué. L'écran affiche maintenant « lien plus valable ».", "success");
+      renderDeviceLinks();
+    }));
+  }
+  renderDeviceLinks();
+
+  // --- Personnalisation de l'écran, avec aperçu en direct ---
+  // L'aperçu est la vraie page de l'écran, chargée en mode « apercu » : elle
+  // reçoit les réglages du formulaire par postMessage à chaque modification,
+  // avant tout enregistrement. Ce que l'admin voit est ce que l'écran montrera.
+  // Les préréglages de couleurs viennent du serveur avec les réglages : une
+  // seule liste fait foi, l'interface n'en garde pas de copie.
+  let PRESETS = {};
+  const fond = { has_background: false, background_version: null };
+  const $ = (id) => document.getElementById(id);
+
+  function reglagesDuFormulaire() {
+    return {
+      title: $("scrTitle").value.trim() || "Plan du jour",
+      message: $("scrMessage").value.trim(),
+      preset: $("scrPreview").dataset.preset || "perso",
+      colors: { bg1: $("scrBg1").value, bg2: $("scrBg2").value, text: $("scrText").value, accent: $("scrAccent").value },
+      bg_dim: +$("scrDim").value,
+      show_clock: $("scrClock").checked, show_stats: $("scrStats").checked,
+      show_legend: $("scrLegend").checked, show_logo: $("scrLogo").checked,
+      plan_size: $("scrPlanSize").value,
+    };
+  }
+  function marquerPreset(nom) {
+    $("scrPreview").dataset.preset = nom;
+    document.querySelectorAll(".screen-preset").forEach(b => b.classList.toggle("active", b.dataset.preset === nom));
+  }
+  function envoyerApercu() {
+    $("scrDimVal").textContent = $("scrDim").value + " %";
+    const cadre = $("scrPreview");
+    if (cadre && cadre.contentWindow) {
+      cadre.contentWindow.postMessage({ type: "eyed-screen-settings", settings: { ...reglagesDuFormulaire(), ...fond } }, location.origin);
+    }
+  }
+  function remplirFormulaire(s) {
+    PRESETS = s.presets || PRESETS;
+    $("scrTitle").value = s.title || "";
+    $("scrMessage").value = s.message || "";
+    const c = s.colors || PRESETS.sombre;
+    $("scrBg1").value = c.bg1; $("scrBg2").value = c.bg2; $("scrText").value = c.text; $("scrAccent").value = c.accent;
+    $("scrDim").value = s.bg_dim ?? 60;
+    $("scrLogo").checked = s.show_logo !== false;
+    $("scrClock").checked = s.show_clock !== false;
+    $("scrStats").checked = s.show_stats !== false;
+    $("scrLegend").checked = s.show_legend !== false;
+    $("scrPlanSize").value = s.plan_size || "auto";
+    fond.has_background = !!s.has_background;
+    fond.background_version = s.background_version || null;
+    marquerPreset(s.preset || "perso");
+    envoyerApercu();
+  }
+  ajusterApercuEcran();
+  // Un seul écouteur de redimensionnement pour toute la vie de la page : cette
+  // vue se re-rend à chaque visite de l'onglet, empiler un écouteur par visite
+  // finirait par retenir chaque rendu en mémoire.
+  window.removeEventListener("resize", ajusterApercuEcran);
+  window.addEventListener("resize", ajusterApercuEcran);
+  $("scrPreview").addEventListener("load", envoyerApercu);
+
+  (async () => {
+    const { ok: okS, data: s } = await api("/api/admin/screen-settings");
+    if (okS && s) remplirFormulaire(s);
+  })();
+  ["scrTitle", "scrMessage", "scrDim", "scrLogo", "scrClock", "scrStats", "scrLegend", "scrPlanSize"].forEach(id => {
+    $(id).addEventListener("input", envoyerApercu);
+    $(id).addEventListener("change", envoyerApercu);
+  });
+  ["scrBg1", "scrBg2", "scrText", "scrAccent"].forEach(id => {
+    $(id).addEventListener("input", () => { marquerPreset("perso"); envoyerApercu(); });
+  });
+  document.querySelectorAll(".screen-preset").forEach(b => b.addEventListener("click", () => {
+    const c = PRESETS[b.dataset.preset];
+    if (!c) return;
+    $("scrBg1").value = c.bg1; $("scrBg2").value = c.bg2; $("scrText").value = c.text; $("scrAccent").value = c.accent;
+    marquerPreset(b.dataset.preset);
+    envoyerApercu();
+  }));
+  $("scrBgUploadBtn").addEventListener("click", async () => {
+    const fichier = $("scrBgFile").files && $("scrBgFile").files[0];
+    if (!fichier) { toast("Choisis une image.", "error"); return; }
+    const corps = new FormData();
+    corps.append("file", fichier);
+    const res = await fetch("/api/admin/screen-background", { method: "POST", credentials: "same-origin", body: corps });
+    let data = null; try { data = await res.json(); } catch (_) {}
+    if (!res.ok) { toast((data && data.detail) || "Envoi impossible.", "error"); return; }
+    $("scrBgFile").value = "";
+    fond.has_background = true; fond.background_version = data.version;
+    envoyerApercu();
+    toast(`Image de fond en place (${Math.round(data.bytes / 1024)} Ko) ✓`, "success");
+  });
+  $("scrBgRemoveBtn").addEventListener("click", async () => {
+    const { ok: okD, data: res } = await api("/api/admin/screen-background", { method: "DELETE" });
+    if (!okD) return toast((res && res.detail) || "Suppression impossible.", "error");
+    fond.has_background = false; fond.background_version = null;
+    envoyerApercu();
+    toast("Image de fond retirée.", "success");
+  });
+  $("scrSaveBtn").addEventListener("click", async () => {
+    const { ok: okS, data: res } = await api("/api/admin/screen-settings", { method: "PUT", body: JSON.stringify(reglagesDuFormulaire()) });
+    if (!okS) return toast((res && res.detail) || "Enregistrement impossible.", "error");
+    toast("Écran enregistré ✓ Les écrans s'adaptent dans les dix secondes.", "success");
+  });
+
+  document.getElementById("deviceAddBtn").addEventListener("click", async () => {
+    const label = document.getElementById("deviceLabel").value.trim();
+    const kind = document.getElementById("deviceKind").value;
+    if (!label) { toast("Donne un nom à l'appareil.", "error"); return; }
+    const { ok: okC, data: res } = await api("/api/admin/devices", { method: "POST", body: JSON.stringify({ kind, label }) });
+    if (!okC) return toast((res && res.detail) || "Création impossible.", "error");
+    document.getElementById("deviceLabel").value = "";
+    toast(`Lien créé ✓ Copie-le et ouvre-le sur ${kind === "kiosk" ? "la tablette" : "l'écran"}.`, "success");
+    renderDeviceLinks();
+  });
 }
 
 async function patchDesk(id, patch) {
@@ -2898,9 +3135,9 @@ async function loadReserve() {
   const groupResults = await Promise.all(
     refs.map(r => api(`/api/reservations/group?ref=${encodeURIComponent(r)}&date=${state.date}`))
   );
-  state.myRoomReservations = {};
+  state.myGroupReservations = {};
   refs.forEach((r, i) => {
-    state.myRoomReservations[r] = (groupResults[i].data && groupResults[i].data.reservation_ids) || [];
+    state.myGroupReservations[r] = (groupResults[i].data && groupResults[i].data.reservation_ids) || [];
   });
 
   const podDesks = state.availability.filter(x => x.desk.zone === "Bulles calmes").map(x => x.desk);
@@ -3021,7 +3258,7 @@ function renderTables() {
       return `<button class="room-book-btn" disabled title="Espace rendu indisponible par l'administration">${Mot} indisponible</button>`;
     }
 
-    const myIds = (state.myRoomReservations && state.myRoomReservations[t.key]) || [];
+    const myIds = (state.myGroupReservations && state.myGroupReservations[t.key]) || [];
     if (myIds.length) return `<button class="room-book-btn mine" data-group-ref="${t.key}">${Mot} réservée (vous) · Annuler</button>`;
     if (t.items.every(x => x.is_available)) return `<button class="room-book-btn" data-group-ref="${t.key}">Réserver toute la ${mot}</button>`;
     return `<button class="room-book-btn" disabled title="Une place de cette ${mot} est déjà réservée">${Mot} indisponible</button>`;
@@ -3071,7 +3308,7 @@ let groupSheetState = null;   // { ref, label, isRoom, seats: [...] }
 let groupSlot = "DAY";
 
 function onGroupButtonClick(ref) {
-  const myIds = (state.myRoomReservations && state.myRoomReservations[ref]) || [];
+  const myIds = (state.myGroupReservations && state.myGroupReservations[ref]) || [];
   const espace = state.spaces.find(g => g.ref === ref) || {};
   const label = espace.label || ref;
   const mot = espace.kind === "room" ? "Salle" : "Table";
@@ -3079,7 +3316,8 @@ function onGroupButtonClick(ref) {
   // Espace déjà réservé par moi : on repasse par la feuille de confirmation
   // existante, qui sait annuler un lot de réservations d'un coup.
   if (myIds.length) {
-    state.selected = { type: "room", zone: ref, name: `${mot} — ${label}`, mine: true, resIds: myIds };
+    // « group » : une salle fermée OU une table de l'open space, réservée d'un bloc.
+    state.selected = { type: "group", zone: ref, name: `${mot} — ${label}`, mine: true, resIds: myIds, mot: mot.toLowerCase() };
     openReserveSheet();
     return;
   }
@@ -3206,9 +3444,11 @@ async function confirmGroupSheet() {
   });
   if (!ok) return toast((data && data.detail) || "Réservation impossible.", "error");
 
-  const pts = groupSlot === "DAY" ? 20 : 10;
-  refreshPoints(+pts); floatPoint();
-  toast(`${st.isRoom ? "Salle" : "Table"} réservée ! +${pts} points ⭐`, "success");
+  const avant = state.profile.total_points;
+  await resyncPoints();
+  const gagnes = state.profile.total_points - avant;
+  if (gagnes > 0) floatPoint(gagnes);
+  toast(`${st.isRoom ? "Salle" : "Table"} réservée !${gagnes > 0 ? ` +${gagnes} points ⭐` : ""}`, "success");
   closeGroupSheet();
   loadReserve();
 }
@@ -3305,7 +3545,7 @@ function clearSelection() {
 }
 function openReserveSheet() {
   if (!state.selected) return;
-  const isRoom = state.selected.type === "room";
+  const isRoom = state.selected.type === "group";
   sheetSlot = "DAY";
   document.getElementById("sheetTitle").textContent = isRoom ? state.selected.name : "Poste " + state.selected.name;
   document.getElementById("sheetSub").textContent = isRoom
@@ -3323,8 +3563,10 @@ function openReserveSheet() {
   const confirmBtn = document.getElementById("sheetConfirmBtn");
   if (state.selected.mine) {
     durationBox.classList.add("hidden"); mine.classList.remove("hidden");
-    mine.textContent = isRoom ? "Tu as déjà réservé cette salle pour ce créneau." : "Tu as déjà réservé ce poste pour ce créneau.";
-    confirmBtn.textContent = isRoom ? "Annuler la réservation de la salle" : "Annuler la réservation"; confirmBtn.classList.add("danger");
+    // « salle » ou « table » : une table de l'open space n'est pas une salle.
+    const mot = state.selected.mot || "salle";
+    mine.textContent = isRoom ? `Tu as déjà réservé cette ${mot} pour ce créneau.` : "Tu as déjà réservé ce poste pour ce créneau.";
+    confirmBtn.textContent = isRoom ? `Annuler la réservation de la ${mot}` : "Annuler la réservation"; confirmBtn.classList.add("danger");
   } else {
     durationBox.classList.remove("hidden"); mine.classList.add("hidden");
     confirmBtn.textContent = "Confirmer"; confirmBtn.classList.remove("danger");
@@ -3371,8 +3613,9 @@ function renderSheetGuestSuggestions() {
 
 async function confirmSheet() {
   if (!state.selected) return;
-  if (state.selected.mine) { await cancelRes(state.selected.resIds[0], "Espace libéré."); }
-  else if (state.selected.type === "room") await bookRoom(state.selected.zone, sheetSlot);
+  if (state.selected.mine) {
+    await libererEspace(state.selected.resIds, state.selected.type === "group" ? "Espace libéré." : "Réservation annulée.");
+  }
   else {
     const blocInvite = document.getElementById("sheetGuestBlock");
     const invite = blocInvite.classList.contains("hidden")
@@ -3460,8 +3703,14 @@ function renderMyReservations() {
     const isTimeslot = r.slot === "timeslot";
     const isToday = r.reservation_date === todayIso;
     const el = document.createElement("div"); el.className = "res-item";
-    const checkinBtn = isToday && !isTimeslot
+    // Place prise pour un visiteur : elle porte son nom, et c'est la présence de
+    // l'hôte (moi) qui compte, pas un « Je suis arrivé » sur la place de l'invité.
+    const pourInvite = !r.is_group_booking && r.occupant && r.occupant !== state.profile.name;
+    const checkinBtn = isToday && !isTimeslot && !pourInvite
       ? (r.checked_in_at ? `<span class="res-checked">✓ Présent</span>` : `<button class="checkin" data-checkin="${r.id}">Je suis arrivé</button>`)
+      : "";
+    const invite = pourInvite
+      ? `<small class="res-occupants">Pour ${escapeHtml(r.occupant)}${r.occupant_company ? ` (${escapeHtml(r.occupant_company)})` : ""}</small>`
       : "";
     const slotText = isTimeslot ? `${r.start_time.slice(0, 5)}–${r.end_time.slice(0, 5)}`
       : r.fullDay ? "Journée" : slotLabel(r.slot);
@@ -3474,7 +3723,7 @@ function renderMyReservations() {
     el.innerHTML = `<div class="info">
         <b>${escapeHtml(r.desk.name)}${zone}</b>
         <small>${fdate(r.reservation_date, { weekday: "short", day: "numeric", month: "short" })} · ${slotText}</small>
-        ${parQui}
+        ${parQui}${invite}
         ${featureTagsHtml(r.desk.features)}
       </div>
       <div class="res-item-actions">${checkinBtn}<button class="cancel">${attribuee ? "Me retirer" : "Annuler"}</button></div>`;
@@ -3482,11 +3731,7 @@ function renderMyReservations() {
       ? cancelPodBooking(r.id)
       : cancelRes(r.id, attribuee ? "Tu t'es retiré de cette place." : "Réservation annulée."));
     const cb = el.querySelector("[data-checkin]");
-    if (cb) cb.addEventListener("click", async () => {
-      const { ok, data } = await api(`/api/reservations/${r.id}/checkin`, { method: "POST" });
-      if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
-      toast("Présence confirmée ✓", "success"); loadReserve();
-    });
+    if (cb) cb.addEventListener("click", () => confirmerArrivee(r.id, loadReserve));
     box.appendChild(el);
   }
 }
@@ -3514,11 +3759,7 @@ function groupResItem(entree, todayIso) {
 
   el.querySelector(".cancel").addEventListener("click", () => releaseGroup(entree));
   const cb = el.querySelector("[data-checkin]");
-  if (cb) cb.addEventListener("click", async () => {
-    const { ok, data } = await api(`/api/reservations/${moi.id}/checkin`, { method: "POST" });
-    if (!ok) return toast(data?.detail || "Check-in impossible.", "error");
-    toast("Présence confirmée ✓", "success"); loadReserve();
-  });
+  if (cb) cb.addEventListener("click", () => confirmerArrivee(moi.id, loadReserve));
   return el;
 }
 
@@ -3533,14 +3774,14 @@ async function book(deskId, slot, guestName = null, guestCompany = null) {
     toast(`Place réservée pour ${guestName} ✓`, "success"); loadReserve();
     return;
   }
-  const pts = slot === "DAY" ? 20 : 10;
-  refreshPoints(+pts); floatPoint(); toast(`Réservé ! +${pts} points ⭐`, "success"); loadReserve();
-}
-async function bookRoom(zone, slot) {
-  const { ok, data } = await api("/api/reservations/room", { method: "POST", body: JSON.stringify({ zone, reservation_date: state.date, slot }) });
-  if (!ok) return toast(data?.detail || "Réservation de la salle impossible.", "error");
-  const pts = slot === "DAY" ? 20 : 10;
-  refreshPoints(+pts); floatPoint(); toast(`Salle réservée ! +${pts} points ⭐`, "success"); loadReserve();
+  // Le barème vit côté serveur (/api/rewards) : on relit le solde plutôt que de
+  // recopier « 10 ou 20 » ici, où il divergerait au premier ajustement.
+  const avant = state.profile.total_points;
+  await resyncPoints();
+  const gagnes = state.profile.total_points - avant;
+  if (gagnes > 0) floatPoint(gagnes);
+  toast(gagnes > 0 ? `Réservé ! +${gagnes} points ⭐` : "Réservé !", "success");
+  loadReserve();
 }
 /* Une même route sert trois gestes, le serveur décide lequel selon qui demande :
    annuler sa réservation, libérer tout un espace qu'on a réservé, ou se retirer
@@ -3554,8 +3795,28 @@ async function cancelRes(id, message = "Réservation annulée.") {
   return true;
 }
 
-/* Libère un espace réservé d'un bloc. Une seule demande suffit : le serveur
-   annule tout le lot, les autres places n'auraient plus rien à annuler. */
+/* Libère un espace depuis le plan, où la sélection porte TOUTES les lignes du
+   jour (matin et après-midi d'une « Journée »). Le serveur annule un lot entier
+   par créneau : la première annulation emporte le matin, une suivante
+   l'après-midi, les autres n'ont plus rien à annuler et répondent « déjà
+   annulée », ce qu'on ignore. Avant, seule la première ligne était demandée et
+   l'après-midi restait bloqué en silence (audit du 07/10/2026). */
+async function libererEspace(ids, message) {
+  let liberes = 0;
+  for (const id of ids || []) {
+    const { ok } = await api(`/api/reservations/${id}`, { method: "DELETE" });
+    if (ok) liberes++;
+  }
+  if (!liberes) { toast("Annulation impossible.", "error"); return false; }
+  await resyncPoints();
+  toast(message);
+  loadReserve();
+  return true;
+}
+
+/* Libère un espace réservé d'un bloc depuis « Mes réservations », où chaque
+   demi-journée est une entrée : une seule demande suffit, le serveur annule
+   tout le lot de ce créneau. */
 async function releaseGroup(entree) {
   const espace = (state.spaces || []).find(g => g.ref === entree.ref) || {};
   const mot = espace.kind === "room" ? "Salle libérée." : "Table libérée.";
@@ -4364,6 +4625,7 @@ function viewAide() {
       id: "presence",
       title: "Confirmer sa présence",
       a: `<p>Le matin en arrivant, clique "Je suis arrivé" : depuis le bandeau de l'accueil, le pop-up du matin ou l'icône de présence en haut à droite. Le soir, "J'enregistre mon départ" au même endroit. C'est le geste le plus important de l'app : en cas d'évacuation, la liste des personnes dans le bâtiment vient de là.</p>
+        <p>Une tablette à l'entrée propose le même geste sans ordinateur : touche ton nom, confirme, c'est fait. Arriver confirme aussi ta réservation du jour, inutile de le redire sur la carte. Le grand écran du couloir montre le plan du jour avec les places réservées, pour retrouver la tienne d'un coup d'œil.</p>
         <p>Tu reçois quelqu'un d'extérieur ? Déclare-le (nom et société) depuis la même feuille, même sans lui réserver de place. Il apparaît dans "Dans les locaux" et compte dans la liste d'évacuation. Si tu pars avant lui, l'app te demande s'il part avec toi.</p>
         <p>La vue "Dans les locaux" montre en temps réel qui est présent, employés et visiteurs. Les présences oubliées se ferment automatiquement le soir.</p>`,
     },
@@ -4425,7 +4687,8 @@ function viewAide() {
     a: `<p>Visible seulement par une liste restreinte de personnes, indépendamment du rôle sur l'intranet WordPress. Un aperçu de ce qu'on peut configurer, onglet par onglet :</p>
       <ul>
         <li><b>Accueil</b> : active, désactive et réordonne les cartes du tableau de bord, configure le jalon "Building Our Future Home" et les liens utiles.</li>
-        <li><b>Coworking</b> : postes (création, désactivation, caractéristiques, position sur le plan), horizon de réservation, noms des salles et bulles.</li>
+        <li><b>Coworking</b> : postes (création, désactivation, caractéristiques, position sur le plan), horizon de réservation, noms des salles et bulles, liens pour l'écran du couloir et la tablette de l'entrée, personnalisation de l'écran avec aperçu.</li>
+        <li><b>Présence</b> : qui est dans les locaux aujourd'hui, heures comprises, export du relevé pour l'évacuation, heure de clôture automatique.</li>
         <li><b>Événements</b> : capacité par événement, liste des inscrits et de la liste d'attente, envoi d'une notification manuelle à tous les inscrits.</li>
         <li><b>Contenu</b> : idées (workflow de statut), quiz (création et édition, y compris en mode sondage), médias (ajout, édition), badges (création, attribution ou retrait manuel, points associés).</li>
         <li><b>Collaborateurs</b> : renseigner l'anniversaire de n'importe qui, faute d'une source fiable côté intranet.</li>
@@ -4513,28 +4776,15 @@ function viewAide() {
 }
 
 /* ---------------- Effets ---------------- */
-function floatPoint() {
+function floatPoint(gagnes = 10) {
   const pill = document.getElementById("pointsPill"); const r = pill.getBoundingClientRect();
-  const f = document.createElement("div"); f.className = "float-point"; f.textContent = "+10 ⭐";
+  const f = document.createElement("div"); f.className = "float-point"; f.textContent = `+${gagnes} ⭐`;
   f.style.left = r.left + "px"; f.style.top = r.top + "px"; document.body.appendChild(f); setTimeout(() => f.remove(), 1000);
 }
 let toastTimer;
 function toast(msg, type = "") {
   const t = document.getElementById("toast"); t.textContent = msg; t.className = "toast show " + type;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = "toast " + type; }, 2600);
-}
-
-/* Toast avec un bouton d'action (ex: "Réserver une place →"). Reste affiché plus
-   longtemps qu'un toast normal pour laisser le temps de cliquer. */
-function toastAction(msg, actionLabel, onAction) {
-  const t = document.getElementById("toast");
-  t.innerHTML = `<span>${msg}</span><button class="toast-action-btn" id="toastActionBtn">${actionLabel} →</button>`;
-  t.className = "toast show toast-with-action";
-  clearTimeout(toastTimer);
-  document.getElementById("toastActionBtn").onclick = () => {
-    t.className = "toast toast-with-action"; onAction();
-  };
-  toastTimer = setTimeout(() => { t.className = "toast toast-with-action"; }, 5000);
 }
 
 init();

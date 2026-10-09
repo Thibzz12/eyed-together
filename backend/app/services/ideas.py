@@ -4,9 +4,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
+from app.core.errors import AppError
 
 
-class IdeaError(Exception):
+class IdeaError(AppError):
     status_code = 400
 
 

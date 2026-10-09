@@ -1,17 +1,18 @@
 """Cockpit admin : KPI agrégés + alertes simples sur l'ensemble des modules."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.core.timezone import local_today
 
 
 def get_kpis(db: Session) -> dict:
     now = datetime.now(timezone.utc)
     week_ago = now - timedelta(days=7)
-    today = date.today()
+    today = local_today()
     week_start = today - timedelta(days=7)
 
     total_users = db.scalar(select(func.count()).select_from(m.User)) or 0
@@ -23,8 +24,10 @@ def get_kpis(db: Session) -> dict:
     active_ids |= set(db.scalars(
         select(m.QuizAttempt.user_id).where(m.QuizAttempt.completed_at >= week_ago).distinct()
     ))
+    # Une présence confirmée dans les locaux compte comme activité (la déclaration
+    # de statut, qui servait ici, a été retirée de l'app le 25/09/2026).
     active_ids |= set(db.scalars(
-        select(m.DailyStatus.user_id).where(m.DailyStatus.day >= week_start).distinct()
+        select(m.Attendance.user_id).where(m.Attendance.day >= week_start).distinct()
     ))
     active_ids |= set(db.scalars(
         select(m.EventRegistration.user_id).where(m.EventRegistration.created_at >= week_ago).distinct()
@@ -83,7 +86,7 @@ def get_kpis(db: Session) -> dict:
 
 def get_charts(db: Session) -> dict:
     """Séries de données pour les graphiques du cockpit (barres/donut)."""
-    today = date.today()
+    today = local_today()
 
     # Réservations par jour, 14 derniers jours (barres) — bulles calmes exclues (créneaux
     # 15 min, pas des réservations de poste).

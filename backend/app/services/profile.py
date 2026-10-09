@@ -1,15 +1,15 @@
 """Profil public d'un collaborateur (consultable par n'importe quel employé via la recherche) :
-statut du jour, prochaines réservations, idées signées, résultats de quiz. Aucune donnée
+prochaines réservations, idées signées, résultats de quiz, badges. Aucune donnée
 privée sensible n'est exposée (les idées anonymes restent anonymes).
 """
 
 import math
-from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
+from app.core.timezone import local_today
 from app.services.badges import compute_streak, get_user_badges
 
 # Progression à PALIERS INFINIS (jamais de plafond) : seuil(n) = 25*n*(n+1),
@@ -62,20 +62,7 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
     if user is None:
         return None
 
-    today = date.today()
-    statuses = db.scalars(
-        select(m.DailyStatus).where(
-            m.DailyStatus.user_id == user_id, m.DailyStatus.day >= today, m.DailyStatus.day <= today + timedelta(days=6),
-        ).order_by(m.DailyStatus.day)
-    )
-    upcoming_status = [
-        {
-            "day": s.day.isoformat(),
-            "status_am": s.status_am,
-            "status_pm": s.status_pm,
-        } for s in statuses
-    ]
-
+    today = local_today()
     reservations = db.scalars(
         select(m.Reservation).where(
             m.Reservation.user_id == user_id, m.Reservation.status == m.ReservationStatus.BOOKED,
@@ -109,7 +96,6 @@ def get_public_profile(db: Session, user_id: int) -> dict | None:
         "total_points": user.total_points,
         "streak_days": compute_streak(db, user_id),
         **level_info(user.total_points),
-        "upcoming_status": upcoming_status,
         "upcoming_reservations": upcoming_reservations,
         "signed_ideas": signed_ideas,
         "quiz_results": quiz_results,
@@ -125,7 +111,7 @@ def get_leaderboard(db: Session, limit: int = 20, period: str = "all") -> list[d
     arrivés dominent indéfiniment.
     """
     if period == "month":
-        month_start = date.today().replace(day=1)
+        month_start = local_today().replace(day=1)
         rows = db.execute(
             select(m.User, func.coalesce(func.sum(m.PointTransaction.amount), 0).label("pts"))
             .outerjoin(

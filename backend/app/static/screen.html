@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>EyeD Together · Plan du jour</title>
+  <link rel="icon" href="/static/img/logo.jpg">
+  <!-- Les pastilles du plan reprennent exactement les classes de l'application
+       (plan-wrap, plan-pin…) : même rendu que sur la page Réserver, aucune
+       position à recalculer. Le reste de la mise en page est propre à l'écran. -->
+  <link rel="stylesheet" href="/static/styles.css?v=83">
+  <link rel="stylesheet" href="/static/screen.css?v=5">
+</head>
+<body class="screen-body">
+  <!-- Image de fond choisie par l'admin, et son voile d'assombrissement. -->
+  <div class="screen-bg hidden" id="screenBg"></div>
+  <div class="screen-bg-dim hidden" id="screenBgDim"></div>
+
+  <header class="screen-head">
+    <div class="screen-brand">
+      <img src="/static/img/logo.jpg" alt="EyeD Pharma" id="screenLogo">
+      <div>
+        <div class="screen-title" id="screenTitle">Plan du jour</div>
+        <div class="screen-date" id="screenDate">…</div>
+      </div>
+    </div>
+    <div class="screen-stats" id="screenStats"></div>
+    <div class="screen-clock" id="screenClock">--:--</div>
+  </header>
+
+  <div class="screen-banner hidden" id="screenBanner"></div>
+
+  <main class="screen-main">
+    <div class="screen-plan plan-wrap" id="screenPlan">
+      <img id="screenImage" alt="Plan des locaux" class="plan-image">
+      <div class="plan-pins" id="screenPins"></div>
+    </div>
+    <div class="screen-message hidden" id="screenMessage"></div>
+  </main>
+
+  <footer class="screen-foot">
+    <span class="screen-legend" id="screenLegend">
+      <span class="lg"><span class="sw free"></span> Libre</span>
+      <span class="lg"><span class="sw occupied"></span> Réservée</span>
+      <span class="lg"><span class="sw held"></span> Gardée libre</span>
+      <span class="lg"><span class="sw off"></span> Hors service</span>
+    </span>
+    <span class="screen-label" id="screenLabel"></span>
+    <span class="screen-updated" id="screenUpdated"></span>
+  </footer>
+
+  <script src="/static/shared.js?v=1"></script>
+  <script src="/static/screen.js?v=6"></script>
+</body>
+</html>

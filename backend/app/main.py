@@ -27,17 +27,10 @@ from app.db.seed import (
     seed_pods_if_missing,
     seed_useful_links_if_missing,
 )
-from app.services.attendance import AttendanceError
-from app.services.badges import BadgeError
+from app.core.errors import AppError
 from app.services.badges import seed_catalog_if_empty as seed_badges_if_empty
 from app.db.session import SessionLocal, engine, get_db
 from app.deps import get_current_user
-from app.services.events import EventError
-from app.services.ideas import IdeaError
-from app.services.media import MediaError
-from app.services.quiz import QuizError
-from app.services.dashboard import DashboardError
-from app.services.reservations import ReservationError
 
 
 def _seed_reference_data(db: Session) -> None:
@@ -75,44 +68,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 
-@app.exception_handler(ReservationError)
-async def reservation_error_handler(request: Request, exc: ReservationError):
-    """Traduit les erreurs métier en réponses HTTP claires (404, 409, 403…)."""
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(EventError)
-async def event_error_handler(request: Request, exc: EventError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(IdeaError)
-async def idea_error_handler(request: Request, exc: IdeaError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(QuizError)
-async def quiz_error_handler(request: Request, exc: QuizError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(MediaError)
-async def media_error_handler(request: Request, exc: MediaError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(DashboardError)
-async def dashboard_error_handler(request: Request, exc: DashboardError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(BadgeError)
-async def badge_error_handler(request: Request, exc: BadgeError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
-
-
-@app.exception_handler(AttendanceError)
-async def attendance_error_handler(request: Request, exc: AttendanceError):
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    """Traduit toute erreur métier (réservations, présence, quiz…) en réponse HTTP
+    claire (400, 403, 404, 409…), avec le code porté par la classe d'erreur."""
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 # --- Session signée (itsdangerous) : cookie httpOnly + Secure(prod) ---
@@ -138,7 +97,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_ORIGIN],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -154,6 +113,23 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 def index():
     """Sert l'application (le frontend gère l'état connecté/non connecté)."""
     return FileResponse(_STATIC_DIR / "index.html")
+
+
+@app.get("/ecran/{token}", include_in_schema=False)
+def ecran(token: str):
+    """Grand écran : le plan du jour en lecture seule, authentifié par le lien.
+
+    La page est servie telle quelle ; c'est son script qui présente le jeton à
+    l'API et affiche « lien révoqué » si celle-ci le refuse. Ainsi un lien mort
+    ne révèle rien de plus qu'une page vide.
+    """
+    return FileResponse(_STATIC_DIR / "screen.html")
+
+
+@app.get("/pointage/{token}", include_in_schema=False)
+def pointage(token: str):
+    """Tablette de l'entrée : chacun confirme son arrivée et son départ en touchant son nom."""
+    return FileResponse(_STATIC_DIR / "kiosk.html")
 
 
 class _FiltreSondes(logging.Filter):

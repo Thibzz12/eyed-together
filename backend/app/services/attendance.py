@@ -12,14 +12,17 @@ sens créerait un import circulaire.
 from datetime import date, datetime, time
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.errors import AppError
 from app.core.timezone import LOCAL_TZ, local_now, local_today
 from app.db import models as m
+from app.services import settings as settings_svc
 from app.services.gamification import POINTS_PER_CHECKIN, award_points
 
 
-class AttendanceError(Exception):
+class AttendanceError(AppError):
     status_code = 400
 
 
@@ -38,24 +41,14 @@ _AUTO_CLOSE_KEY = "attendance_auto_close_hour"
 
 def get_auto_close_hour(db: Session) -> int:
     """Heure de clôture automatique, réglable en administration."""
-    row = db.get(m.AppSetting, _AUTO_CLOSE_KEY)
-    if row is None:
-        return DEFAULT_AUTO_CLOSE_HOUR
-    try:
-        return min(23, max(0, int(row.value)))
-    except (TypeError, ValueError):
-        return DEFAULT_AUTO_CLOSE_HOUR
+    return settings_svc.get_int(db, _AUTO_CLOSE_KEY, DEFAULT_AUTO_CLOSE_HOUR, lo=0, hi=23)
 
 
 def set_auto_close_hour(db: Session, hour: int) -> None:
     """Change l'heure de clôture. Refuse toute valeur hors du cadran."""
     if not isinstance(hour, int) or not 0 <= hour <= 23:
         raise AttendanceError("L'heure de clôture doit être comprise entre 0 et 23.")
-    row = db.get(m.AppSetting, _AUTO_CLOSE_KEY)
-    if row is None:
-        db.add(m.AppSetting(key=_AUTO_CLOSE_KEY, value=str(hour)))
-    else:
-        row.value = str(hour)
+    settings_svc.set_setting(db, _AUTO_CLOSE_KEY, str(hour))
     db.commit()
 
 
@@ -173,7 +166,14 @@ def check_in(db: Session, user_id: int, source: str = "popup", day: date | None 
         db.add(row)
         award_points(db, user_id, POINTS_PER_CHECKIN, "checkin")
         _accueillir_les_invites(db, user_id, day)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # Double clic sur « Je suis arrivé » : deux requêtes créent la même
+            # ligne (user, jour) en même temps. La seconde perd, et c'est la
+            # ligne gagnante qu'on renvoie, pas une erreur 500.
+            db.rollback()
+            return _row_for(db, user_id, day)
         db.refresh(row)
         return row
 
@@ -310,6 +310,12 @@ def _visitors_of(db: Session, host_user_id: int, day: date) -> list[m.Visitor]:
     )
 
 
+def is_present(db: Session, user_id: int, day: date | None = None) -> bool:
+    """La personne est-elle dans les locaux en ce moment (arrivée, pas repartie) ?"""
+    row = _row_for(db, user_id, day or local_today())
+    return row is not None and row.left_at is None
+
+
 def state_for(db: Session, user_id: int, day: date | None = None) -> dict:
     """État du jour pour un utilisateur : pilote le pop-up et le bouton de départ."""
     day = day or local_today()
@@ -350,13 +356,14 @@ def add_visitor(db: Session, host_user_id: int, full_name: str, company: str | N
 
 
 def visitor_check_out(
-    db: Session, visitor_id: int, requesting_user_id: int, is_admin: bool = False
+    db: Session, visitor_id: int, requesting_user_id: int, can_manage: bool = False
 ) -> m.Visitor:
-    """Marque un visiteur parti. Réservé à son hôte et aux administrateurs."""
+    """Marque un visiteur parti. Réservé à son hôte, et à qui administre la
+    présence (administrateurs et responsables présence : `can_manage`)."""
     visitor = db.get(m.Visitor, visitor_id)
     if visitor is None:
         raise AttendanceNotFound("Ce visiteur n'existe pas.")
-    if not is_admin and visitor.host_user_id != requesting_user_id:
+    if not can_manage and visitor.host_user_id != requesting_user_id:
         raise AttendanceForbidden("Seul l'hôte de ce visiteur peut enregistrer son départ.")
     if visitor.left_at is not None:
         raise AttendanceError("Le départ de ce visiteur est déjà enregistré.")

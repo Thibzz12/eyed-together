@@ -26,9 +26,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.timezone import local_today
+from app.core.errors import AppError
 from app.db import models as m
 from app.schemas import ReservationCreate
 from app.services import attendance as attendance_svc
+from app.services import settings as settings_svc
 from app.services.gamification import POINTS_PER_BOOKING, award_points
 
 # Politique de réservation (cf. PROGRESS.md — validée avec Thibaud le 2026-07-23).
@@ -39,22 +41,11 @@ _ADVANCE_DAYS_KEY = "booking_advance_days"
 def get_booking_advance_days(db: Session) -> int:
     """Horizon de réservation (jours calendaires à l'avance), configurable par l'admin —
     ex: 5 jours ouvre la semaine suivante dès le mercredi de la semaine en cours."""
-    row = db.get(m.AppSetting, _ADVANCE_DAYS_KEY)
-    if row is None:
-        return DEFAULT_MAX_ADVANCE_DAYS
-    try:
-        return max(1, int(row.value))
-    except (TypeError, ValueError):
-        return DEFAULT_MAX_ADVANCE_DAYS
+    return settings_svc.get_int(db, _ADVANCE_DAYS_KEY, DEFAULT_MAX_ADVANCE_DAYS, lo=1)
 
 
 def set_booking_advance_days(db: Session, days: int) -> None:
-    days = max(1, min(30, int(days)))
-    row = db.get(m.AppSetting, _ADVANCE_DAYS_KEY)
-    if row is None:
-        db.add(m.AppSetting(key=_ADVANCE_DAYS_KEY, value=str(days)))
-    else:
-        row.value = str(days)
+    settings_svc.set_setting(db, _ADVANCE_DAYS_KEY, str(max(1, min(30, int(days)))))
     db.commit()
 
 # Réservation de salle entière (Bureau 1 / Bureau 2) : "salle occupée" dès qu'un seul
@@ -94,14 +85,11 @@ def get_room_labels(db: Session) -> dict[str, str]:
     jamais personnalisés)."""
     labels: dict[str, str] = {}
     for zone, key in _ROOM_LABEL_KEYS.items():
-        row = db.get(m.AppSetting, key)
-        labels[zone] = row.value if row else zone
+        labels[zone] = settings_svc.get_setting(db, key) or zone
     for desk_name, key in _POD_LABEL_KEYS.items():
-        row = db.get(m.AppSetting, key)
-        labels[desk_name] = row.value if row else _POD_LABEL_DEFAULTS[desk_name]
+        labels[desk_name] = settings_svc.get_setting(db, key) or _POD_LABEL_DEFAULTS[desk_name]
     for ref in table_refs(db):
-        row = db.get(m.AppSetting, _table_label_key(ref))
-        labels[ref] = row.value if row else default_table_label(ref)
+        labels[ref] = settings_svc.get_setting(db, _table_label_key(ref)) or default_table_label(ref)
     return labels
 
 
@@ -121,12 +109,10 @@ def set_room_label(db: Session, ref: str, label: str) -> None:
     if not key:
         raise ReservationError("Référence de salle, de bulle ou de table inconnue.")
     label = label.strip() or (default_table_label(ref) if _TABLE_REF.match(ref) else ref)
-    row = db.get(m.AppSetting, key)
-    if row is None:
-        db.add(m.AppSetting(key=key, value=label))
-    else:
-        row.value = label
+    settings_svc.set_setting(db, key, label)
     db.commit()
+
+
 TIMESLOT_STEP_MINUTES = 15
 MIN_TIMESLOT_MINUTES = 15
 MAX_TIMESLOT_MINUTES = 120
@@ -135,7 +121,7 @@ MAX_TIMESLOT_MINUTES = 120
 # --------------------------------------------------------------------------
 #  Exceptions métier (mappées vers des codes HTTP dans main.py)
 # --------------------------------------------------------------------------
-class ReservationError(Exception):
+class ReservationError(AppError):
     """Erreur métier générique."""
     status_code = 400
 
@@ -164,21 +150,12 @@ class PastDate(ReservationError):
     status_code = 400
 
 
-class WeekendNotAllowed(ReservationError):
-    """Plus levée depuis le 29/08/2026 : le week-end est réservable après
-    confirmation dans l'interface. Conservée pour ne pas casser un appelant qui
-    l'attrape encore, et parce qu'une politique d'entreprise pourrait vouloir
-    refermer le week-end sans réécrire la hiérarchie d'erreurs."""
-
-    status_code = 400
-
-
 class BookingWindowExceeded(ReservationError):
     status_code = 400
 
 
-def _check_booking_policy(db: Session, user_id: int, target: date) -> None:
-    """Vérifie l'horizon max de réservation.
+def _verifier_date(db: Session, target: date) -> None:
+    """Une date réservable par un employé : pas dans le passé, pas au-delà de l'horizon.
 
     Le week-end n'est pas refusé : c'est l'interface qui demande confirmation
     avant d'envoyer un samedi ou un dimanche. La limite de jours ouvrés
@@ -186,9 +163,48 @@ def _check_booking_policy(db: Session, user_id: int, target: date) -> None:
     de façon fixe, réserver la même place toute la semaine (et au-delà) est
     devenu l'usage normal, plus un abus (mail d'Olivier du 18/09/2026).
     """
+    if target < local_today():
+        raise PastDate("Impossible de réserver une date déjà passée.")
     advance_days = get_booking_advance_days(db)
-    if target > date.today() + timedelta(days=advance_days):
+    if target > local_today() + timedelta(days=advance_days):
         raise BookingWindowExceeded(f"Impossible de réserver plus de {advance_days} jours à l'avance.")
+
+
+def _deja_une_place(
+    db: Session, user_id: int, day: date, slot: m.ReservationSlot, sauf: set[int] | None = None,
+) -> bool:
+    """Cette personne a-t-elle déjà une place à elle sur ce créneau ?
+
+    La place prise au nom d'un visiteur (occupant_name) ne compte pas : l'hôte
+    garde la sienne et en prend une seconde pour son invité. `sauf` exclut les
+    lignes qu'on est en train de déplacer, sans quoi une réservation entrerait
+    en conflit avec elle-même.
+    """
+    lignes = db.scalars(
+        select(m.Reservation.id).where(
+            m.Reservation.user_id == user_id,
+            m.Reservation.reservation_date == day,
+            m.Reservation.slot == slot,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+            m.Reservation.occupant_name.is_(None),
+        )
+    ).all()
+    return any(i not in (sauf or set()) for i in lignes)
+
+
+def _place_prise(
+    db: Session, desk_ids: list[int], day: date, slot: m.ReservationSlot, sauf: set[int] | None = None,
+) -> bool:
+    """Une de ces places est-elle déjà réservée par quelqu'un sur ce créneau ?"""
+    lignes = db.scalars(
+        select(m.Reservation.id).where(
+            m.Reservation.desk_id.in_(desk_ids),
+            m.Reservation.reservation_date == day,
+            m.Reservation.slot == slot,
+            m.Reservation.status == m.ReservationStatus.BOOKED,
+        )
+    ).all()
+    return any(i not in (sauf or set()) for i in lignes)
 
 
 # --------------------------------------------------------------------------
@@ -273,7 +289,7 @@ def my_reservations(db: Session, user_id: int) -> list[m.Reservation]:
                     m.Reservation.occupant_user_id == user_id,
                 ),
                 m.Reservation.status == m.ReservationStatus.BOOKED,
-                m.Reservation.reservation_date >= date.today(),
+                m.Reservation.reservation_date >= local_today(),
             )
             .order_by(m.Reservation.reservation_date, m.Reservation.slot)
             .options(joinedload(m.Reservation.desk))
@@ -281,11 +297,15 @@ def my_reservations(db: Session, user_id: int) -> list[m.Reservation]:
     )
 
 
-def presence(db: Session, day: date) -> list[m.Reservation]:
-    """Qui est présent (réservations actives) pour une date donnée.
+def presence(db: Session, day: date) -> list[dict]:
+    """Qui est attendu sur site un jour donné : un nom par place occupée.
 
-    Une personne en réservation "Journée" a 2 lignes (AM+PM) : on ne garde que
-    la 1re par (user, poste) pour ne jamais l'afficher deux fois.
+    C'est l'OCCUPANT qui compte, pas le réservant : le collègue installé sur
+    une table réservée par un autre, ou le visiteur pour qui une place a été
+    prise, est la personne présente. La carte « Présents aujourd'hui » montrait
+    le réservant sur chacune de ces places (constaté le 07/10/2026). Les places
+    d'un espace entier laissées vides ne figurent pas. Une personne en
+    « Journée » a deux lignes (matin, après-midi) : une seule est gardée.
     """
     rows = db.scalars(
         select(m.Reservation)
@@ -294,16 +314,23 @@ def presence(db: Session, day: date) -> list[m.Reservation]:
             m.Reservation.status == m.ReservationStatus.BOOKED,
         )
         .order_by(m.Reservation.slot)
-        .options(joinedload(m.Reservation.user), joinedload(m.Reservation.desk))
+        .options(
+            joinedload(m.Reservation.user),
+            joinedload(m.Reservation.occupant),
+            joinedload(m.Reservation.desk),
+        )
     )
-    seen: set[tuple[int, int]] = set()
+    seen: set[tuple[str, int]] = set()
     out = []
     for r in rows:
-        key = (r.user_id, r.desk_id)
+        nom = r.occupant_display
+        if not nom:
+            continue
+        key = (nom, r.desk_id)
         if key in seen:
             continue
         seen.add(key)
-        out.append(r)
+        out.append({"name": nom, "desk": r.desk.name})
     return out
 
 
@@ -312,9 +339,7 @@ def presence(db: Session, day: date) -> list[m.Reservation]:
 # --------------------------------------------------------------------------
 def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.Reservation:
     """Crée une réservation (matin, après-midi ou journée) et attribue les points."""
-    if data.reservation_date < date.today():
-        raise PastDate("Impossible de réserver une date déjà passée.")
-    _check_booking_policy(db, user_id, data.reservation_date)
+    _verifier_date(db, data.reservation_date)
 
     desk = db.get(m.Desk, data.desk_id)
     if desk is None or not desk.is_active:
@@ -327,31 +352,12 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
     slots = slots_for(data.slot)
     invite = (data.guest_name or "").strip() or None
 
-    # Validation de TOUS les créneaux avant toute création (atomique).
+    # Validation de TOUS les créneaux avant toute création (atomique). Une place
+    # pour un visiteur ne compte pas comme « ma » place : l'hôte garde la sienne.
     for slot_enum in slots:
-        if not invite:
-            # Une place pour un visiteur ne compte pas comme « ma » place : l'hôte
-            # garde la sienne et en prend une seconde au nom de son invité.
-            already = db.scalar(
-                select(m.Reservation).where(
-                    m.Reservation.user_id == user_id,
-                    m.Reservation.reservation_date == data.reservation_date,
-                    m.Reservation.slot == slot_enum,
-                    m.Reservation.status == m.ReservationStatus.BOOKED,
-                    m.Reservation.occupant_name.is_(None),
-                )
-            )
-            if already:
-                raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
-        conflict = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.desk_id == data.desk_id,
-                m.Reservation.reservation_date == data.reservation_date,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if conflict:
+        if not invite and _deja_une_place(db, user_id, data.reservation_date, slot_enum):
+            raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
+        if _place_prise(db, [data.desk_id], data.reservation_date, slot_enum):
             raise SlotConflict("Ce poste est déjà réservé sur ce créneau.")
 
     # Création
@@ -384,7 +390,40 @@ def create_reservation(db: Session, user_id: int, data: ReservationCreate) -> m.
     # d'évacuation tout de suite, sans attendre une nouvelle confirmation.
     if invite:
         attendance_svc.refresh_guests(db, user_id, data.reservation_date)
+    _confirmer_si_deja_la(db, created)
     return created[0]
+
+
+def _confirmer_si_deja_la(db: Session, lignes: list[m.Reservation]) -> None:
+    """Réserver pour aujourd'hui alors qu'on a déjà pointé vaut check-in.
+
+    Le geste du matin, c'est l'arrivée (pop-up ou tablette de l'entrée) ; elle
+    confirme les réservations du jour. Mais la personne qui arrive, pointe, PUIS
+    prend une place retombait sur un bouton « Je suis arrivé » et un risque de
+    no-show le lendemain : c'est exactement le « confirmer deux fois » qu'Olivier
+    a signalé le 02/10/2026. Vaut pour le réservant comme pour le collègue
+    installé sur une table, chacun selon sa propre présence.
+    """
+    aujourd_hui = local_today()
+    quand = datetime.now(timezone.utc)
+    presents: dict[int, bool] = {}
+    touche = False
+    for r in lignes:
+        if r.reservation_date != aujourd_hui or r.checked_in_at is not None:
+            continue
+        if r.is_group_booking:
+            qui = r.occupant_user_id
+        else:
+            qui = None if r.occupant_name else r.user_id
+        if not qui:
+            continue
+        if qui not in presents:
+            presents[qui] = attendance_svc.is_present(db, qui, aujourd_hui)
+        if presents[qui]:
+            r.checked_in_at = quand
+            touche = True
+    if touche:
+        db.commit()
 
 
 def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
@@ -416,20 +455,27 @@ def cancel_reservation(db: Session, user_id: int, reservation_id: int) -> None:
     if reservation.is_group_booking:
         _annuler_le_lot(db, reservation)
         return
+    _annuler_lignes(db, reservation)
 
-    # Une journée est stockée en deux lignes (matin + après-midi) mais présentée
-    # comme UNE réservation : l'annuler les emporte toutes les deux, chacune
-    # rendant les points qu'elle avait rapportés. Un créneau de bulle calme reste
-    # seul en cause (timeslot, jamais de points — voir book_timeslot).
+
+def _annuler_lignes(db: Session, reservation: m.Reservation) -> None:
+    """Annule une réservation individuelle, journée comprise, et reprend ses points.
+
+    Une journée est stockée en deux lignes (matin + après-midi) mais présentée
+    comme UNE réservation : l'annuler les emporte toutes les deux, chacune
+    rendant les points qu'elle avait rapportés. Un créneau de bulle calme reste
+    seul en cause (timeslot, jamais de points, voir book_timeslot). La place d'un
+    visiteur (occupant_name) n'a rien rapporté : rien à reprendre. Même logique
+    que l'employé annule lui-même ou que l'admin le fasse pour lui.
+    """
     lignes = (
         [reservation] if reservation.slot == m.ReservationSlot.TIMESLOT
         else _lignes_jumelles(db, reservation)
     )
     for ligne in lignes:
         ligne.status = m.ReservationStatus.CANCELLED
-        # La place d'un visiteur (occupant_name) n'a rien rapporté : rien à reprendre.
         if ligne.slot != m.ReservationSlot.TIMESLOT and not ligne.occupant_name:
-            award_points(db, user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
+            award_points(db, ligne.user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
     db.commit()
 
 
@@ -437,7 +483,10 @@ def _lignes_du_lot(db: Session, reservation: m.Reservation) -> list[m.Reservatio
     """Toutes les places encore réservées du même lot.
 
     Le lot est identifié par (réservant, date, créneau) : une personne ne peut
-    avoir qu'une seule réservation d'espace vivante sur un créneau donné.
+    avoir qu'une seule réservation d'espace vivante sur un créneau donné. Une
+    table prise en « Journée » fait donc DEUX lots, matin et après-midi,
+    annulables séparément depuis « Mes réservations » ; libérer l'espace depuis
+    le plan doit les viser tous les deux (voir confirmSheet dans app.js).
     """
     return list(db.scalars(
         select(m.Reservation).where(
@@ -478,75 +527,6 @@ def _retirer_occupant(db: Session, reservation: m.Reservation) -> None:
 
 
 # --------------------------------------------------------------------------
-#  Réservation de salle entière (Bureau 1 / Bureau 2)
-# --------------------------------------------------------------------------
-def _room_desks(db: Session, zone: str) -> list[m.Desk]:
-    if zone not in ROOM_ZONES:
-        raise DeskNotFound("Cette salle n'existe pas.")
-    desks = list(db.scalars(select(m.Desk).where(m.Desk.zone == zone, m.Desk.is_active.is_(True))))
-    if not desks:
-        raise DeskNotFound("Aucun poste actif dans cette salle.")
-    return desks
-
-
-def book_room(db: Session, user_id: int, zone: str, reservation_date: date, slot_str: str) -> list[m.Reservation]:
-    """Réserve TOUS les postes actifs d'une salle fermée (Bureau 1/2) en une seule action.
-
-    Bloquée dès qu'un seul poste de la salle est déjà réservé sur le créneau visé
-    (peu importe par qui) — pas de réservation "de salle" partielle.
-    """
-    if reservation_date < date.today():
-        raise PastDate("Impossible de réserver une date déjà passée.")
-    _check_booking_policy(db, user_id, reservation_date)
-
-    desks = _room_desks(db, zone)
-    desk_ids = [d.id for d in desks]
-    slots = slots_for(slot_str)
-
-    for slot_enum in slots:
-        already = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.user_id == user_id,
-                m.Reservation.reservation_date == reservation_date,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if already:
-            raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
-        conflict = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.desk_id.in_(desk_ids),
-                m.Reservation.reservation_date == reservation_date,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if conflict:
-            raise SlotConflict("Cette salle n'est pas disponible : un poste y est déjà réservé sur ce créneau.")
-
-    created = [
-        m.Reservation(user_id=user_id, desk_id=d.id, reservation_date=reservation_date, slot=s)
-        for d in desks for s in slots
-    ]
-    db.add_all(created)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise SlotConflict("Cette salle vient d'être réservée par quelqu'un d'autre.")
-
-    # Points comme une réservation de poste normale (par créneau, pas multiplié par le
-    # nombre de postes de la salle — sinon la salle rapporterait bien plus qu'un poste seul).
-    for _ in slots:
-        award_points(db, user_id, POINTS_PER_BOOKING, "reservation_created")
-    db.commit()
-    for r in created:
-        db.refresh(r)
-    return created
-
-
-# --------------------------------------------------------------------------
 #  Icônes d'équipement, administrables
 # --------------------------------------------------------------------------
 #  `Desk.features` est du texte libre ("Double écran, station assise/debout").
@@ -571,11 +551,11 @@ _DEFAULT_FEATURE_ICONS = [
 
 def get_feature_icons(db: Session) -> list[dict]:
     """Règles mot-clé vers icône, dans l'ordre de priorité (la première qui colle gagne)."""
-    row = db.get(m.AppSetting, _FEATURE_ICONS_KEY)
-    if row is None or not row.value:
+    brut = settings_svc.get_setting(db, _FEATURE_ICONS_KEY)
+    if not brut:
         return [dict(r) for r in _DEFAULT_FEATURE_ICONS]
     try:
-        regles = json.loads(row.value)
+        regles = json.loads(brut)
     except (TypeError, ValueError):
         return [dict(r) for r in _DEFAULT_FEATURE_ICONS]
     return [r for r in regles if isinstance(r, dict) and r.get("keyword") and r.get("icon")]
@@ -593,15 +573,6 @@ _ICON_IMAGE_SLUG = re.compile(r"^[a-z0-9]{8,32}$")
 def icon_image_key(slug: str) -> str:
     """Clé de l'image d'icône dans stored_images."""
     return f"feature_icon:{slug}"
-
-
-def icon_image_slugs(db: Session) -> set[str]:
-    """Slugs d'images réellement référencés par une règle."""
-    return {
-        r["icon"][len(_ICON_IMAGE_PREFIX):]
-        for r in get_feature_icons(db)
-        if r["icon"].startswith(_ICON_IMAGE_PREFIX)
-    }
 
 
 def set_feature_icons(db: Session, rules: list[dict]) -> None:
@@ -627,12 +598,7 @@ def set_feature_icons(db: Session, rules: list[dict]) -> None:
             icone = icone[:8]
         propres.append({"keyword": mot[:60], "icon": icone})
 
-    row = db.get(m.AppSetting, _FEATURE_ICONS_KEY)
-    valeur = json.dumps(propres, ensure_ascii=False)
-    if row is None:
-        db.add(m.AppSetting(key=_FEATURE_ICONS_KEY, value=valeur))
-    else:
-        row.value = valeur
+    settings_svc.set_setting(db, _FEATURE_ICONS_KEY, json.dumps(propres, ensure_ascii=False))
     db.commit()
     _purger_icones_orphelines(db, {r["icon"] for r in propres})
 
@@ -668,23 +634,14 @@ _TOGGLE_LABELS = {
     "pod": "La réservation d'une bulle calme",
 }
 _TOGGLE_KEY = "booking_enabled_{}"
-_GROUP_KEY = "space_enabled_{}"
 
 
 def _flag(db: Session, key: str, defaut: bool = True) -> bool:
-    row = db.get(m.AppSetting, key)
-    if row is None:
-        return defaut
-    return row.value not in ("0", "false", "False", "")
+    return settings_svc.get_bool(db, key, defaut)
 
 
 def _set_flag(db: Session, key: str, enabled: bool) -> None:
-    valeur = "1" if enabled else "0"
-    row = db.get(m.AppSetting, key)
-    if row is None:
-        db.add(m.AppSetting(key=key, value=valeur))
-    else:
-        row.value = valeur
+    settings_svc.set_setting(db, key, "1" if enabled else "0")
     db.commit()
 
 
@@ -869,7 +826,7 @@ def bookable_groups(db: Session) -> list[dict]:
     return sorted(out, key=lambda g: (rang.get(g["kind"], 9), g["ref"]))
 
 
-def _validate_occupants(occupants: list[dict] | None, desks: list[m.Desk]) -> dict[int, dict]:
+def _validate_occupants(db: Session, occupants: list[dict] | None, desks: list[m.Desk]) -> dict[int, dict]:
     """Vérifie les occupants déclarés et les indexe par poste.
 
     Réserver une table entière retire quatre à six places du planning d'un coup :
@@ -891,6 +848,10 @@ def _validate_occupants(occupants: list[dict] | None, desks: list[m.Desk]) -> di
         nom = (o.get("name") or "").strip()
         if not o.get("user_id") and not nom:
             raise ReservationError("Indique un collègue ou le nom d'une personne extérieure.")
+        # Un identifiant de collègue inconnu finissait en violation de clé
+        # étrangère, rapportée à tort comme « espace pris par quelqu'un d'autre ».
+        if o.get("user_id") and db.get(m.User, o["user_id"]) is None:
+            raise ReservationError("Un des collègues indiqués n'existe pas.")
         par_poste[desk_id] = {
             "user_id": o.get("user_id"),
             "name": nom[:120] or None,
@@ -926,9 +887,7 @@ def book_group(
     Bloquée dès qu'un seul poste du groupe est déjà réservé sur le créneau visé,
     peu importe par qui : pas de réservation de groupe partielle.
     """
-    if reservation_date < date.today():
-        raise PastDate("Impossible de réserver une date déjà passée.")
-    _check_booking_policy(db, user_id, reservation_date)
+    _verifier_date(db, reservation_date)
 
     desks = _group_desks(db, ref)
     _require_mode(db, "room" if ref in ROOM_ZONES else "table")
@@ -940,30 +899,14 @@ def book_group(
             "Impossible de réserver tout l'espace : %s indisponible à cette date."
             % (", ".join(fermees) if len(fermees) > 1 else fermees[0])
         )
-    par_poste = _validate_occupants(occupants, desks)
+    par_poste = _validate_occupants(db, occupants, desks)
     desk_ids = [d.id for d in desks]
     slots = slots_for(slot_str)
 
     for slot_enum in slots:
-        already = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.user_id == user_id,
-                m.Reservation.reservation_date == reservation_date,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if already:
+        if _deja_une_place(db, user_id, reservation_date, slot_enum):
             raise AlreadyBooked("Tu as déjà réservé un poste sur ce créneau.")
-        conflict = db.scalar(
-            select(m.Reservation).where(
-                m.Reservation.desk_id.in_(desk_ids),
-                m.Reservation.reservation_date == reservation_date,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        )
-        if conflict:
+        if _place_prise(db, desk_ids, reservation_date, slot_enum):
             raise SlotConflict("Cet espace n'est pas disponible : une place y est déjà réservée sur ce créneau.")
 
     created = []
@@ -1000,40 +943,8 @@ def book_group(
     # d'évacuation. Sinon, sa propre arrivée s'en chargera (cf. attendance.check_in).
     if reservation_date == local_today():
         attendance_svc.refresh_guests(db, user_id, reservation_date)
+    _confirmer_si_deja_la(db, created)
     return created
-
-
-def my_room_reservation_ids(db: Session, user_id: int, zone: str, reservation_date: date) -> list[int]:
-    """IDs des réservations de l'utilisateur pour CETTE SALLE ENTIÈRE (tous les postes actifs
-    de la zone) à cette date — [] s'il n'a réservé qu'une partie des postes individuellement
-    (ce n'est alors pas "la salle", juste des postes ordinaires dans cette zone).
-
-    Pour l'annulation groupée depuis le front, qui appelle ensuite cancel_reservation() une
-    fois par id — même schéma que l'annulation d'une réservation "Journée" existante.
-    """
-    if zone not in ROOM_ZONES:
-        return []
-    desk_ids = {d.id for d in db.scalars(select(m.Desk).where(m.Desk.zone == zone, m.Desk.is_active.is_(True)))}
-    if not desk_ids:
-        return []
-    rows = list(db.scalars(
-        select(m.Reservation).where(
-            m.Reservation.user_id == user_id,
-            m.Reservation.reservation_date == reservation_date,
-            m.Reservation.status == m.ReservationStatus.BOOKED,
-            m.Reservation.desk_id.in_(desk_ids),
-        )
-    ))
-    if not rows:
-        return []
-    # "Salle réservée" seulement si TOUS les postes actifs sont couverts pour au moins un des
-    # créneaux détenus (AM et/ou PM) — sinon c'est une réservation individuelle ordinaire.
-    by_slot: dict[m.ReservationSlot, set[int]] = {}
-    for r in rows:
-        by_slot.setdefault(r.slot, set()).add(r.desk_id)
-    if not any(covered == desk_ids for covered in by_slot.values()):
-        return []
-    return [r.id for r in rows]
 
 
 def my_group_reservation_ids(db: Session, user_id: int, ref: str, reservation_date: date) -> list[int]:
@@ -1098,12 +1009,8 @@ def book_timeslot(
 
     Pas de points de gamification (éviterait un farming par réservations à répétition).
     """
-    if reservation_date < date.today():
-        raise PastDate("Impossible de réserver une date déjà passée.")
+    _verifier_date(db, reservation_date)
     _require_mode(db, "pod")
-    advance_days = get_booking_advance_days(db)
-    if reservation_date > date.today() + timedelta(days=advance_days):
-        raise BookingWindowExceeded(f"Impossible de réserver plus de {advance_days} jours à l'avance.")
 
     desk = db.get(m.Desk, desk_id)
     if desk is None or not desk.is_active or desk.zone != POD_ZONE:
@@ -1165,9 +1072,12 @@ def check_in(db: Session, user_id: int, reservation_id: int) -> m.Reservation:
     reservation = db.get(m.Reservation, reservation_id)
     if reservation is None or reservation.status != m.ReservationStatus.BOOKED:
         raise ReservationNotFound("Réservation introuvable ou annulée.")
-    if reservation.user_id != user_id:
+    # Le collègue installé sur une place réservée par quelqu'un d'autre confirme
+    # SA place : my_reservations la lui montre, l'interface lui propose le
+    # bouton, le refuser ici était une incohérence (audit du 07/10/2026).
+    if user_id not in (reservation.user_id, reservation.occupant_user_id):
         raise NotOwner("Tu ne peux confirmer que tes propres réservations.")
-    if reservation.reservation_date != date.today():
+    if reservation.reservation_date != local_today():
         raise ReservationError("Le check-in n'est possible que le jour de la réservation.")
     if reservation.checked_in_at is not None:
         return reservation  # déjà confirmé — idempotent, pas une erreur
@@ -1201,7 +1111,7 @@ def apply_noshow_penalties(db: Session, user_id: int) -> int:
         select(m.Reservation).where(
             m.Reservation.user_id == user_id,
             m.Reservation.status == m.ReservationStatus.BOOKED,
-            m.Reservation.reservation_date < date.today(),
+            m.Reservation.reservation_date < local_today(),
             m.Reservation.checked_in_at.is_(None),
             # La place d'un visiteur externe (résa individuelle avec occupant_name)
             # n'a pas de check-in possible et n'a rapporté aucun point : pénaliser
@@ -1341,28 +1251,10 @@ def _verifier_creneaux_libres(
     `sauf` exclut les lignes qu'on est en train de déplacer : sans quoi une
     réservation entrerait en conflit avec elle-même.
     """
-    ignorees = sauf or set()
     for slot_enum in slots:
-        conflit = db.scalars(
-            select(m.Reservation).where(
-                m.Reservation.desk_id == desk_id,
-                m.Reservation.reservation_date == day,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        ).all()
-        if any(r.id not in ignorees for r in conflit):
+        if _place_prise(db, [desk_id], day, slot_enum, sauf):
             raise SlotConflict("Cette place est déjà prise sur ce créneau.")
-
-        deja = db.scalars(
-            select(m.Reservation).where(
-                m.Reservation.user_id == user_id,
-                m.Reservation.reservation_date == day,
-                m.Reservation.slot == slot_enum,
-                m.Reservation.status == m.ReservationStatus.BOOKED,
-            )
-        ).all()
-        if any(r.id not in ignorees for r in deja):
+        if _deja_une_place(db, user_id, day, slot_enum, sauf):
             raise AlreadyBooked("Cette personne a déjà une place sur ce créneau.")
 
 
@@ -1376,7 +1268,7 @@ def admin_create_reservation(
     collaborateur : elle porte le nom du visiteur, sans points ni pénalité,
     exactement comme lorsque l'hôte la prend lui-même.
     """
-    if day < date.today():
+    if day < local_today():
         raise PastDate("Impossible de réserver une date déjà passée.")
     if db.get(m.User, user_id) is None:
         raise ReservationError("Ce collaborateur n'existe pas.")
@@ -1388,15 +1280,7 @@ def admin_create_reservation(
     # on ne vérifie que la place elle-même.
     if invite:
         for slot_enum in slots:
-            occupe = db.scalar(
-                select(m.Reservation).where(
-                    m.Reservation.desk_id == desk_id,
-                    m.Reservation.reservation_date == day,
-                    m.Reservation.slot == slot_enum,
-                    m.Reservation.status == m.ReservationStatus.BOOKED,
-                )
-            )
-            if occupe:
+            if _place_prise(db, [desk_id], day, slot_enum):
                 raise SlotConflict("Cette place est déjà prise sur ce créneau.")
     else:
         _verifier_creneaux_libres(db, user_id, desk_id, day, slots)
@@ -1423,6 +1307,7 @@ def admin_create_reservation(
         db.refresh(r)
     if invite:
         attendance_svc.refresh_guests(db, user_id, day)
+    _confirmer_si_deja_la(db, creees)
     return creees
 
 
@@ -1440,18 +1325,7 @@ def admin_cancel_reservation(db: Session, reservation_id: int) -> None:
     if reservation.is_group_booking:
         _annuler_le_lot(db, reservation)
         return
-
-    # Même logique que l'annulation par l'employé : une journée part en entier.
-    lignes = (
-        [reservation] if reservation.slot == m.ReservationSlot.TIMESLOT
-        else _lignes_jumelles(db, reservation)
-    )
-    for ligne in lignes:
-        ligne.status = m.ReservationStatus.CANCELLED
-        # La place d'un visiteur (occupant_name) n'a rien rapporté : rien à reprendre.
-        if ligne.slot != m.ReservationSlot.TIMESLOT and not ligne.occupant_name:
-            award_points(db, ligne.user_id, -POINTS_PER_BOOKING, "reservation_cancelled")
-    db.commit()
+    _annuler_lignes(db, reservation)
 
 
 def _lignes_jumelles(db: Session, reservation: m.Reservation) -> list[m.Reservation]:
@@ -1509,7 +1383,7 @@ def admin_move_reservation(
     cible_jour = day if day is not None else reservation.reservation_date
     if cible_poste == reservation.desk_id and cible_jour == reservation.reservation_date:
         return reservation
-    if cible_jour < date.today():
+    if cible_jour < local_today():
         raise PastDate("Impossible de déplacer une réservation vers une date passée.")
 
     _poste_reservable(db, cible_poste, cible_jour)

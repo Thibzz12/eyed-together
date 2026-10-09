@@ -1,23 +1,33 @@
 """Endpoints REST du cœur métier (préfixe /api).
 
-Toutes les routes exigent une session valide (get_current_user).
+Toutes les routes exigent une session valide (get_current_user), à deux
+exceptions près : /screen/{token}/... et /kiosk/{token}/..., où le jeton du
+lien d'appareil (écran du couloir, tablette de l'entrée) tient lieu
+d'authentification. Les routes /admin/... exigent en plus le rôle admin.
 """
 
 
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app import schemas
+from app.core.config import settings
+from app.core.timezone import LOCAL_TZ
 from app.db import models as m
 from app.db.session import get_db
-from app.deps import get_current_user, manages_presence, require_admin, require_presence_access
+from app.deps import (
+    get_current_user, manages_presence, require_admin, require_kiosk_link, require_presence_access,
+    require_screen_link,
+)
 from app.services import attendance as attendance_svc
+from app.services import devices as devices_svc
 from app.services import events as events_svc
 from app.services import ideas as ideas_svc
 from app.services import badges as badges_svc
@@ -30,17 +40,8 @@ from app.services.gamification import award_points, points_rules
 from app.services.profile import get_leaderboard, get_public_profile, level_info
 from app.services import reservations as svc
 from app.services.search import search_all
-from app.services.dashboard import (
-    add_custom_status,
-    build_dashboard,
-    delete_custom_status,
-    get_enabled_statuses,
-    get_settings,
-    get_status_catalog,
-    set_enabled_statuses,
-    set_setting,
-    update_status,
-)
+from app.services.dashboard import build_dashboard, project_progress_settings
+from app.services.settings import set_setting
 from app.services.wordpress import fetch_content_detail, fetch_event_detail, fetch_events, fetch_news
 
 router = APIRouter(prefix="/api", tags=["reservations"])
@@ -57,18 +58,6 @@ def _apply_patch(obj, data) -> None:
     """Applique les champs fournis (exclut ceux absents du payload) sur un objet ORM."""
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(obj, field, value)
-
-
-def _project_progress_settings(db: Session) -> dict:
-    settings = get_settings(db, [
-        "project_progress_value", "project_progress_label", "project_milestone_title", "project_target_date",
-    ])
-    return {
-        "value": int(settings["project_progress_value"] or 0),
-        "label": settings["project_progress_label"],
-        "milestone_title": settings["project_milestone_title"] or "Nouveaux locaux",
-        "target_date": settings["project_target_date"] or None,
-    }
 
 
 def _user_profile(u: m.User) -> schemas.UserProfile:
@@ -106,7 +95,7 @@ def list_desks(db: Session = Depends(get_db), _=Depends(get_current_user)):
 @router.get("/availability", response_model=list[schemas.DeskAvailability])
 def availability(
     day: date = Query(..., alias="date", description="Date au format AAAA-MM-JJ"),
-    slot: str = Query(..., description="AM, PM ou DAY (journée)"),
+    slot: Literal["AM", "PM", "DAY"] = Query(..., description="AM, PM ou DAY (journée)"),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
@@ -154,27 +143,6 @@ def checkin_reservation(
 ):
     """Confirme ma présence sur une réservation du jour (évite la pénalité no-show)."""
     return svc.check_in(db, user["id"], reservation_id)
-
-
-@router.post("/reservations/room", response_model=list[schemas.ReservationRead], status_code=status.HTTP_201_CREATED)
-def book_room(
-    data: schemas.RoomBookingCreate,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    """Réserve toute la salle (Bureau 1 ou 2) — bloqué si un seul poste y est déjà réservé."""
-    return svc.book_room(db, user["id"], data.zone, data.reservation_date, data.slot)
-
-
-@router.get("/reservations/room")
-def my_room_reservation(
-    zone: str = Query(...),
-    day: date = Query(..., alias="date"),
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    """IDs de mes réservations pour cette salle/date (vide si je n'ai pas réservé la salle)."""
-    return {"reservation_ids": svc.my_room_reservation_ids(db, user["id"], zone, day)}
 
 
 @router.get("/pods/{desk_id}/timeslots", response_model=list[schemas.TimeslotRead])
@@ -339,19 +307,14 @@ def dashboard(db: Session = Depends(get_db), user: dict = Depends(get_current_us
 
 @router.get("/admin/dashboard")
 def admin_dashboard(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Toutes les cartes (admin) pour configuration.
-
-    La carte "presence" (déclaration de statut) n'est plus proposée : la
-    fonctionnalité est retirée de l'app (mail d'Olivier du 18/09/2026), la
-    ligne reste en base pour pouvoir revenir en arrière.
-    """
+    """Toutes les cartes (admin) pour configuration."""
     cards = db.scalars(select(m.DashboardCard).order_by(m.DashboardCard.position)).all()
     return {
         "cards": [
             {"id": c.id, "key": c.key, "title": c.title, "enabled": c.enabled, "highlighted": c.highlighted}
-            for c in cards if c.key != "presence"
+            for c in cards
         ],
-        "project_progress": _project_progress_settings(db),
+        "project_progress": project_progress_settings(db),
     }
 
 
@@ -405,7 +368,11 @@ def admin_desk_update(desk_id: int, data: schemas.DeskUpdate, db: Session = Depe
 
 @router.delete("/admin/desks/{desk_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_desk_delete(desk_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Supprime un poste (réduit la capacité ; ses réservations sont supprimées)."""
+    """Supprime un poste et ses réservations (la relation Desk.reservations porte la cascade).
+
+    Les points déjà gagnés sur ces réservations restent acquis : supprimer un
+    poste est un acte d'administration, pas une annulation par l'employé.
+    """
     desk = db.get(m.Desk, desk_id)
     if desk is not None:
         db.delete(desk)
@@ -425,92 +392,6 @@ def admin_project_progress(
     set_setting(db, "project_target_date", data.target_date.isoformat() if data.target_date else "")
     db.commit()
     return {"ok": True}
-
-
-@router.get("/statuses")
-def statuses(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """Statuts de présence proposés aux employés (catalogue configuré par l'admin)."""
-    catalog = [s for s in get_status_catalog(db) if s.get("enabled")]
-    return {"enabled": [s["key"] for s in catalog], "catalog": catalog}
-
-
-@router.get("/admin/statuses")
-def admin_statuses(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Catalogue complet (statuts de base + personnalisés), activés ou non."""
-    return {"catalog": get_status_catalog(db)}
-
-
-@router.put("/admin/statuses")
-def admin_statuses_save(data: schemas.StatusesUpdate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Active/désactive les statuts proposés aux employés."""
-    set_enabled_statuses(db, data.enabled)
-    return {"ok": True}
-
-
-@router.post("/admin/statuses")
-def admin_statuses_add(data: schemas.CustomStatusCreate, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Ajoute un statut de présence personnalisé (en plus des 4 statuts de base)."""
-    return add_custom_status(db, data.label, data.color)
-
-
-@router.patch("/admin/statuses/{key}")
-def admin_statuses_update(
-    key: str, data: schemas.CustomStatusUpdate, db: Session = Depends(get_db), _=Depends(require_admin),
-):
-    """Modifie le libellé et/ou la couleur d'un statut existant (base ou personnalisé)."""
-    return update_status(db, key, data.label, data.color)
-
-
-@router.delete("/admin/statuses/{key}", status_code=status.HTTP_204_NO_CONTENT)
-def admin_statuses_delete(key: str, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """Supprime un statut personnalisé (les statuts de base ne se désactivent, jamais ne se suppriment)."""
-    delete_custom_status(db, key)
-
-
-@router.get("/status/me", response_model=list[schemas.DailyStatusRead])
-def my_status(
-    start: date = Query(..., alias="from"),
-    end: date = Query(..., alias="to"),
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    """Mes statuts de présence déclarés sur une période (ex. la semaine)."""
-    rows = db.scalars(
-        select(m.DailyStatus).where(
-            m.DailyStatus.user_id == user["id"],
-            m.DailyStatus.day >= start,
-            m.DailyStatus.day <= end,
-        )
-    )
-    return list(rows)
-
-
-@router.put("/status/me", response_model=schemas.DailyStatusRead)
-def set_status(
-    data: schemas.DailyStatusDeclare,
-    db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    """Déclare (ou met à jour) mon statut de présence pour le matin ou l'après-midi d'une journée."""
-    known_keys = {s["key"] for s in get_status_catalog(db)}
-    if data.status not in known_keys:
-        raise HTTPException(status_code=422, detail="Statut inconnu.")
-    row = db.scalar(
-        select(m.DailyStatus).where(
-            m.DailyStatus.user_id == user["id"],
-            m.DailyStatus.day == data.day,
-        )
-    )
-    if row is None:
-        row = m.DailyStatus(user_id=user["id"], day=data.day)
-        db.add(row)
-    if data.slot == "AM":
-        row.status_am = data.status
-    else:
-        row.status_pm = data.status
-    db.commit()
-    db.refresh(row)
-    return row
 
 
 @router.get("/links", response_model=list[schemas.UsefulLinkRead])
@@ -778,24 +659,6 @@ def admin_set_idea_status(
     return {"ok": True}
 
 
-@router.get("/presence", response_model=list[schemas.PresenceEntry])
-def presence(
-    day: date = Query(default_factory=date.today, alias="date"),
-    db: Session = Depends(get_db),
-    _=Depends(get_current_user),
-):
-    """Qui est présent au bureau pour une date donnée (défaut : aujourd'hui)."""
-    return [
-        schemas.PresenceEntry(
-            user_name=r.user.display_name,
-            department=r.user.department,
-            desk_name=r.desk.name,
-            slot=r.slot,
-        )
-        for r in svc.presence(db, day)
-    ]
-
-
 # ---------------------------------------------------------------- Badges (administration)
 @router.get("/admin/badges")
 def admin_list_badges(db: Session = Depends(get_db), _=Depends(require_admin)):
@@ -1048,19 +911,25 @@ def visitor_checkout(
     """Enregistre le départ d'un visiteur. Réservé à son hôte, aux administrateurs
     et aux responsables présence."""
     attendance_svc.visitor_check_out(
-        db, visitor_id, user["id"], is_admin=manages_presence(db, user)
+        db, visitor_id, user["id"], can_manage=manages_presence(db, user)
     )
     return {"ok": True}
 
 
 def _heure(iso):
-    """« 2026-08-26T12:53:00.077719 » -> « 12:53 ».
+    """« 2026-08-26T12:53:00+00:00 » -> « 14:53 », en heure de Bruxelles.
 
     Une liste d'évacuation se lit debout dans un couloir : l'heure seule suffit,
-    la date est déjà dans le nom du fichier. Excel ne sait de toute façon pas
-    interpréter un ISO 8601 avec microsecondes, il l'affiche tel quel.
+    la date est déjà dans le nom du fichier. En production, la base renvoie des
+    horodatages UTC : couper la chaîne telle quelle donnait des heures décalées
+    d'une à deux heures sur le document (audit du 07/10/2026).
     """
-    return iso[11:16] if iso else ""
+    if not iso:
+        return ""
+    quand = datetime.fromisoformat(iso)
+    if quand.tzinfo is not None:
+        quand = quand.astimezone(LOCAL_TZ)
+    return quand.strftime("%H:%M")
 
 
 def _statut(ligne):
@@ -1310,6 +1179,10 @@ _STATIC_FLOORPLAN = Path(__file__).resolve().parents[1] / "static" / "img" / "fl
 @router.get("/floorplan")
 def floorplan(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """Plan des locaux : celui envoyé par l'admin, sinon l'image livrée avec l'application."""
+    return _floorplan_response(db)
+
+
+def _floorplan_response(db: Session):
     row = db.get(m.StoredImage, _FLOORPLAN_KEY)
     if row is not None:
         return Response(
@@ -1332,9 +1205,9 @@ def floorplan_version(db: Session) -> str:
     Une nouvelle image donne une nouvelle URL : il n'y a plus de cache à
     invalider, ce qui est plus sûr que de compter sur les en-têtes.
     """
-    row = db.get(m.StoredImage, _FLOORPLAN_KEY)
-    if row is not None:
-        return str(int(row.updated_at.timestamp()))
+    version = devices_svc.stored_image_version(db, _FLOORPLAN_KEY)
+    if version is not None:
+        return version
     # Aucun plan envoyé depuis l'administration : c'est l'image livrée avec
     # l'application qui s'affiche. Sa date de modification sert de version, sinon
     # remplacer cette image dans le dépôt laisserait l'URL inchangée et les
@@ -1342,27 +1215,112 @@ def floorplan_version(db: Session) -> str:
     return str(int(_STATIC_FLOORPLAN.stat().st_mtime))
 
 
-@router.post("/admin/floorplan")
-async def admin_floorplan_upload(
-    file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin),
+# ---------------------------------------------------------------- Appareils partagés
+#  Un écran dans le couloir, une tablette à l'entrée : pas de compte, pas de SSO,
+#  un lien secret par appareil généré ici et révocable d'un clic (demande
+#  d'Olivier du 02/10/2026). Les routes /screen/{token}/... et /kiosk/{token}/...
+#  sont les seules de l'API ouvertes sans session : le jeton tient lieu
+#  d'authentification.
+def _device_link_read(link: m.DeviceLink, request: Request) -> dict:
+    # En production, l'adresse publique est celle configurée (derrière le proxy
+    # de l'hébergeur, l'application ne voit ni le bon schéma ni forcément le bon
+    # hôte). En développement, l'adresse réellement appelée est la bonne.
+    base = settings.FRONTEND_ORIGIN.rstrip("/") if settings.is_production else str(request.base_url).rstrip("/")
+    chemin = "/ecran/" if link.kind == "screen" else "/pointage/"
+
+    # SQLite rend les horodatages sans fuseau : sans le remettre, le navigateur
+    # les lirait en heure locale et afficherait « vu à 18:53 » pour 20:53.
+    def utc(dt):
+        return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
+
+    return {
+        "id": link.id, "kind": link.kind, "label": link.label, "url": base + chemin + link.token,
+        "created_at": utc(link.created_at), "revoked_at": utc(link.revoked_at), "last_seen_at": utc(link.last_seen_at),
+    }
+
+
+@router.get("/admin/devices", response_model=list[schemas.DeviceLinkRead])
+def admin_devices(request: Request, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Les liens d'appareils, actifs et révoqués (les révoqués restent visibles comme trace)."""
+    return [_device_link_read(l, request) for l in devices_svc.list_links(db)]
+
+
+@router.post("/admin/devices", response_model=schemas.DeviceLinkRead, status_code=status.HTTP_201_CREATED)
+def admin_device_create(
+    data: schemas.DeviceLinkCreate, request: Request,
+    db: Session = Depends(get_db), user: dict = Depends(require_admin),
 ):
-    """Remplace le plan des locaux. Réservé aux administrateurs."""
+    """Génère un nouveau lien d'appareil."""
+    try:
+        link = devices_svc.create_link(db, data.kind, data.label, user["id"])
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return _device_link_read(link, request)
+
+
+@router.delete("/admin/devices/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_device_revoke(link_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Révoque un lien : l'appareil qui l'utilise affiche aussitôt « lien révoqué »."""
+    if not devices_svc.revoke_link(db, link_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lien inconnu.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/admin/screen-settings", response_model=schemas.ScreenSettingsRead)
+def admin_screen_settings(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Personnalisation de l'écran du plan du jour (titre, message, couleurs, fond, éléments).
+
+    Les préréglages de couleurs voyagent avec : l'administration les propose
+    sans en garder une copie, une seule liste fait foi.
+    """
+    return {**devices_svc.get_screen_settings(db), "presets": devices_svc.SCREEN_PRESETS}
+
+
+@router.put("/admin/screen-settings", response_model=schemas.ScreenSettingsRead)
+def admin_screen_settings_save(
+    data: schemas.ScreenSettings, db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Enregistre la personnalisation : les écrans l'appliquent à leur prochain rafraîchissement."""
+    return {**devices_svc.save_screen_settings(db, data), "presets": devices_svc.SCREEN_PRESETS}
+
+
+@router.get("/screen/{token}/today")
+def screen_today(
+    slot: str | None = Query(None, description="AM ou PM ; par défaut selon l'heure"),
+    link: m.DeviceLink = Depends(require_screen_link),
+    db: Session = Depends(get_db),
+):
+    """Le plan du jour pour un écran d'affichage : places, états, occupants."""
+    snapshot = devices_svc.screen_snapshot(db, slot)
+    snapshot["label"] = link.label
+    snapshot["floorplan_version"] = floorplan_version(db)
+    return snapshot
+
+
+@router.get("/screen/{token}/floorplan")
+def screen_floorplan(_link: m.DeviceLink = Depends(require_screen_link), db: Session = Depends(get_db)):
+    """L'image du plan, pour un écran d'affichage."""
+    return _floorplan_response(db)
+
+
+async def _enregistrer_image(db: Session, key: str, file: UploadFile, max_bytes: int = _MAX_FLOORPLAN_BYTES) -> int:
+    """Range une image envoyée par l'admin en base (plan, fond d'écran). Renvoie sa taille."""
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le fichier doit être une image.")
 
     contenu = await file.read()
     if not contenu:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Le fichier est vide.")
-    if len(contenu) > _MAX_FLOORPLAN_BYTES:
+    if len(contenu) > max_bytes:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Image trop lourde ({len(contenu) // 1024} Ko). Maximum 5 Mo.",
+            f"Image trop lourde ({len(contenu) // 1024} Ko). Maximum {max_bytes // (1024 * 1024)} Mo.",
         )
 
-    row = db.get(m.StoredImage, _FLOORPLAN_KEY)
+    row = db.get(m.StoredImage, key)
     if row is None:
         db.add(m.StoredImage(
-            key=_FLOORPLAN_KEY, content_type=file.content_type,
+            key=key, content_type=file.content_type,
             data=contenu, updated_at=datetime.now(timezone.utc),
         ))
     else:
@@ -1370,12 +1328,98 @@ async def admin_floorplan_upload(
         row.data = contenu
         row.updated_at = datetime.now(timezone.utc)
     db.commit()
+    return len(contenu)
+
+
+@router.post("/admin/floorplan")
+async def admin_floorplan_upload(
+    file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Remplace le plan des locaux. Réservé aux administrateurs."""
+    taille = await _enregistrer_image(db, _FLOORPLAN_KEY, file)
     return {
-        "ok": True, "bytes": len(contenu), "content_type": file.content_type,
+        "ok": True, "bytes": taille, "content_type": file.content_type,
         # Le front s'en sert pour reconstruire l'URL de l'image aussitôt,
         # sans attendre un rechargement de la page.
         "version": floorplan_version(db),
     }
+
+
+# --- Image de fond de l'écran d'affichage (même mécanisme que le plan) ---
+def _background_response(db: Session):
+    row = db.get(m.StoredImage, devices_svc.SCREEN_BACKGROUND_KEY)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pas d'image de fond.")
+    return Response(content=row.data, media_type=row.content_type, headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/admin/screen-background")
+def admin_screen_background(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """L'image de fond de l'écran, pour l'aperçu dans l'administration."""
+    return _background_response(db)
+
+
+@router.post("/admin/screen-background")
+async def admin_screen_background_upload(
+    file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_admin),
+):
+    """Pose (ou remplace) l'image de fond de l'écran d'affichage."""
+    taille = await _enregistrer_image(db, devices_svc.SCREEN_BACKGROUND_KEY, file)
+    return {"ok": True, "bytes": taille, "version": devices_svc.background_version(db)}
+
+
+@router.delete("/admin/screen-background", status_code=status.HTTP_204_NO_CONTENT)
+def admin_screen_background_delete(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Retire l'image de fond : l'écran revient à ses couleurs."""
+    row = db.get(m.StoredImage, devices_svc.SCREEN_BACKGROUND_KEY)
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/screen/{token}/background")
+def screen_background(_link: m.DeviceLink = Depends(require_screen_link), db: Session = Depends(get_db)):
+    """L'image de fond, pour un écran d'affichage."""
+    return _background_response(db)
+
+
+# --- Tablette de pointage : même authentification par lien que l'écran ---
+@router.get("/kiosk/{token}/today")
+def kiosk_today(_link: m.DeviceLink = Depends(require_kiosk_link), db: Session = Depends(get_db)):
+    """Tout le monde avec l'état du jour, pour que chacun se trouve et pointe."""
+    return devices_svc.kiosk_roster(db)
+
+
+@router.post("/kiosk/{token}/checkin")
+def kiosk_checkin(
+    data: schemas.KioskAction, _link: m.DeviceLink = Depends(require_kiosk_link), db: Session = Depends(get_db),
+):
+    """Arrivée confirmée depuis la tablette, au nom de la personne qui a touché son nom."""
+    try:
+        return devices_svc.kiosk_checkin(db, data.user_id)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+@router.post("/kiosk/{token}/checkout")
+def kiosk_checkout(
+    data: schemas.KioskAction, _link: m.DeviceLink = Depends(require_kiosk_link), db: Session = Depends(get_db),
+):
+    """Départ confirmé depuis la tablette, avec ses visiteurs si la personne l'a dit."""
+    try:
+        return devices_svc.kiosk_checkout(db, data.user_id, with_visitors=data.with_visitors)
+    except LookupError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+@router.get("/admin/screen-preview")
+def admin_screen_preview(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Le plan du jour tel que l'écran le montre, pour l'aperçu en direct de l'administration."""
+    snapshot = devices_svc.screen_snapshot(db)
+    snapshot["label"] = "Aperçu"
+    snapshot["floorplan_version"] = floorplan_version(db)
+    return snapshot
 
 
 # ---------------------------------------------------------------- Réservations (administration)

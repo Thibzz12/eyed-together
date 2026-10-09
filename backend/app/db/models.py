@@ -155,7 +155,12 @@ class Desk(Base):
     pos_x: Mapped[float | None] = mapped_column(Float, nullable=True)   # position sur le plan (%)
     pos_y: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    reservations: Mapped[list["Reservation"]] = relationship(back_populates="desk")
+    # Supprimer un poste emporte ses réservations : sans cascade, SQLAlchemy
+    # tentait de mettre desk_id à NULL (colonne obligatoire) et la suppression
+    # d'un poste déjà réservé finissait en erreur 500 (audit du 07/10/2026).
+    reservations: Mapped[list["Reservation"]] = relationship(
+        back_populates="desk", cascade="all, delete-orphan",
+    )
 
 
 # ------------------------------------------------------------------
@@ -652,3 +657,29 @@ class StoredImage(Base):
     content_type: Mapped[str] = mapped_column(String(60), nullable=False)
     data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DeviceLink(Base):
+    """Lien secret donnant accès à un appareil partagé, sans compte ni session.
+
+    Un écran dans le couloir ou une tablette à l'entrée n'a personne pour se
+    connecter au SSO, et une session expirerait de toute façon. L'administration
+    génère donc un lien à usage d'appareil (`/ecran/<token>`), à ouvrir une fois
+    sur l'appareil, et révocable d'un clic si l'appareil disparaît (demande
+    d'Olivier du 02/10/2026 : plan du jour sur grand écran, pointage sur tablette).
+
+    `kind` vaut "screen" (affichage en lecture seule du plan du jour) ou "kiosk"
+    (pointage arrivée/départ au nom des collaborateurs).
+    """
+
+    __tablename__ = "device_links"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)       # "screen" | "kiosk"
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Dernier appel reçu de l'appareil : dit d'un coup d'œil si l'écran est bien branché.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

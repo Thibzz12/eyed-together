@@ -11,18 +11,20 @@ une semaine — cohérent avec la progression de niveau à paliers infinis (prof
 """
 
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import models as m
+from app.core.timezone import local_today
+from app.core.errors import AppError
 from app.services.gamification import award_points
 
 DEFAULT_BADGE_POINTS = 15  # valeur par défaut pour un nouveau badge (modifiable ensuite par badge)
 
 
-class BadgeError(Exception):
+class BadgeError(AppError):
     status_code = 400
 
 TIER_NUMERALS = ["I", "II", "III", "IV", "V"]
@@ -55,7 +57,7 @@ def compute_streak(db: Session, user_id: int) -> int:
     if not checked_days:
         return 0
     streak = 0
-    day = date.today()
+    day = local_today()
     while True:
         if day.weekday() >= 5:  # week-end : on saute sans casser la série
             day -= timedelta(days=1)

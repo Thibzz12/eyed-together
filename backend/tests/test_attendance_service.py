@@ -188,7 +188,7 @@ def test_on_ne_peut_pas_faire_partir_le_visiteur_d_un_autre(db, employee, collea
 
 def test_un_admin_peut_faire_partir_n_importe_quel_visiteur(db, employee, admin):
     v = svc.add_visitor(db, employee.id, "Jean Dupont", "Acme")
-    v = svc.visitor_check_out(db, v.id, admin.id, is_admin=True)
+    v = svc.visitor_check_out(db, v.id, admin.id, can_manage=True)
 
     assert v.left_at is not None
 

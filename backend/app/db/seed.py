@@ -153,7 +153,6 @@ def cleanup_demo_colleagues_if_present(db: Session) -> int:
 
 # Cartes d'accueil par défaut (clé, titre, position, mise en avant).
 _DEFAULT_CARDS = [
-    ("presence", "Mon statut du jour", 0, False),
     ("next_reservation", "Ma réservation", 1, False),
     ("project_progress", "Building Our Future Home", 2, True),
     ("team_presence", "Présents aujourd'hui", 3, False),

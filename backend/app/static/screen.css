@@ -1,0 +1,66 @@
+/* Grand écran du plan du jour : plan au centre, aucune interaction.
+   Pensé pour un téléviseur ou un vieux moniteur dans le couloir, lu à plusieurs
+   mètres : grands caractères, contrastes francs, rien qui clignote.
+
+   Les couleurs viennent de l'administration (variables --scr-*), avec le thème
+   sombre comme valeurs de repli : l'admin a la main sur le fond, le texte et
+   l'accent, et peut poser une image de fond derrière le tout. */
+.screen-body {
+  --scr-bg1: #0F2836; --scr-bg2: #04141D; --scr-text: #FFFFFF; --scr-accent: #7EC8E3; --scr-dim: .6;
+  margin: 0; min-height: 100vh; display: flex; flex-direction: column; position: relative;
+  background: radial-gradient(circle at 85% 10%, rgba(255,255,255,.08), transparent 45%),
+              linear-gradient(160deg, var(--scr-bg1) 0%, var(--scr-bg2) 120%);
+  color: var(--scr-text); overflow: hidden; cursor: none;
+}
+.screen-bg { position: fixed; inset: 0; background-size: cover; background-position: center; z-index: 0; }
+.screen-bg-dim { position: fixed; inset: 0; background: var(--scr-bg2); opacity: var(--scr-dim); z-index: 0; }
+.screen-head, .screen-banner, .screen-main, .screen-foot { position: relative; z-index: 1; }
+
+.screen-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: clamp(14px, 2vh, 28px) clamp(18px, 3vw, 48px);
+}
+.screen-brand { display: flex; align-items: center; gap: 18px; }
+.screen-brand img { height: clamp(36px, 5vh, 64px); border-radius: 10px; background: #fff; padding: 4px; }
+.screen-title { font-family: var(--font-heading); font-weight: 700; font-size: clamp(1.2rem, 2.6vw, 2.2rem); letter-spacing: -.02em; line-height: 1.05; }
+.screen-date { color: var(--scr-accent); font-size: clamp(.85rem, 1.5vw, 1.2rem); font-weight: 600; margin-top: 4px; }
+.screen-stats { display: flex; gap: clamp(14px, 2vw, 32px); }
+.screen-stat { color: var(--scr-accent); font-size: clamp(.9rem, 1.6vw, 1.3rem); font-weight: 600; }
+.screen-stat b { color: var(--scr-text); font-family: var(--font-heading); font-size: 1.5em; margin-right: .2em; }
+.screen-clock { font-family: var(--font-heading); font-weight: 700; font-size: clamp(1.6rem, 3.6vw, 3rem); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* Message de l'admin (« Réunion d'équipe 14h, salle 2 ») : une bande sous
+   l'en-tête, lisible de loin, qui n'apparaît que si un message est saisi. */
+.screen-banner {
+  margin: 0 clamp(18px, 3vw, 48px) 10px; padding: clamp(10px, 1.6vh, 18px) clamp(16px, 2vw, 28px);
+  border-radius: 12px; background: color-mix(in srgb, var(--scr-text) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--scr-text) 18%, transparent);
+  font-size: clamp(1rem, 2vw, 1.6rem); font-weight: 600; text-align: center;
+}
+
+.screen-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 0 clamp(18px, 3vw, 48px); position: relative; }
+/* Le plan prend toute la largeur disponible sans dépasser la hauteur : l'image
+   au ratio ~4.2 tient dans la bande centrale sur un écran 16/9. En « large »,
+   l'admin préfère la largeur pleine, quitte à rogner les marges. */
+.screen-plan { width: min(100%, calc((100vh - 200px) * 4.2)); border-radius: 14px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); background: #fff; }
+.plan-large .screen-plan { width: 100%; }
+.screen-plan .plan-pin { cursor: default; pointer-events: none; }
+.screen-message {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--scr-bg2) 80%, transparent); color: var(--scr-text);
+  font-size: clamp(1.1rem, 2.4vw, 2rem); font-weight: 600; text-align: center; padding: 40px;
+}
+
+.screen-foot {
+  display: flex; align-items: center; gap: clamp(14px, 2vw, 28px); flex-wrap: wrap;
+  padding: clamp(10px, 1.6vh, 20px) clamp(18px, 3vw, 48px); color: var(--scr-accent); font-size: clamp(.85rem, 1.4vw, 1.1rem); font-weight: 600;
+}
+.screen-legend { display: inline-flex; align-items: center; gap: clamp(14px, 2vw, 28px); flex-wrap: wrap; }
+.screen-foot .lg { display: inline-flex; align-items: center; gap: 8px; }
+.screen-foot .sw { width: 18px; height: 14px; border-radius: 4px; border: 1.5px solid transparent; display: inline-block; }
+.screen-foot .sw.free { background: var(--seat-free); border-color: var(--seat-free-b); }
+.screen-foot .sw.occupied { background: var(--seat-occ); border-color: var(--seat-occ-b); }
+.screen-foot .sw.held { background: #EEF2F6; border-color: #CBD5E1; }
+.screen-foot .sw.off { background: repeating-linear-gradient(45deg, #CBD5E1 0 3px, #F1F5F9 3px 6px); border-color: #CBD5E1; }
+.screen-label { margin-left: auto; }
+.screen-updated { opacity: .75; font-weight: 500; font-variant-numeric: tabular-nums; }

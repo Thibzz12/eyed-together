@@ -39,8 +39,7 @@ html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); -webkit-font-smoothing: antialiased; }
 .hidden { display: none !important; }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; font-family: var(--font-heading); }
-.banner-title, .hb-greet, .sheet-title, .stat-value, .card-value, .idea-title, .ev-title, .ec-title, .ed-title,
-.notif-title, .rc-desk, .day-pill .dp-n, .pd-n, .points-pill, .proj-pct, .badge-name, .colleague-name {
+.banner-title, .hb-greet, .sheet-title, .stat-value, .card-value, .idea-title, .ev-title, .ec-title, .ed-title, .notif-title, .rc-desk, .day-pill .dp-n, .points-pill, .badge-name, .colleague-name {
   font-family: var(--font-heading);
 }
 a { color: inherit; }
@@ -96,12 +95,6 @@ button, input { font-family: inherit; }
 .btn-primary { background: var(--blue); color: #fff; }
 .btn-primary:hover { filter: brightness(1.08); }
 .btn-ghost { background: var(--blue-050); color: var(--blue); }
-.login-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
-.login-form input { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px 15px; font-size: .95rem; color: var(--ink); background: #fff; width: 100%; }
-.login-form input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-050); }
-.login-form .btn { margin: 4px 0 0; }
-.login-error { color: var(--red); font-size: .84rem; min-height: 18px; text-align: left; }
-.login-hint { color: var(--muted); font-size: .8rem; margin: 4px 0 14px; }
 
 /* ---------------- Coquille app (mobile d'abord) ---------------- */
 .app { min-height: 100vh; min-height: 100dvh; }
@@ -144,8 +137,6 @@ button, input { font-family: inherit; }
 /* Logo : masqué en mobile (déjà visible dans le tiroir de nav), affiché dans la topbar claire
    en desktop — le rail sombre n'a gardé qu'un repère minimal, ce n'est plus assez pour la marque. */
 .topbar-logo { display: none; }
-.mobile-menu-btn { border: none; background: #fff; box-shadow: var(--shadow-1); width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
-.mobile-menu-btn svg { width: 20px; height: 20px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; }
 .topbar h1 { font-size: 1.1rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .points-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--amber-050); color: #92600A; padding: 7px 13px; border-radius: 999px; font-weight: 700; font-size: .86rem; transition: transform .2s ease; white-space: nowrap; }
@@ -271,8 +262,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 @keyframes hb-aperture-spin { to { transform: rotate(360deg); } }
 .hb-greet { position: relative; font-family: var(--font-heading); font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 700; letter-spacing: -.02em; line-height: 1.08; }
 .hb-muted { color: #9AC0D4; font-weight: 500; font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; }
-.hb-status { position: relative; display: flex; align-items: center; gap: 6px; margin-top: 14px; color: #7EC8E3; font-size: .78rem; font-weight: 600; }
-.hb-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--green); box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
 
 /* Bloc présence du bandeau d'accueil : le geste d'arrivée/départ, bien en vue
    (demande d'Olivier du 18/09/2026). Remplace l'ancien "Connecté · SSO EyeD". */
@@ -298,6 +287,33 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .pcta-link:hover { color: #fff; }
 @media (prefers-reduced-motion: reduce) { .pcta-dot.wait { animation: none; } }
 
+/* Liens d'appareils (administration > Coworking) : un écran par ligne, son lien
+   en lecture seule prêt à copier, la révocation en deux clics. */
+.device-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+.device-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); }
+.device-id { display: flex; flex-direction: column; min-width: 160px; }
+.device-id small { color: var(--muted); font-size: .78rem; }
+.device-url { flex: 1 1 260px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .82rem; color: var(--muted); background: #F8FAFC; }
+.device-row .btn { width: auto; flex: 0 0 auto; padding: 8px 14px; }
+
+/* Personnalisation de l'écran : aperçu réel (la page de l'écran en 1600x900,
+   réduite à la largeur de la carte) et formulaire sur deux colonnes. */
+.screen-preview-box { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 12px; border: 1px solid var(--line); background: #04141D; margin: 10px 0 14px; }
+.screen-preview-box iframe { position: absolute; top: 0; left: 0; width: 1600px; height: 900px; border: 0; transform-origin: top left; pointer-events: none; }
+.screen-form { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 819.98px) { .screen-form { grid-template-columns: 1fr; } }
+.screen-form-col { min-width: 0; }
+.screen-field { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.screen-field input, .screen-field select { width: 100%; font-weight: 400; color: var(--ink); }
+.screen-field input[type="range"] { padding: 0; }
+.screen-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.screen-preset { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
+.screen-preset span { width: 22px; height: 22px; border-radius: 999px; border: 1px solid rgba(0,0,0,.1); }
+.screen-preset.active { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,96,141,.2); }
+.screen-colors { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.screen-colors label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; font-weight: 600; color: var(--muted); }
+.screen-colors input[type="color"] { width: 100%; height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--card); cursor: pointer; }
+
 /* Cadran : occupation (anneau ext.) + progression de niveau (anneau int.), disque central =
    statut de réservation du jour. Repris de la maquette, alimenté par les données réelles du
    dashboard (cartes next_reservation / coworking_status), sans dépendre de leur activation admin. */
@@ -320,12 +336,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .hb-dial-legend { position: absolute; font-size: .56rem; text-transform: uppercase; letter-spacing: .05em; color: rgba(255,255,255,.5); white-space: nowrap; }
 .hb-dial-legend.l1 { top: 4px; left: 50%; transform: translateX(-50%); }
 .hb-dial-legend.l2 { bottom: 2px; right: 2px; }
-.stat-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: none; }
-.stat .label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
-.stat .value { font-family: var(--font-heading); font-size: 1.5rem; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
-.stat .value.blue { color: var(--blue); }
-.status-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .dash-cols { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 6px; }
 
 /* ---------------- Accueil : grille de cartes ---------------- */
@@ -348,7 +358,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .card-head h3 { font-size: .96rem; }
 .mini-bar { height: 6px; background: var(--blue-050); border-radius: 999px; overflow: hidden; margin: 12px 0 12px; }
 .mini-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #4FB3D9); border-radius: 999px; }
-.proj-label { font-size: .98rem; font-weight: 600; margin: 6px 0 12px; }
 /* Jalon projet : un filet + curseur plutôt qu'une barre pleine encadrée. */
 .progress { position: relative; height: 1px; background: var(--blue-050); overflow: visible; margin: 22px 4px 8px; }
 .progress i { position: relative; display: block; height: 100%; background: var(--blue); transition: width .4s ease; }
@@ -356,13 +365,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
   content: ""; position: absolute; top: 50%; right: -6px; width: 13px; height: 13px; border-radius: 50%;
   background: var(--blue); transform: translateY(-50%); box-shadow: 0 0 0 5px var(--blue-050);
 }
-.proj-pct { text-align: right; font-family: var(--font-heading); font-weight: 700; color: var(--blue); margin-top: 0; font-size: 1.3rem; }
 
-/* ---------------- Statut segmenté (accueil) ---------------- */
-.status-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; background: #F1F5F9; border-radius: 14px; padding: 6px; margin-top: 6px; }
-.status-seg-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 2px 8px; border-radius: 10px; border: none; cursor: pointer; background: transparent; color: var(--muted); font-size: .68rem; font-weight: 600; }
-.status-seg-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.status-seg-btn.on { background: var(--tile-color, var(--blue)); color: #fff; box-shadow: 0 4px 10px rgba(0,96,141,.3); }
 
 /* ---------------- Carte réservation active ---------------- */
 .reservation-card .rc-row { display: flex; gap: 12px; }
@@ -391,7 +394,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .banner-card .progress { background: rgba(255,255,255,.15); }
 .banner-card .progress i { background: #7EC8E3; }
 .banner-card .progress i::after { background: #7EC8E3; box-shadow: 0 0 0 5px rgba(126,200,227,.22); }
-.banner-card .proj-pct { color: #7EC8E3; }
 
 /* ---------------- Collègues présents ---------------- */
 .badge-count { font-size: .7rem; font-weight: 700; color: var(--green); background: var(--green-050); padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
@@ -492,7 +494,7 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .badge-icon { font-size: 1.5rem; }
 .badge-name { font-size: .66rem; font-weight: 600; color: var(--navy); line-height: 1.2; }
 
-.explore-grid, .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
+.menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
 .explore-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #F9FAFC; cursor: pointer; font-size: .78rem; font-weight: 600; color: var(--navy); font-family: inherit; }
 .explore-icon { font-size: 1.3rem; }
 
@@ -570,12 +572,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .admin-progress { display: flex; flex-direction: column; gap: 18px; margin-top: 12px; }
 .admin-progress label { font-size: .85rem; color: var(--muted); }
 .admin-progress input[type="text"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .92rem; margin-top: 6px; width: 100%; }
-.status-admin-list { display: flex; flex-direction: column; gap: 4px; }
-.status-admin-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
-.status-admin-row input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--blue); }
-.status-admin-row .status-color-input { width: 32px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
-.status-admin-row .status-label-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: .86rem; font-family: inherit; }
-.status-admin-row .da-del { flex-shrink: 0; }
 .status-add-form { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .status-add-form input[type="text"] { flex: 1; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .88rem; font-family: inherit; }
 .status-add-form input[type="color"] { width: 42px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; flex-shrink: 0; }
@@ -680,8 +676,6 @@ button.link-more { border: none; background: none; padding: 0; font-family: inhe
 .day-pill.weekend { background: #F3F4F6; color: var(--muted); }
 .day-pill.weekend.active { background: var(--blue); color: #fff; }
 
-/* ---------------- Contrôles (réserver) ---------------- */
-.controls { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font-size: .9rem; color: var(--ink); background: #fff; }
@@ -697,17 +691,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 
 /* ---------------- Tables avec sièges groupés ---------------- */
 .section-eyebrow { font-size: .7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 10px; }
-.table-card { padding: 16px 8px; }
-.table-scroll { display: flex; flex-direction: column; gap: 20px; padding: 4px 8px 6px; }
-.table-scroll-row { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; align-items: flex-start; }
-/* Tables orientées VERTICALEMENT pour coller au plan réel (tables du haut vers le bas,
-   sièges de part et d'autre) : le widget est une colonne (surface au centre en hauteur),
-   chaque "rangée" de sièges est en fait une colonne verticale. */
-.table-widget { flex: none; display: flex; flex-direction: row; align-items: center; gap: 6px; }
-.ts-row { display: flex; flex-direction: column; gap: 6px; }
-.ts-surface { min-height: 58px; width: 40px; padding: 8px 0; border-radius: 10px; background: #EEF2F6; border: 1.5px solid #CBD5E1; display: flex; align-items: center; justify-content: center; color: #94A3B8; font-weight: 700; font-size: .74rem; writing-mode: vertical-rl; text-orientation: mixed; }
-.table-widget-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.ts-label { font-size: .78rem; font-weight: 700; color: var(--navy); margin-top: 2px; }
+
 /* Élargi de 26 à 32px et police remontée : les places portent désormais un acronyme
    de quatre lettres (OLVA) et non plus deux initiales. À 26px il devenait illisible,
    or c'est justement la notation qu'ils lisent en un coup d'œil sur le plan. */
@@ -746,7 +730,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 /* ---------------- Listes latérales ---------------- */
 .side-cards .card { margin-bottom: 14px; }
 .side-cards h3 { font-size: .94rem; margin-bottom: 10px; }
-.res-item, .pres-item, .event-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 11px; }
+.res-item, .event-item { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 11px; }
 .list { display: flex; flex-direction: column; gap: 8px; }
 /* Dans le dashboard : filets au lieu de boîtes, cohérent avec .dash-card .event-row. */
 .dash-card .list { gap: 0; }
@@ -768,9 +752,6 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .res-item-actions { display: flex; gap: 6px; flex-shrink: 0; margin-left: auto; }
 .checkin { border: none; background: var(--green-050); color: var(--green); border-radius: 7px; padding: 7px 10px; cursor: pointer; font-weight: 600; font-size: .76rem; }
 .res-checked { color: var(--green); font-weight: 700; font-size: .78rem; align-self: center; }
-.pres-item { display: flex; align-items: center; gap: 10px; border: none; padding: 4px 0; }
-.pres-avatar { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .72rem; }
-.pres-info { min-width: 0; } .pres-info b { font-size: .86rem; } .pres-info small { color: var(--muted); display: block; }
 .event-item { display: flex; gap: 10px; align-items: baseline; text-decoration: none; color: inherit; background: #F9FAFC; }
 .event-date { font-size: .68rem; font-weight: 700; color: var(--blue); white-space: nowrap; text-transform: uppercase; flex-shrink: 0; }
 .event-title { font-size: .86rem; line-height: 1.35; }
@@ -781,11 +762,9 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .event-card:hover { transform: translateY(-2px); border-color: var(--blue); }
 .event-card .ec-date { display: inline-flex; align-items: center; gap: 6px; font-size: .72rem; font-weight: 600; color: var(--blue); background: var(--blue-050); padding: 4px 10px; border-radius: 999px; align-self: flex-start; }
 .event-card .ec-title { font-size: .96rem; font-weight: 600; line-height: 1.35; }
-.event-card .ec-link { color: var(--blue); font-size: .78rem; margin-top: auto; font-weight: 600; }
 
 /* Détail d'un événement (dans l'app) */
 .btn-back { background: none; border: none; color: var(--blue); font-family: inherit; font-weight: 600; font-size: .88rem; cursor: pointer; padding: 4px 0; margin-bottom: 14px; }
-#statusConflictSheet .btn-back { display: block; width: 100%; text-align: center; margin: 12px 0 0; color: var(--muted); }
 .detail-wrap { max-width: 780px; margin: 0 auto; }
 .event-detail { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: none; }
 .event-detail .ec-date { display: inline-flex; align-items: center; font-size: .74rem; font-weight: 600; color: var(--blue); background: var(--blue-050); padding: 4px 12px; border-radius: 999px; }
@@ -801,31 +780,8 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .ed-source:hover { color: var(--blue); }
 
 /* ---------------- Ma présence ---------------- */
-/* ---------------- Ma présence (design pro) ---------------- */
-.presence-hero { padding-bottom: 18px; }
-.presence-daystrip { display: flex; gap: 8px; overflow-x: auto; }
-.pd-pill { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 9px 13px; cursor: pointer; font-family: inherit; color: #CBD5E1; }
-.pd-pill.active { background: #fff; color: var(--navy); }
-.pd-d { font-size: .68rem; font-weight: 600; text-transform: uppercase; }
-.pd-n { font-size: 1rem; font-weight: 800; }
-.pd-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 2px; }
-.presence-card { margin-top: -14px; position: relative; z-index: 1; }
-.presence-card h3 { text-transform: capitalize; }
-.presence-status-grid { margin-top: 12px; }
-.status-half-label { font-size: .7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 8px; }
-.status-half-label:first-child { margin-top: 0; }
-.presence-status-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.presence-status-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 8px; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: #F9FAFC; cursor: pointer; font-family: inherit; font-weight: 600; font-size: .84rem; color: var(--ink); }
-.presence-status-tile svg { width: 24px; height: 24px; color: var(--tile-color); }
-.presence-status-tile.on { background: color-mix(in srgb, var(--tile-color) 12%, white); border-color: var(--tile-color); color: var(--tile-color); }
 
-/* ---- Vue de la semaine (présence) : jour + créneaux sur des lignes séparées, pour un
-   alignement stable quel que soit la longueur du libellé de jour ou du statut. ---- */
-.pres-week-row { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: #F9FAFC; }
-.pres-week-day { font-size: .68rem; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
-.pres-week-slots { display: flex; flex-direction: column; gap: 5px; }
-.pres-week-slot { display: flex; align-items: center; gap: 6px; font-size: .86rem; flex-wrap: wrap; }
-.pws-label { color: var(--muted); font-size: .78rem; min-width: 68px; }
+
 
 /* ---------------- Feuille de réservation (bottom sheet) + toast ---------------- */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(15,40,54,.45); z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
@@ -865,9 +821,6 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
 .toast { position: fixed; bottom: calc(var(--tabbar-h) + 70px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: #fff; padding: 11px 18px; border-radius: var(--radius-sm); font-weight: 500; font-size: .88rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); opacity: 0; transition: opacity .25s ease, transform .25s ease; z-index: 120; max-width: 90vw; text-align: center; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.error { background: var(--red); } .toast.success { background: var(--green); }
-.toast.toast-with-action { display: flex; align-items: center; gap: 12px; text-align: left; max-width: min(92vw, 420px); }
-.toast-action-btn { flex-shrink: 0; border: none; background: rgba(255,255,255,.2); color: #fff; font-weight: 700; font-size: .82rem; padding: 7px 12px; border-radius: 999px; cursor: pointer; font-family: inherit; white-space: nowrap; }
-.toast-action-btn:hover { background: rgba(255,255,255,.32); }
 .float-point { position: fixed; color: var(--amber); font-weight: 700; font-size: 1.1rem; pointer-events: none; z-index: 60; animation: floatUp 1s ease-out forwards; }
 @keyframes floatUp { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-46px); } }
 
@@ -875,7 +828,7 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
    RESPONSIVE — tablette (≥600px) puis desktop (≥900px)
    ============================================================ */
 @media (min-width: 600px) {
-  .stat-row, .dash-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-grid { grid-template-columns: repeat(2, 1fr); }
   .events-grid { grid-template-columns: repeat(2, 1fr); }
   .desk-admin-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .desk-admin-row .da-name { flex: 1; min-width: 0; }
@@ -917,26 +870,23 @@ input[type="date"] { border: 1px solid var(--line); border-radius: var(--radius-
   }
   .side-user { flex-direction: column; border-top: none; margin-top: auto; padding: 14px 0 0; gap: 10px; }
   .side-user .su-info { display: none; }
-  .mobile-menu-btn, .tabbar, .menu-only-mobile { display: none; }
+  .tabbar, .menu-only-mobile { display: none; }
   .main { padding-bottom: 0; }
   .topbar { padding: 18px 32px; background: transparent; backdrop-filter: none; border-bottom: 1px solid var(--line); position: static; }
   .topbar-logo { display: block; height: 26px; width: auto; padding-right: 18px; margin-right: 4px; border-right: 1px solid var(--line); flex-shrink: 0; }
   .topbar h1 { font-size: 1.35rem; }
   .view { padding: 6px 32px 60px; }
-  .stat-row { grid-template-columns: repeat(3, minmax(200px, 1fr)); }
   .dash-grid { grid-template-columns: repeat(3, minmax(220px, 1fr)); }
   .dash-card.wide { grid-column: 1 / -1; }
   .dash-cols { grid-template-columns: 1fr 1fr; }
   .reserve-layout { grid-template-columns: 1fr 320px; }
   .events-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
   .tseat { width: 30px; height: 30px; font-size: 7.5px; }
-  .ts-surface { min-height: 66px; width: 46px; font-size: .8rem; }
   .admin-row { grid-template-columns: 54px 1fr auto auto; }
   .desk-admin-head { display: flex; gap: 10px; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; padding: 0 12px 6px; }
   .desk-admin-head span:first-child { flex: 1; }
   .desk-admin-head span:nth-child(2) { width: 90px; flex-shrink: 0; }
   .desk-admin-head span:nth-child(3) { width: 90px; flex-shrink: 0; }
-  .presence-status-tiles { grid-template-columns: repeat(4, 1fr); max-width: 640px; }
   .sheet { border-radius: 20px; margin-bottom: 40px; }
   .toast { bottom: 100px; }
 }

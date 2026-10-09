@@ -7,13 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import models as m
+from app.core.errors import AppError
 
 _YOUTUBE_RE = re.compile(
     r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([\w-]{11})"
 )
 
 
-class MediaError(Exception):
+class MediaError(AppError):
     status_code = 400
 
 

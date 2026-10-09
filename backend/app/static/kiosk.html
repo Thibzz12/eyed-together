@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="robots" content="noindex, nofollow">
+  <title>EyeD Together · Pointage</title>
+  <link rel="icon" href="/static/img/logo.jpg">
+  <!-- CSS volontairement classique (flex, pas de fonctions récentes) : Olivier
+       parle d'une « ancienne tablette », son navigateur peut dater. -->
+  <link rel="stylesheet" href="/static/kiosk.css?v=1">
+</head>
+<body>
+  <header class="k-head">
+    <img src="/static/img/logo.jpg" alt="EyeD Pharma" class="k-logo">
+    <div class="k-head-text">
+      <div class="k-title">Je suis arrivé · Je pars</div>
+      <div class="k-date" id="kDate">…</div>
+    </div>
+    <div class="k-count" id="kCount"></div>
+    <div class="k-clock" id="kClock">--:--</div>
+  </header>
+
+  <div class="k-search-wrap">
+    <input type="search" id="kSearch" class="k-search" placeholder="Tape ton nom…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+
+  <main class="k-main" id="kMain">
+    <div class="k-empty" id="kMessage">Chargement…</div>
+    <section class="k-section hidden" id="kExpectedSection">
+      <h2>Attendus aujourd'hui</h2>
+      <div class="k-grid" id="kExpected"></div>
+    </section>
+    <section class="k-section hidden" id="kAllSection">
+      <h2 id="kAllTitle">Tout le monde</h2>
+      <div class="k-grid" id="kAll"></div>
+    </section>
+  </main>
+
+  <!-- Confirmation : on ne pointe personne sur un simple effleurement. -->
+  <div class="k-overlay hidden" id="kConfirm">
+    <div class="k-card">
+      <div class="k-card-name" id="kConfirmName"></div>
+      <div class="k-card-state" id="kConfirmState"></div>
+      <button class="k-btn k-btn-leave hidden" id="kConfirmWithVisitors"></button>
+      <button class="k-btn k-btn-primary" id="kConfirmAction"></button>
+      <button class="k-btn k-btn-ghost" id="kConfirmCancel">Ce n'est pas moi</button>
+    </div>
+  </div>
+
+  <div class="k-overlay k-thanks hidden" id="kThanks"></div>
+
+  <footer class="k-foot">
+    <span id="kLabel"></span>
+    <span id="kUpdated"></span>
+  </footer>
+
+  <script src="/static/shared.js?v=1"></script>
+  <script src="/static/kiosk.js?v=2"></script>
+</body>
+</html>
